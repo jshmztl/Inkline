@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  CheckCircleFilled,
   DownOutlined,
   FileTextOutlined,
-  LoadingOutlined,
   LockOutlined,
   MoreOutlined,
   PaperClipOutlined,
@@ -12,9 +10,9 @@ import {
   SettingOutlined,
 } from '@ant-design/icons';
 import { App, Button, Checkbox, Dropdown, Modal, Tag, Tooltip } from 'antd';
-import { Bubble, Prompts, Sender, ThoughtChain } from '@ant-design/x';
-import type { ApiRequest, NetworkMode } from '../data/mock';
-import { networkModes, thoughtSteps } from '../data/mock';
+import { Bubble, Prompts, Sender } from '@ant-design/x';
+import type { ApiRequest, NetworkMode } from '../data/types';
+import { networkModes } from '../data/types';
 import {
   buildDocTask,
   buildDraftDiff,
@@ -48,27 +46,6 @@ interface ChatMessage {
 
 const prompts = ['生成接口文档', '补全字段说明', '生成测试用例', '解释错误'];
 
-const seedMessages = [
-  {
-    key: 'seed-user',
-    placement: 'end' as const,
-    text: '根据这个请求生成支付订单接口文档，字段说明要包含幂等性和金额单位。',
-  },
-  {
-    key: 'seed-ai',
-    placement: 'start' as const,
-    text: '已读取请求与 3 条响应示例。发现 2 个字段缺少说明，1 个字段命名不一致；下面是我整理的字段审阅结果。',
-  },
-];
-
-const thoughtItems = thoughtSteps.map((step, index) => ({
-  key: `step-${index}`,
-  title: step.label,
-  description: step.detail,
-  status: step.state === 'done' ? ('success' as const) : ('pending' as const),
-  icon: step.state === 'done' ? <CheckCircleFilled /> : <LoadingOutlined spin />,
-}));
-
 export function AiPanel({
   networkMode,
   activeRequest,
@@ -79,7 +56,7 @@ export function AiPanel({
   const { message } = App.useApp();
   const network = networkModes[networkMode];
   const [composer, setComposer] = useState('');
-  const [messages, setMessages] = useState<ChatMessage[]>(seedMessages);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [accepted, setAccepted] = useState<Record<string, boolean>>({});
   const [applied, setApplied] = useState(false);
   const [draft, setDraft] = useState<DraftField[]>([]);
@@ -211,10 +188,39 @@ export function AiPanel({
     message.success(`已应用到文档草稿 · ${next.length} 个字段`);
   }
 
-  function submit() {
-    if (!composer.trim()) return;
-    message.success('已发送到本地模型（演示）');
+  async function submit() {
+    const text = composer.trim();
+    if (!text) return;
     setComposer('');
+    setMessages((current) => [
+      ...current,
+      { key: `user-${Date.now()}`, placement: 'end', text },
+    ]);
+
+    try {
+      const reply = await chatWithGateway(
+        readGatewayConfig(),
+        [
+          {
+            role: 'system',
+            content: '你是内网 API 文档助手，回答简洁、专业，使用中文。',
+          },
+          ...messages.map((item) => ({
+            role: item.placement === 'end' ? ('user' as const) : ('assistant' as const),
+            content: item.text,
+          })),
+          { role: 'user', content: text },
+        ],
+        30_000,
+      );
+      setMessages((current) => [
+        ...current,
+        { key: `reply-${Date.now()}`, placement: 'start', text: reply.content },
+      ]);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      message.error(`AI 网关调用失败：${reason}`);
+    }
   }
 
   function downloadDoc(format: 'markdown' | 'openapi') {
@@ -333,8 +339,6 @@ export function AiPanel({
             content={item.text}
           />
         ))}
-
-        <ThoughtChain className="ai-thought" items={thoughtItems} size="small" />
 
         <div className="review-card">
           <div className="review-head">

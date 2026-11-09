@@ -1,5 +1,3 @@
-import { environmentVariables, environments } from '../data/mock';
-
 export interface WorkspaceEnvironment {
   value: string;
   label: string;
@@ -7,6 +5,13 @@ export interface WorkspaceEnvironment {
 }
 
 const STORAGE_KEY = 'aw-environments';
+
+const defaultEnvironments: WorkspaceEnvironment[] = [
+  { value: 'local', label: '本地环境', variables: {} },
+  { value: 'dev', label: '开发环境', variables: {} },
+  { value: 'staging', label: '预发环境', variables: {} },
+  { value: 'prod', label: '生产环境', variables: {} },
+];
 
 export function listEnvironments(): WorkspaceEnvironment[] {
   try {
@@ -19,10 +24,9 @@ export function listEnvironments(): WorkspaceEnvironment[] {
     // 解析失败时回退到默认环境。
   }
 
-  return environments.map((item) => ({
-    value: item.value,
-    label: item.label,
-    variables: { ...(environmentVariables[item.value] ?? {}) },
+  return defaultEnvironments.map((item) => ({
+    ...item,
+    variables: { ...item.variables },
   }));
 }
 

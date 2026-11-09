@@ -12,7 +12,7 @@ import {
 } from '@ant-design/icons';
 import { App, Button, Drawer, Dropdown, Modal, Progress, Segmented, Select, Tooltip } from 'antd';
 import type { Density, ThemeMode } from '@api-workbench/ui';
-import { environments, networkModes, type NetworkMode } from '../data/mock';
+import { networkModes, type NetworkMode } from '../data/types';
 import { clearAudit, listAudit, type AuditEntry, type AuditType } from '../lib/audit';
 import type { Session } from '../lib/session';
 import { checkUpdate, installUpdate, type UpdateInfo, type UpdateProgress } from '../lib/update';
@@ -22,6 +22,7 @@ interface TopBarProps {
   density: Density;
   networkMode: NetworkMode;
   environment: string;
+  environments: { value: string; label: string }[];
   session: Session;
   onToggleMode: () => void;
   onDensityChange: (density: Density) => void;
@@ -66,6 +67,7 @@ export function TopBar({
   density,
   networkMode,
   environment,
+  environments,
   session,
   onToggleMode,
   onDensityChange,
@@ -175,7 +177,7 @@ export function TopBar({
         </div>
         <div className="brand-text">
           <strong>API Workbench</strong>
-          <span>支付中台 · 私有部署</span>
+          <span>{session.workspace} · 私有部署</span>
         </div>
       </div>
 
@@ -309,7 +311,7 @@ export function TopBar({
         </div>
 
         {visibleEntries.length === 0 ? (
-          <div className="audit-empty">暂无审计记录。发送请求、建立文档任务或同步团队仓后会记入这里。</div>
+          <div className="audit-empty">暂无审计记录。发送请求、建立文档任务或保存本地快照后会记入这里。</div>
         ) : (
           <div className="audit-list">
             {visibleEntries.map((entry) => (

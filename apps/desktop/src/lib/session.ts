@@ -6,18 +6,7 @@ export interface Session {
   signedAt: string;
 }
 
-interface Account {
-  password: string;
-  name: string;
-  role: string;
-}
-
 const storageKey = 'aw-session';
-
-const accounts: Record<string, Account> = {
-  'admin@internal': { password: 'demo1234', name: '林默', role: '平台管理员' },
-  'dev@internal': { password: 'demo1234', name: '陈屿', role: '接口开发' },
-};
 
 export function readSession(): Session | null {
   try {
@@ -25,6 +14,11 @@ export function readSession(): Session | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Session;
     if (!parsed?.account || !parsed?.workspace) return null;
+    if (parsed.workspace.includes('支付中台')) {
+      parsed.workspace = '本机工作区';
+      parsed.role = '本机用户';
+      parsed.name = parsed.account.split('@')[0] || parsed.account;
+    }
     return parsed;
   } catch {
     return null;
@@ -33,17 +27,18 @@ export function readSession(): Session | null {
 
 export function signIn(account: string, password: string): Session | { error: string } {
   const normalized = account.trim().toLowerCase();
-  const entry = accounts[normalized];
-
-  if (!entry || entry.password !== password) {
-    return { error: '账号或口令不正确' };
+  if (!normalized) {
+    return { error: '请输入本机账号' };
+  }
+  if (!password) {
+    return { error: '请输入口令' };
   }
 
   const session: Session = {
     account: normalized,
-    name: entry.name,
-    role: entry.role,
-    workspace: '支付中台 · 团队工作区',
+    name: normalized.split('@')[0] || normalized,
+    role: '本机用户',
+    workspace: '本机工作区',
     signedAt: new Date().toISOString(),
   };
 

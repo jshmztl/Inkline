@@ -47,17 +47,17 @@ CREATE TABLE IF NOT EXISTS app_meta (
 );
 "#;
 
-const SEED_COLLECTIONS: &[(&str, &str, i64)] = &[("payment", "支付服务", 0), ("user", "用户服务", 1)];
-
-const SEED_REQUESTS: &[(&str, &str, &str, &str, &str, &str)] = &[
-    ("orders-list", "查询订单列表", "GET", "{{host}}/v1/orders", "L1", "payment"),
-    ("orders-create", "创建支付订单", "POST", "{{host}}/v1/orders", "L2", "payment"),
-    ("orders-detail", "查询订单详情", "GET", "{{host}}/v1/orders/{id}", "L1", "payment"),
-    ("refunds-create", "创建退款", "POST", "{{host}}/v1/refunds", "L2", "payment"),
-    ("users-detail", "查询用户", "GET", "{{host}}/v1/users/{id}", "L2", "user"),
-    ("users-create", "创建用户", "POST", "{{host}}/v1/users", "L2", "user"),
-    ("auth-token", "签发访问令牌", "POST", "{{host}}/v1/auth/token", "L3", "user"),
+const LEGACY_SEED_REQUESTS: &[&str] = &[
+    "orders-list",
+    "orders-create",
+    "orders-detail",
+    "refunds-create",
+    "users-detail",
+    "users-create",
+    "auth-token",
 ];
+
+const LEGACY_SEED_COLLECTIONS: &[&str] = &["payment", "user"];
 
 pub fn open(app: &AppHandle) -> Result<Connection, Box<dyn std::error::Error>> {
     let dir = app.path().app_data_dir()?;
@@ -73,7 +73,7 @@ pub fn open(app: &AppHandle) -> Result<Connection, Box<dyn std::error::Error>> {
         )?;
     }
 
-    seed_if_needed(&connection)?;
+    cleanup_legacy_seed(&connection)?;
     Ok(connection)
 }
 
@@ -93,7 +93,7 @@ fn column_exists(
     Ok(false)
 }
 
-fn seed_if_needed(connection: &Connection) -> Result<(), rusqlite::Error> {
+fn cleanup_legacy_seed(connection: &Connection) -> Result<(), rusqlite::Error> {
     let seeded: Option<String> = connection
         .query_row(
             "SELECT value FROM app_meta WHERE key = 'seeded'",
@@ -102,30 +102,50 @@ fn seed_if_needed(connection: &Connection) -> Result<(), rusqlite::Error> {
         )
         .ok();
 
-    if seeded.is_some() {
+    if seeded.is_none() {
+        connection.execute(
+            "INSERT OR REPLACE INTO app_meta (key, value) VALUES ('seed_removed', '1')",
+            [],
+        )?;
         return Ok(());
     }
 
-    let now = Utc::now().to_rfc3339();
-
-    for (id, name, sort) in SEED_COLLECTIONS {
-        connection.execute(
-            "INSERT OR IGNORE INTO collections (id, name, sort, updated_at) VALUES (?1, ?2, ?3, ?4)",
-            params![id, name, sort, &now],
-        )?;
+    for id in LEGACY_SEED_REQUESTS {
+        connection.execute("DELETE FROM requests WHERE id = ?1", params![id])?;
     }
 
-    for (id, name, method, url, level, collection) in SEED_REQUESTS {
-        connection.execute(
-            "INSERT OR IGNORE INTO requests
-             (id, name, method, url, headers, body, data_level, collection_id, updated_at)
-             VALUES (?1, ?2, ?3, ?4, '[]', NULL, ?5, ?6, ?7)",
-            params![id, name, method, url, level, collection, &now],
+    let has_seed_collection: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM collections WHERE id IN ('payment', 'user'))",
+        [],
+        |row| row.get(0),
+    )?;
+
+    if has_seed_collection {
+        let migrated_requests: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM requests WHERE collection_id IN ('payment', 'user')",
+            [],
+            |row| row.get(0),
         )?;
+
+        if migrated_requests > 0 {
+            connection.execute(
+                "INSERT OR IGNORE INTO collections (id, name, sort, updated_at) VALUES ('migrated', '我的集合', 0, ?1)",
+                params![Utc::now().to_rfc3339()],
+            )?;
+            connection.execute(
+                "UPDATE requests SET collection_id = 'migrated' WHERE collection_id IN ('payment', 'user')",
+                [],
+            )?;
+        }
+
+        for id in LEGACY_SEED_COLLECTIONS {
+            connection.execute("DELETE FROM collections WHERE id = ?1", params![id])?;
+        }
     }
 
+    connection.execute("DELETE FROM app_meta WHERE key = 'seeded'", [])?;
     connection.execute(
-        "INSERT OR REPLACE INTO app_meta (key, value) VALUES ('seeded', '1')",
+        "INSERT OR REPLACE INTO app_meta (key, value) VALUES ('seed_removed', '1')",
         [],
     )?;
 

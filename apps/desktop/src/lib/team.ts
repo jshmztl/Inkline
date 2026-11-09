@@ -77,7 +77,7 @@ export function pushTeamSnapshot(
     revision: (previous?.revision ?? 0) + 1,
     updatedAt: new Date().toISOString(),
     pushedBy,
-    workspace: '支付中台 · 团队工作区',
+    workspace: '本机工作区',
     requests,
     documents,
   };

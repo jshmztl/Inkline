@@ -3696,3 +3696,28 @@ html[data-theme='dark'] .sidebar {
   font-size: 12px;
   line-height: 1.6;
 }
+
+/* ---------- empty workspace ---------- */
+
+.workspace-empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 40px;
+  text-align: center;
+}
+
+.workspace-empty strong {
+  color: var(--aw-ink);
+  font-size: 16px;
+}
+
+.workspace-empty p {
+  margin: 0;
+  color: var(--aw-faint);
+  font-size: 12.5px;
+}

@@ -1,4 +1,4 @@
-import type { HttpMethod } from '../data/mock';
+import type { HttpMethod } from '../data/types';
 import type { HeaderPair, SavedRequest } from './api';
 
 export type ImportSource = 'curl' | 'postman' | 'openapi';

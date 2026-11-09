@@ -7,7 +7,7 @@ import {
   SyncOutlined,
 } from '@ant-design/icons';
 import { App, Button, Modal, Tag, Tooltip } from 'antd';
-import { networkModes, type HttpMethod, type NetworkMode } from '../data/mock';
+import { networkModes, type HttpMethod, type NetworkMode } from '../data/types';
 import { recordHistory } from '../lib/api';
 import { recordAudit } from '../lib/audit';
 import {
@@ -145,7 +145,7 @@ export function StatusBar({
       <span className="status-sep" />
 
       <span className="status-item">
-        <CloudSyncOutlined /> 同步正常 · 2 分钟前
+        <CloudSyncOutlined /> 本地工作区
       </span>
       <span className="status-sep" />
       <span className="status-item">

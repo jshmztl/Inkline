@@ -1,5 +1,4 @@
 import { invoke } from '@tauri-apps/api/core';
-import { folders } from '../data/mock';
 import type { NetworkOptions } from './network';
 
 export interface HeaderPair {
@@ -70,37 +69,62 @@ const HISTORY_KEY = 'aw-request-history';
 const SAVED_KEY = 'aw-saved-requests';
 const COLLECTIONS_KEY = 'aw-collections';
 
-function seedBrowserWorkspace() {
+const legacySeedRequestIds = new Set([
+  'orders-list',
+  'orders-create',
+  'orders-detail',
+  'refunds-create',
+  'users-detail',
+  'users-create',
+  'auth-token',
+]);
+const legacySeedCollectionIds = new Set(['payment', 'user']);
+
+function cleanupLegacySeed() {
   try {
-    if (localStorage.getItem(COLLECTIONS_KEY)) return;
-    const now = new Date().toISOString();
-    const collections = folders.map((folder, index) => ({
-      id: folder.id,
-      name: folder.name,
-      sort: index,
-      updatedAt: now,
-    }));
-    const existing = readJson<SavedRequest[]>(SAVED_KEY, []);
-    const existingIds = new Set(existing.map((item) => item.id));
-    const seeded = folders.flatMap((folder) =>
-      folder.requests
-        .filter((request) => !existingIds.has(request.id))
-        .map((request) => ({
-          id: request.id,
-          name: request.name,
-          method: request.method,
-          url: `{{host}}${request.path}`,
-          headers: [],
-          body: null,
-          dataLevel: request.dataLevel,
-          collectionId: folder.id,
-          updatedAt: now,
-        })),
+    const saved = readJson<SavedRequest[]>(SAVED_KEY, []);
+    const remaining = saved.filter((request) => !legacySeedRequestIds.has(request.id));
+    const collections = readJson<Collection[]>(COLLECTIONS_KEY, []);
+
+    const hasSeedCollection = collections.some((collection) =>
+      legacySeedCollectionIds.has(collection.id),
     );
-    writeJson(COLLECTIONS_KEY, collections);
-    writeJson(SAVED_KEY, [...existing, ...seeded]);
+    const needsMigration = remaining.some((request) =>
+      legacySeedCollectionIds.has(request.collectionId ?? ''),
+    );
+
+    const nextSaved = needsMigration
+      ? remaining.map((request) =>
+          legacySeedCollectionIds.has(request.collectionId ?? '')
+            ? { ...request, collectionId: 'migrated' }
+            : request,
+        )
+      : remaining;
+
+    const nextCollections = collections.filter(
+      (collection) => !legacySeedCollectionIds.has(collection.id),
+    );
+    if (needsMigration && !nextCollections.some((collection) => collection.id === 'migrated')) {
+      nextCollections.push({
+        id: 'migrated',
+        name: '我的集合',
+        sort: 0,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+
+    if (nextSaved.length !== saved.length || nextSaved !== remaining) {
+      writeJson(SAVED_KEY, nextSaved);
+      legacySeedRequestIds.forEach((id) => {
+        localStorage.removeItem(`aw-request-meta:${id}`);
+        localStorage.removeItem(`aw-doc-draft:${id}`);
+      });
+    }
+    if (hasSeedCollection) {
+      writeJson(COLLECTIONS_KEY, nextCollections);
+    }
   } catch {
-    // 初始化失败时保持空工作区。
+    // 清理失败时保持现状。
   }
 }
 
@@ -124,66 +148,55 @@ function writeJson(key: string, value: unknown) {
   }
 }
 
-function mockResponse(payload: SendRequestPayload): SendResponse {
-  if (payload.url.includes('fail')) {
-    throw new Error('请求失败：目标服务不可达（浏览器演示）');
+async function browserSendRequest(payload: SendRequestPayload): Promise<SendResponse> {
+  const headers = new Headers();
+  for (const header of payload.headers) {
+    if (header.name.trim()) headers.set(header.name, header.value);
   }
 
-  const durationMs = 96 + Math.round(Math.random() * 64);
-
-  if (payload.url.includes('big')) {
-    const items = Array.from({ length: 3000 }, (_, index) => ({
-      id: `ord_${index.toString(36).padStart(6, '0')}`,
-      status: index % 3 === 0 ? 'paid' : 'pending',
-      amount: 1000 + index,
-      currency: 'CNY',
-      note: `示例订单 ${index}`,
-    }));
-    const bigBody = JSON.stringify({ code: 0, message: 'ok', total: items.length, data: { items } }, null, 2);
-    return {
-      status: 200,
-      statusText: 'OK',
-      headers: [
-        { name: 'content-type', value: 'application/json; charset=utf-8' },
-        { name: 'x-request-id', value: `req_${Math.random().toString(16).slice(2, 10)}` },
-      ],
-      body: bigBody,
-      durationMs,
-      sizeBytes: bigBody.length,
-    };
+  let requestBody: BodyInit | undefined;
+  if (payload.multipart && payload.multipart.length > 0) {
+    const form = new FormData();
+    for (const field of payload.multipart) {
+      if (!field.name.trim()) continue;
+      if (field.fileBase64 !== undefined) {
+        const binary = atob(field.fileBase64);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) {
+          bytes[index] = binary.charCodeAt(index);
+        }
+        const blob = new Blob([bytes], {
+          type: field.contentType || 'application/octet-stream',
+        });
+        form.append(field.name, blob, field.fileName || 'file');
+      } else {
+        form.append(field.name, field.value ?? '');
+      }
+    }
+    headers.delete('Content-Type');
+    requestBody = form;
+  } else if (payload.body) {
+    requestBody = payload.body;
   }
 
-  const body = JSON.stringify(
-    {
-      code: 0,
-      message: 'ok',
-      data: {
-        id: 'ord_9f2c8b41e7',
-        status: 'paid',
-        amount: 12800,
-        currency: 'CNY',
-        paidAt: new Date().toISOString(),
-        echo: {
-          method: payload.method,
-          url: payload.url,
-        },
-      },
-    },
-    null,
-    2,
-  );
+  const started = performance.now();
+  const response = await fetch(payload.url, {
+    method: payload.method,
+    headers,
+    body: requestBody,
+  });
+  const body = await response.text();
 
   return {
-    status: 200,
-    statusText: 'OK',
-    headers: [
-      { name: 'content-type', value: 'application/json; charset=utf-8' },
-      { name: 'x-request-id', value: `req_${Math.random().toString(16).slice(2, 10)}` },
-      { name: 'server-timing', value: `app;dur=${durationMs}` },
-    ],
+    status: response.status,
+    statusText: response.statusText,
+    headers: Array.from(response.headers.entries()).map(([name, value]) => ({
+      name,
+      value,
+    })),
     body,
-    durationMs,
-    sizeBytes: body.length,
+    durationMs: Math.round(performance.now() - started),
+    sizeBytes: new TextEncoder().encode(body).length,
   };
 }
 
@@ -194,8 +207,12 @@ export async function sendHttpRequest(
     return invoke<SendResponse>('send_http_request', { payload });
   }
 
-  await new Promise((resolve) => window.setTimeout(resolve, 520));
-  return mockResponse(payload);
+  try {
+    return await browserSendRequest(payload);
+  } catch (error) {
+    const text = error instanceof Error ? error.message : String(error);
+    throw new Error(`请求失败：${text}`);
+  }
 }
 
 export async function cancelHttpRequest(id: string): Promise<void> {
@@ -274,7 +291,7 @@ export async function listRequests(): Promise<SavedRequest[]> {
     return invoke<SavedRequest[]>('list_requests');
   }
 
-  seedBrowserWorkspace();
+  cleanupLegacySeed();
   return readJson<SavedRequest[]>(SAVED_KEY, []);
 }
 
@@ -283,7 +300,7 @@ export async function deleteRequest(id: string): Promise<void> {
     return invoke('delete_request', { id });
   }
 
-  seedBrowserWorkspace();
+  cleanupLegacySeed();
   writeJson(
     SAVED_KEY,
     readJson<SavedRequest[]>(SAVED_KEY, []).filter((request) => request.id !== id),
@@ -314,7 +331,7 @@ export async function listCollections(): Promise<Collection[]> {
     return invoke<Collection[]>('list_collections');
   }
 
-  seedBrowserWorkspace();
+  cleanupLegacySeed();
   return readJson<Collection[]>(COLLECTIONS_KEY, []).sort(
     (left, right) => (left.sort ?? 0) - (right.sort ?? 0),
   );
@@ -325,7 +342,7 @@ export async function saveCollection(collection: Collection): Promise<Collection
     return invoke<Collection>('save_collection', { collection });
   }
 
-  seedBrowserWorkspace();
+  cleanupLegacySeed();
   const list = readJson<Collection[]>(COLLECTIONS_KEY, []);
   const item: Collection = {
     ...collection,
@@ -341,7 +358,7 @@ export async function deleteCollection(id: string): Promise<void> {
     return invoke('delete_collection', { id });
   }
 
-  seedBrowserWorkspace();
+  cleanupLegacySeed();
   writeJson(
     COLLECTIONS_KEY,
     readJson<Collection[]>(COLLECTIONS_KEY, []).filter((collection) => collection.id !== id),

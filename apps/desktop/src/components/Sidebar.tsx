@@ -16,10 +16,9 @@ import {
 } from '@ant-design/icons';
 import { App, Button, Dropdown, Input, Modal, Segmented, Tooltip } from 'antd';
 import {
-  environments,
   type ApiFolder,
   type ApiRequest,
-} from '../data/mock';
+} from '../data/types';
 import { saveRequest, type HistoryEntry, type SavedRequest } from '../lib/api';
 import type { WorkspaceEnvironment } from '../lib/envStore';
 import { recordAudit } from '../lib/audit';
@@ -319,7 +318,7 @@ export function Sidebar({
       setLastSync(`已推送 rev ${snapshot.revision}`);
       recordAudit({
         type: 'sync',
-        action: `推送团队仓 rev ${snapshot.revision}`,
+        action: `推送本地快照 rev ${snapshot.revision}`,
         detail: `${snapshot.requests.length} 个请求 · ${Object.keys(snapshot.documents).length} 份文档`,
         actor: session.account,
       });
@@ -336,15 +335,15 @@ export function Sidebar({
     try {
       const result = await onPull();
       if (!result) {
-        setLastSync('团队仓为空');
-        message.info('团队仓为空，请先推送一次');
+        setLastSync('本地快照为空');
+        message.info('本地快照为空，请先推送一次');
         return;
       }
       setDocCount(Object.keys(result.snapshot.documents).length);
       setLastSync(`已拉取 rev ${result.snapshot.revision}`);
       recordAudit({
         type: 'sync',
-        action: `拉取团队仓 rev ${result.snapshot.revision}`,
+        action: `拉取本地快照 rev ${result.snapshot.revision}`,
         detail: `${result.pulled} 个请求 · ${Object.keys(result.snapshot.documents).length} 份文档`,
         actor: session.account,
       });
@@ -401,7 +400,7 @@ export function Sidebar({
       <div className="sidebar-head">
         <div>
           <span className="sidebar-eyebrow">WORKSPACE</span>
-          <strong>支付中台</strong>
+          <strong>{session.workspace}</strong>
         </div>
         <Tooltip title="导入（curl / Postman / OpenAPI）">
           <Button
@@ -556,7 +555,7 @@ export function Sidebar({
       <div className="sidebar-section">
         <div className="sidebar-section-head">
           <span>环境</span>
-          <span className="sidebar-count">{environments.length}</span>
+          <span className="sidebar-count">{workspaceEnvironments.length}</span>
         </div>
         {workspaceEnvironments.map((item) => {
           const host = item.variables.host ?? '';
@@ -654,13 +653,13 @@ export function Sidebar({
       >
         <CloudSyncOutlined />
         <div className="sidebar-sync-body">
-          <strong>{teamRevision != null ? `团队仓 rev ${teamRevision}` : '团队仓尚未建立'}</strong>
+          <strong>{teamRevision != null ? `本地快照 rev ${teamRevision}` : '本地快照尚未建立'}</strong>
           <span>
             {lastSync ?? `${savedRequests.length} 个请求 · ${docCount} 份文档草稿`}
           </span>
         </div>
         <div className="sidebar-sync-actions">
-          <Tooltip title="推送到团队仓">
+          <Tooltip title="推送到本地快照">
             <Button
               type="text"
               size="small"
@@ -668,10 +667,10 @@ export function Sidebar({
               loading={syncing === 'push'}
               disabled={syncing === 'pull'}
               onClick={handlePush}
-              aria-label="推送到团队仓"
+              aria-label="推送到本地快照"
             />
           </Tooltip>
-          <Tooltip title="从团队仓拉取">
+          <Tooltip title="从本地快照拉取">
             <Button
               type="text"
               size="small"
@@ -679,7 +678,7 @@ export function Sidebar({
               loading={syncing === 'pull'}
               disabled={syncing === 'push' || teamRevision == null}
               onClick={handlePull}
-              aria-label="从团队仓拉取"
+              aria-label="从本地快照拉取"
             />
           </Tooltip>
           <Tooltip title="三方合并">
@@ -743,7 +742,7 @@ export function Sidebar({
         ]}
       >
         {!plan ? (
-          <div className="merge-empty">团队仓为空，请先推送一次。</div>
+          <div className="merge-empty">本地快照为空，请先推送一次。</div>
         ) : (
           <div className="merge-body">
             <div className="merge-summary">

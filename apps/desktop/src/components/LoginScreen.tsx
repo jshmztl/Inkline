@@ -9,7 +9,7 @@ interface LoginScreenProps {
 
 export function LoginScreen({ onSignedIn }: LoginScreenProps) {
   const { message } = App.useApp();
-  const [account, setAccount] = useState('admin@internal');
+  const [account, setAccount] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
@@ -36,14 +36,14 @@ export function LoginScreen({ onSignedIn }: LoginScreenProps) {
           </div>
           <div className="brand-text">
             <strong>API Workbench</strong>
-            <span>支付中台 · 私有部署</span>
+            <span>本机 · 私有部署</span>
           </div>
         </div>
 
         <div className="login-brand-copy">
           <span className="login-eyebrow">INTERNAL WORKSPACE</span>
           <h1>内网接口工作台</h1>
-          <p>请求调试、文档生成与团队同步，全部运行在私有网络内。</p>
+          <p>请求调试、文档生成与本地快照，全部运行在私有网络内。</p>
 
           <ul className="login-points">
             <li>
@@ -75,8 +75,8 @@ export function LoginScreen({ onSignedIn }: LoginScreenProps) {
 
       <section className="login-panel">
         <div className="login-card">
-          <h2>解锁团队工作区</h2>
-          <p>使用团队账号登录。首次登录会在本机建立工作区缓存。</p>
+          <h2>解锁本机工作区</h2>
+          <p>凭据仅用于本机会话，不会上传到任何服务。</p>
 
           <div className="login-field">
             <label htmlFor="login-account">账号</label>
@@ -109,11 +109,7 @@ export function LoginScreen({ onSignedIn }: LoginScreenProps) {
             解锁工作区
           </Button>
 
-          <div className="login-hint">
-            演示账号：<code>admin@internal</code> / <code>demo1234</code>
-            <br />
-            接口开发：<code>dev@internal</code> / <code>demo1234</code>
-          </div>
+          <div className="login-hint">本机离线解锁，不连接服务端。</div>
         </div>
       </section>
     </div>

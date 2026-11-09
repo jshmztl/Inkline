@@ -17,8 +17,7 @@ import {
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import { App, Button, Checkbox, Input, Segmented, Select, Tag, Tooltip } from 'antd';
-import type { ApiRequest, HttpMethod, KvRow } from '../data/mock';
-import { headerRows as initialHeaders, queryParams as initialParams, requestBody } from '../data/mock';
+import type { ApiRequest, HttpMethod, KvRow } from '../data/types';
 import { recordAudit } from '../lib/audit';
 import { enqueueTask } from '../lib/queue';
 import {
@@ -113,45 +112,39 @@ interface RequestMeta {
 
 const defaultMeta: RequestMeta = {
   bodyMode: 'json',
-  authType: 'bearer',
-  authToken: '{{PAYMENT_TOKEN}}',
+  authType: 'none',
+  authToken: '',
   authUser: '',
   authPass: '',
   apiKeyName: 'X-Api-Key',
   apiKeyValue: '',
   timeoutMs: 30_000,
-  formRows: [
-    { id: 'form-1', key: 'amount', value: '12800', description: '', enabled: true },
-    { id: 'form-2', key: 'currency', value: 'CNY', description: '', enabled: true },
-  ],
+  formRows: [],
   params: [],
   fileRows: [],
-  assertionRows: [
-    { id: 'assert-1', path: 'status', operator: 'equals', expected: '200', enabled: true },
-    { id: 'assert-2', path: 'data.id', operator: 'exists', expected: '', enabled: true },
-  ],
+  assertionRows: [],
   protocol: 'http',
-  gqlQuery: `query Orders {\n  orders(first: 10) {\n    id\n    status\n    amount\n  }\n}`,
+  gqlQuery: '',
   gqlVariables: '{}',
-  preScript: `// 发送前执行，可改写变量\n// pm.variables.set('nonce', Date.now())\nconsole.log('pre-request ready');`,
-  postScript: `// 收到响应后执行\n// console.log('status', pm.response.status)\n// pm.variables.set('lastOrderId', pm.response.json().data.id)`,
+  preScript: '',
+  postScript: '',
 };
 
 function readRequestMeta(id: string): RequestMeta {
   try {
     const raw = localStorage.getItem(`aw-request-meta:${id}`);
-    if (!raw) return { ...defaultMeta, params: initialParams };
+    if (!raw) return { ...defaultMeta };
     const parsed = JSON.parse(raw) as Partial<RequestMeta>;
     return {
       ...defaultMeta,
       ...parsed,
       formRows: parsed.formRows ?? defaultMeta.formRows,
-      params: parsed.params ?? initialParams,
+      params: parsed.params ?? defaultMeta.params,
       fileRows: parsed.fileRows ?? defaultMeta.fileRows,
       assertionRows: parsed.assertionRows ?? defaultMeta.assertionRows,
     };
   } catch {
-    return { ...defaultMeta, params: initialParams };
+    return { ...defaultMeta };
   }
 }
 
@@ -261,9 +254,9 @@ export function RequestPanel({
   const [requestTab, setRequestTab] = useState<RequestTabKey>('body');
   const [responseTab, setResponseTab] = useState<ResponseTabKey>('body');
   const [responseQuery, setResponseQuery] = useState('');
-  const [params, setParams] = useState<KvRow[]>(initialParams);
-  const [headers, setHeaders] = useState<KvRow[]>(initialHeaders);
-  const [body, setBody] = useState(requestBody);
+  const [params, setParams] = useState<KvRow[]>([]);
+  const [headers, setHeaders] = useState<KvRow[]>([]);
+  const [body, setBody] = useState('');
   const [bodyMode, setBodyMode] = useState<BodyMode>(defaultMeta.bodyMode);
   const [formRows, setFormRows] = useState<KvRow[]>(defaultMeta.formRows);
   const [fileRows, setFileRows] = useState<FileRow[]>(defaultMeta.fileRows);
@@ -294,7 +287,7 @@ export function RequestPanel({
   const pendingRequestId = useRef<string | null>(null);
   const cancelledRef = useRef(false);
   const [sending, setSending] = useState(false);
-  const [response, setResponse] = useState<SendResponse>(demoResponse);
+  const [response, setResponse] = useState<SendResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const appliedKey = useRef<string | null>(null);
@@ -306,7 +299,7 @@ export function RequestPanel({
 
     setMethod((saved?.method as HttpMethod) ?? activeRequest.method);
     setUrl(saved?.url ?? `{{host}}${activeRequest.path}`);
-    setBody(saved?.body ?? requestBody);
+    setBody(saved?.body ?? '');
     setHeaders(
       saved && saved.headers.length > 0
         ? saved.headers.map((header, index) => ({
@@ -316,8 +309,12 @@ export function RequestPanel({
             description: '来自已保存请求',
             enabled: true,
           }))
-        : initialHeaders,
+        : [],
     );
+    setResponse(null);
+    setError(null);
+    setFeedback(null);
+    setResponseQuery('');
   }, [activeRequest, saved]);
 
   useEffect(() => {
@@ -405,11 +402,13 @@ export function RequestPanel({
         .filter((row) => row.enabled && row.key.trim())
         .map((row) => ({ name: row.key.trim(), value: row.value })),
       body: method === 'GET' || method === 'DELETE' ? null : body,
-      response: {
-        status: response.status,
-        statusText: response.statusText,
-        body: response.body,
-      },
+      response: response
+        ? {
+            status: response.status,
+            statusText: response.statusText,
+            body: response.body,
+          }
+        : null,
     });
   }, [activeRequest, method, url, headers, body, response, onContextChange]);
 
@@ -424,8 +423,8 @@ export function RequestPanel({
   const responseMatchCount = useMemo(() => {
     const needle = responseQuery.trim().toLowerCase();
     if (!needle) return 0;
-    return response.body.toLowerCase().split(needle).length - 1;
-  }, [response.body, responseQuery]);
+    return (response?.body ?? '').toLowerCase().split(needle).length - 1;
+  }, [response, responseQuery]);
 
   const visibleRows = requestTab === 'headers' || requestTab === 'params' ? activeRows : [];
 
@@ -1027,7 +1026,7 @@ export function RequestPanel({
     try {
       const text = streamMode
         ? streamEvents.map((event) => `[${event.kind}] ${event.payload}`).join('\n')
-        : response.body;
+        : (response?.body ?? '');
       await navigator.clipboard.writeText(text);
       message.success(streamMode ? '已复制消息记录' : '已复制响应');
     } catch {
@@ -1495,7 +1494,7 @@ export function RequestPanel({
                   <Input.Password
                     value={authToken}
                     onChange={(event) => setAuthToken(event.target.value)}
-                    placeholder="{{PAYMENT_TOKEN}}"
+                    placeholder="{{token}}"
                     aria-label="Bearer Token"
                   />
                 </label>
@@ -1672,7 +1671,7 @@ export function RequestPanel({
             <span className={`status-pill ${connected ? 'ok' : 'warn'}`}>
               {connected ? '已连接' : '未连接'}
             </span>
-          ) : (
+          ) : response ? (
             <>
               <span
                 className={`status-pill ${
@@ -1688,6 +1687,8 @@ export function RequestPanel({
               <span className="response-meta">{response.durationMs} ms</span>
               <span className="response-meta">{formatBytes(response.sizeBytes)}</span>
             </>
+          ) : (
+            <span className="status-pill">未发送</span>
           )}
           {feedback && (
             <span className="send-feedback">
@@ -1840,14 +1841,16 @@ export function RequestPanel({
                       <p>{error}</p>
                     </div>
                   </div>
-                ) : (
+                ) : response ? (
                   <ResponseCode body={response.body} query={responseQuery} />
+                ) : (
+                  <div className="response-empty">发送请求后在此查看响应。</div>
                 ))}
 
               {responseTab === 'headers' &&
-                (response.headers.length > 0 ? (
+                ((response?.headers ?? []).length > 0 ? (
                   <div className="response-kv">
-                    {response.headers.map((header) => (
+                    {(response?.headers ?? []).map((header) => (
                       <div key={`${header.name}-${header.value}`}>
                         <span>{header.name}</span>
                         <code>{header.value}</code>
@@ -1872,7 +1875,9 @@ export function RequestPanel({
                     <span>
                       {error
                         ? '请求失败'
-                        : `${response.durationMs}ms · ${response.status} ${response.statusText}`}
+                        : response
+                          ? `${response.durationMs}ms · ${response.status} ${response.statusText}`
+                          : '尚未发送'}
                     </span>
                   </div>
                   {scriptLogs.map((entry) => (

@@ -1,4 +1,4 @@
-import type { DataLevel, HttpMethod } from '../data/mock';
+import type { DataLevel, HttpMethod } from '../data/types';
 
 export interface JsonField {
   path: string;
@@ -35,9 +35,7 @@ export const glossary: GlossaryEntry[] = [
   { term: 'amount', label: '金额', description: '最小货币单位（分）' },
   { term: 'currency', label: '币种', description: 'ISO 4217 三字母币种' },
   { term: 'idempotencyKey', label: '幂等键', description: '客户端生成，用于重试去重' },
-  { term: 'channel', label: '支付渠道', description: 'wechat_pay / alipay / card' },
   { term: 'status', label: '状态', description: '资源当前生命周期状态' },
-  { term: 'paidAt', label: '支付时间', description: 'ISO 8601 UTC 时间' },
   { term: 'metadata', label: '扩展字段', description: '调用方自定义键值对' },
   { term: 'tenantId', label: '租户标识', description: '多租户隔离标识' },
   { term: 'description', label: '描述', description: '业务可读说明，非结构化' },
@@ -245,7 +243,7 @@ export function buildFieldReview(
         confidence,
         note: entry
           ? `${entry.label}：${entry.description}`
-          : '未命中团队术语表，需人工补充说明',
+          : '未命中内置术语表，需人工补充说明',
         term: entry?.term,
       };
     });

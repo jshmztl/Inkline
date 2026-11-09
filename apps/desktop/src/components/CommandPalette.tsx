@@ -2,12 +2,11 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { ApiOutlined, GlobalOutlined, SearchOutlined } from '@ant-design/icons';
 import { Input, Modal } from 'antd';
 import {
-  environmentVariables,
-  environments,
   networkModes,
   type ApiRequest,
   type NetworkMode,
-} from '../data/mock';
+} from '../data/types';
+import { listEnvironments } from '../lib/envStore';
 import { MethodTag } from './MethodTag';
 
 interface CommandPaletteProps {
@@ -40,6 +39,7 @@ export function CommandPalette({
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
+  const workspaceEnvironments = listEnvironments();
 
   const commands: Command[] = [
     ...(Object.keys(networkModes) as NetworkMode[]).map((mode) => ({
@@ -53,11 +53,11 @@ export function CommandPalette({
         onClose();
       },
     })),
-    ...environments.map((item) => ({
+    ...workspaceEnvironments.map((item) => ({
       id: `env-${item.value}`,
       group: '环境',
       title: `切换到 ${item.label}`,
-      hint: environmentVariables[item.value]?.host,
+      hint: item.variables.host,
       icon: 'environment' as const,
       run: () => {
         onEnvironmentChange(item.value);

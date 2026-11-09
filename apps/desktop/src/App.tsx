@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
-import { App as AntApp } from 'antd';
+import { App as AntApp, Button } from 'antd';
 import { AntProvider, type Density, type ThemeMode } from '@api-workbench/ui';
-import type { ApiFolder, ApiRequest, DataLevel, HttpMethod, NetworkMode } from './data/mock';
+import type { ApiFolder, ApiRequest, DataLevel, HttpMethod, NetworkMode } from './data/types';
 import {
   clearHistory as apiClearHistory,
   deleteCollection as apiDeleteCollection,
@@ -46,8 +46,6 @@ const CommandPalette = lazy(() =>
   })),
 );
 
-const initialOpenTabs = ['orders-create', 'orders-list', 'refunds-create'];
-
 function readStoredMode(): ThemeMode {
   return localStorage.getItem('aw-theme') === 'dark' ? 'dark' : 'light';
 }
@@ -79,8 +77,8 @@ export function App() {
   const [networkMode, setNetworkMode] = useState<NetworkMode>('B');
   const [environment, setEnvironment] = useState('local');
   const [workspaceEnvs, setWorkspaceEnvs] = useState(listEnvironments);
-  const [activeRequestId, setActiveRequestId] = useState('orders-create');
-  const [openTabIds, setOpenTabIds] = useState<string[]>(initialOpenTabs);
+  const [activeRequestId, setActiveRequestId] = useState('');
+  const [openTabIds, setOpenTabIds] = useState<string[]>([]);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [savedRequests, setSavedRequests] = useState<SavedRequest[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
@@ -153,7 +151,7 @@ export function App() {
         id: collection.id,
         name: collection.name,
         requests: savedRequests
-          .filter((request) => (request.collectionId ?? 'payment') === collection.id)
+          .filter((request) => (request.collectionId ?? '') === collection.id)
           .map(toApiRequest),
       })),
     [collections, savedRequests],
@@ -172,7 +170,7 @@ export function App() {
   const emptyRequest: ApiRequest = {
     id: '',
     method: 'GET',
-    path: '/',
+    path: '',
     name: '暂无请求',
     dataLevel: 'L1',
     updatedAt: '',
@@ -190,9 +188,15 @@ export function App() {
     .filter((request): request is ApiRequest => Boolean(request));
 
   useEffect(() => {
-    if (allRequests.length === 0) return;
+    if (allRequests.length === 0) {
+      setActiveRequestId('');
+      setOpenTabIds([]);
+      return;
+    }
     if (!allRequests.some((request) => request.id === activeRequestId)) {
-      setActiveRequestId(allRequests[0].id);
+      const first = allRequests[0].id;
+      setActiveRequestId(first);
+      setOpenTabIds([first]);
     }
   }, [allRequests, activeRequestId]);
 
@@ -288,7 +292,7 @@ export function App() {
       id,
       name: '新建请求',
       method: 'GET',
-      url: '{{host}}/v1/new',
+      url: '{{host}}',
       headers: [],
       body: null,
       dataLevel: 'L1',
@@ -300,6 +304,19 @@ export function App() {
     setOpenTabIds((current) =>
       current.includes(created.id) ? current : [...current, created.id],
     );
+  }
+
+  async function handleCreateFirstRequest() {
+    let collectionId = collections[0]?.id;
+    if (!collectionId) {
+      collectionId = `collection-${Date.now().toString(36)}`;
+      await apiSaveCollection({
+        id: collectionId,
+        name: '我的集合',
+        sort: 0,
+      });
+    }
+    await handleCreateRequest(collectionId);
   }
 
   async function handleRenameRequest(id: string, name: string) {
@@ -421,6 +438,7 @@ export function App() {
             density={density}
             networkMode={networkMode}
             environment={environment}
+            environments={workspaceEnvs}
             session={session}
             onToggleMode={toggleMode}
             onDensityChange={changeDensity}
@@ -459,24 +477,34 @@ export function App() {
               onDeleteHistory={handleDeleteHistory}
               onClearHistory={handleClearHistory}
             />
-            <RequestPanel
-              activeRequest={activeRequest}
-              openTabs={openTabs}
-              replay={replay}
-              saved={activeSaved}
-              variables={currentVariables}
-              actor={session.account}
-              collectionId={activeRequest.collectionId ?? 'payment'}
-              onSelectTab={selectTab}
-              onCloseTab={closeTab}
-              onHistoryRecorded={refreshHistory}
-              onSaved={refreshSaved}
-              onQueued={() => setQueueNonce((current) => current + 1)}
-              onContextChange={setRequestContext}
-              onVariablesChange={(variables) =>
-                handleSaveEnvironment(environment, variables)
-              }
-            />
+            {allRequests.length === 0 ? (
+              <section className="workspace-empty">
+                <strong>还没有请求</strong>
+                <p>创建一个集合与第一条请求，或从 curl / Postman / OpenAPI 导入。</p>
+                <Button type="primary" onClick={() => void handleCreateFirstRequest()}>
+                  新建集合与请求
+                </Button>
+              </section>
+            ) : (
+              <RequestPanel
+                activeRequest={activeRequest}
+                openTabs={openTabs}
+                replay={replay}
+                saved={activeSaved}
+                variables={currentVariables}
+                actor={session.account}
+                collectionId={activeRequest.collectionId ?? ''}
+                onSelectTab={selectTab}
+                onCloseTab={closeTab}
+                onHistoryRecorded={refreshHistory}
+                onSaved={refreshSaved}
+                onQueued={() => setQueueNonce((current) => current + 1)}
+                onContextChange={setRequestContext}
+                onVariablesChange={(variables) =>
+                  handleSaveEnvironment(environment, variables)
+                }
+              />
+            )}
             <Suspense
               fallback={
                 <aside className="ai-panel ai-panel-fallback">

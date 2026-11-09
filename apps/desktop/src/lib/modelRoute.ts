@@ -1,4 +1,4 @@
-import type { DataLevel, NetworkMode } from '../data/mock';
+import type { DataLevel, NetworkMode } from '../data/types';
 
 export interface ModelRoute {
   mode: NetworkMode;

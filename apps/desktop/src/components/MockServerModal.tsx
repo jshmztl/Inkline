@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { PlayCircleOutlined, StopOutlined } from '@ant-design/icons';
 import { App, Button, Checkbox, Input, InputNumber, Modal, Tag } from 'antd';
-import type { HttpMethod } from '../data/mock';
+import type { HttpMethod } from '../data/types';
 import type { SavedRequest as SavedRequestApi } from '../lib/api';
 import {
   listRequests,
