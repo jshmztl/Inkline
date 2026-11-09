@@ -1,5 +1,6 @@
 import {
   ColumnHeightOutlined,
+  LogoutOutlined,
   MoonOutlined,
   SearchOutlined,
   SunOutlined,
@@ -7,16 +8,19 @@ import {
 import { Button, Dropdown, Segmented, Select, Tooltip } from 'antd';
 import type { Density, ThemeMode } from '@api-workbench/ui';
 import { environments, networkModes, type NetworkMode } from '../data/mock';
+import type { Session } from '../lib/session';
 
 interface TopBarProps {
   mode: ThemeMode;
   density: Density;
   networkMode: NetworkMode;
   environment: string;
+  session: Session;
   onToggleMode: () => void;
   onDensityChange: (density: Density) => void;
   onNetworkModeChange: (mode: NetworkMode) => void;
   onEnvironmentChange: (environment: string) => void;
+  onSignOut: () => void;
 }
 
 const densityItems = [
@@ -30,10 +34,12 @@ export function TopBar({
   density,
   networkMode,
   environment,
+  session,
   onToggleMode,
   onDensityChange,
   onNetworkModeChange,
   onEnvironmentChange,
+  onSignOut,
 }: TopBarProps) {
   const network = networkModes[networkMode];
 
@@ -107,9 +113,27 @@ export function TopBar({
             <Button type="text" size="small" icon={<ColumnHeightOutlined />} />
           </Tooltip>
         </Dropdown>
-        <div className="avatar" title="林默 · 平台工程">
-          L
-        </div>
+        <Dropdown
+          trigger={['click']}
+          menu={{
+            items: [
+              {
+                key: 'account',
+                label: `${session.name} · ${session.role}`,
+                disabled: true,
+              },
+              { type: 'divider' },
+              { key: 'signout', label: '退出登录', icon: <LogoutOutlined /> },
+            ],
+            onClick: ({ key }) => {
+              if (key === 'signout') onSignOut();
+            },
+          }}
+        >
+          <div className="avatar" title={`${session.name} · ${session.workspace}`}>
+            {session.name.charAt(0)}
+          </div>
+        </Dropdown>
       </div>
     </header>
   );

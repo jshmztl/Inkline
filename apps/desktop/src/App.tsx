@@ -6,10 +6,12 @@ import { allRequests } from './data/mock';
 import { listHistory, listRequests, type HistoryEntry, type SavedRequest } from './lib/api';
 import type { RequestContext } from './lib/docTask';
 import { AiPanel } from './components/AiPanel';
+import { LoginScreen } from './components/LoginScreen';
 import { RequestPanel } from './components/RequestPanel';
 import { Sidebar } from './components/Sidebar';
 import { StatusBar } from './components/StatusBar';
 import { TopBar } from './components/TopBar';
+import { readSession, signOut, type Session } from './lib/session';
 
 const initialOpenTabs = ['orders-create', 'orders-list', 'refunds-create'];
 
@@ -24,6 +26,7 @@ function readStoredDensity(): Density {
 }
 
 export function App() {
+  const [session, setSession] = useState<Session | null>(readSession);
   const [mode, setMode] = useState<ThemeMode>(readStoredMode);
   const [density, setDensity] = useState<Density>(readStoredDensity);
   const [networkMode, setNetworkMode] = useState<NetworkMode>('B');
@@ -124,6 +127,21 @@ export function App() {
       });
   }
 
+  function handleSignOut() {
+    signOut();
+    setSession(null);
+  }
+
+  if (!session) {
+    return (
+      <AntProvider mode={mode} density={density}>
+        <AntApp className="ant-app-root">
+          <LoginScreen onSignedIn={setSession} />
+        </AntApp>
+      </AntProvider>
+    );
+  }
+
   return (
     <AntProvider mode={mode} density={density}>
       <AntApp className="ant-app-root">
@@ -133,10 +151,12 @@ export function App() {
             density={density}
             networkMode={networkMode}
             environment={environment}
+            session={session}
             onToggleMode={toggleMode}
             onDensityChange={changeDensity}
             onNetworkModeChange={setNetworkMode}
             onEnvironmentChange={setEnvironment}
+            onSignOut={handleSignOut}
           />
 
           <div className="workspace">
