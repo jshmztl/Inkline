@@ -199,7 +199,13 @@ export function Sidebar({
           <strong>支付中台</strong>
         </div>
         <Tooltip title="新建集合">
-          <Button type="text" size="small" icon={<PlusOutlined />} className="sidebar-icon-btn" />
+          <Button
+            type="text"
+            size="small"
+            icon={<PlusOutlined />}
+            className="sidebar-icon-btn"
+            aria-label="新建集合"
+          />
         </Tooltip>
       </div>
 
@@ -227,6 +233,7 @@ export function Sidebar({
               <button
                 type="button"
                 className="folder-head"
+                aria-expanded={!isCollapsed}
                 onClick={() =>
                   setCollapsed((current) => ({ ...current, [folder.id]: !isCollapsed }))
                 }
@@ -385,7 +392,13 @@ export function Sidebar({
           新建请求
         </button>
         <Tooltip title="工作区设置">
-          <Button type="text" size="small" icon={<SettingOutlined />} className="sidebar-icon-btn" />
+          <Button
+            type="text"
+            size="small"
+            icon={<SettingOutlined />}
+            className="sidebar-icon-btn"
+            aria-label="设置"
+          />
         </Tooltip>
       </div>
 

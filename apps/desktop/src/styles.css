@@ -2542,6 +2542,33 @@ html[data-theme='dark'] .sidebar {
   background: var(--aw-line);
 }
 
+/* ---------- accessibility ---------- */
+
+:focus-visible {
+  outline: 2px solid var(--aw-accent);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+
+.command-item:focus-visible,
+.request-tab:focus-visible,
+.subtab:focus-visible,
+.history-row:focus-visible,
+.request-row:focus-visible {
+  outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* ---------- scrollbars ---------- */
 
 ::-webkit-scrollbar {

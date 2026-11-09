@@ -173,7 +173,7 @@ export function TopBar({
           trigger={['click']}
         >
           <Tooltip title="界面密度">
-            <Button type="text" size="small" icon={<ColumnHeightOutlined />} />
+            <Button type="text" size="small" icon={<ColumnHeightOutlined />} aria-label="界面密度" />
           </Tooltip>
         </Dropdown>
         <Dropdown

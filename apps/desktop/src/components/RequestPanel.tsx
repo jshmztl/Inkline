@@ -343,11 +343,13 @@ export function RequestPanel({
 
   return (
     <section className="request-pane">
-      <div className="request-tabs">
+      <div className="request-tabs" role="tablist" aria-label="打开的请求">
         {openTabs.map((request) => (
           <button
             key={request.id}
             type="button"
+            role="tab"
+            aria-selected={request.id === activeRequest.id}
             className={`request-tab${request.id === activeRequest.id ? ' active' : ''}`}
             onClick={() => onSelectTab(request.id)}
           >
@@ -402,6 +404,7 @@ export function RequestPanel({
           prefix={<LockOutlined />}
           aria-label="请求地址"
           spellCheck={false}
+          onPressEnter={handleSend}
         />
         <Button
           type="primary"
@@ -423,7 +426,7 @@ export function RequestPanel({
         </Tooltip>
       </div>
 
-      <div className="request-subtabs">
+      <div className="request-subtabs" role="tablist" aria-label="请求配置">
         {(
           [
             ['params', 'Params', params.filter((row) => row.enabled).length],
@@ -436,6 +439,8 @@ export function RequestPanel({
           <button
             key={key}
             type="button"
+            role="tab"
+            aria-selected={requestTab === key}
             className={`subtab${requestTab === key ? ' active' : ''}`}
             onClick={() => setRequestTab(key)}
           >
@@ -485,7 +490,12 @@ export function RequestPanel({
                   aria-label="参数说明"
                 />
                 <Tooltip title="删除">
-                  <Button type="text" size="small" icon={<DeleteOutlined />} />
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<DeleteOutlined />}
+                    aria-label="删除该行"
+                  />
                 </Tooltip>
               </div>
             ))}
@@ -564,14 +574,20 @@ export function RequestPanel({
           {error && <span className="response-error">{error}</span>}
           <div className="response-spacer" />
           <Tooltip title="复制响应">
-            <Button type="text" size="small" icon={<CopyOutlined />} onClick={copyResponse} />
+            <Button
+              type="text"
+              size="small"
+              icon={<CopyOutlined />}
+              aria-label="复制响应"
+              onClick={copyResponse}
+            />
           </Tooltip>
           <Tooltip title="更多">
-            <Button type="text" size="small" icon={<MoreOutlined />} />
+            <Button type="text" size="small" icon={<MoreOutlined />} aria-label="响应操作" />
           </Tooltip>
         </div>
 
-        <div className="response-subtabs">
+        <div className="response-subtabs" role="tablist" aria-label="响应内容">
           {(
             [
               ['body', 'Body'],
@@ -583,6 +599,8 @@ export function RequestPanel({
             <button
               key={key}
               type="button"
+              role="tab"
+              aria-selected={responseTab === key}
               className={`subtab${responseTab === key ? ' active' : ''}`}
               onClick={() => setResponseTab(key)}
             >

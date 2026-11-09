@@ -182,7 +182,7 @@ export function AiPanel({
         </div>
         <Tag className={`model-tag tone-${network.tone}`}>{network.modelName}</Tag>
         <Tooltip title="更多">
-          <Button type="text" size="small" icon={<MoreOutlined />} />
+          <Button type="text" size="small" icon={<MoreOutlined />} aria-label="更多" />
         </Tooltip>
       </div>
 
@@ -342,7 +342,12 @@ export function AiPanel({
           actions={
             <>
               <Tooltip title="添加附件">
-                <Button type="text" size="small" icon={<PaperClipOutlined />} />
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<PaperClipOutlined />}
+                  aria-label="添加附件"
+                />
               </Tooltip>
               <Button
                 type="primary"
