@@ -58,8 +58,17 @@ interface RequestPanelProps {
 
 type RequestTabKey = 'params' | 'headers' | 'body' | 'auth' | 'scripts';
 type ResponseTabKey = 'body' | 'headers' | 'cookies' | 'console';
-type BodyMode = 'json' | 'text' | 'form';
+type BodyMode = 'json' | 'text' | 'form' | 'multipart';
 type AuthType = 'none' | 'bearer' | 'basic' | 'apikey';
+
+interface FileRow {
+  id: string;
+  key: string;
+  fileName: string;
+  contentType: string;
+  contentBase64: string;
+  enabled: boolean;
+}
 
 interface RequestMeta {
   bodyMode: BodyMode;
@@ -72,6 +81,7 @@ interface RequestMeta {
   timeoutMs: number;
   formRows: KvRow[];
   params: KvRow[];
+  fileRows: FileRow[];
   protocol: ProtocolKind;
   gqlQuery: string;
   gqlVariables: string;
@@ -91,6 +101,7 @@ const defaultMeta: RequestMeta = {
     { id: 'form-2', key: 'currency', value: 'CNY', description: '', enabled: true },
   ],
   params: [],
+  fileRows: [],
   protocol: 'http',
   gqlQuery: `query Orders {\n  orders(first: 10) {\n    id\n    status\n    amount\n  }\n}`,
   gqlVariables: '{}',
@@ -106,6 +117,7 @@ function readRequestMeta(id: string): RequestMeta {
       ...parsed,
       formRows: parsed.formRows ?? defaultMeta.formRows,
       params: parsed.params ?? initialParams,
+      fileRows: parsed.fileRows ?? defaultMeta.fileRows,
     };
   } catch {
     return { ...defaultMeta, params: initialParams };
@@ -118,6 +130,19 @@ function writeRequestMeta(id: string, meta: RequestMeta) {
   } catch {
     // 存储不可用时仅保留在内存中。
   }
+}
+
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result ?? '');
+      const comma = result.indexOf(',');
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('读取文件失败'));
+    reader.readAsDataURL(file);
+  });
 }
 
 function encodeBasic(user: string, password: string) {
@@ -209,6 +234,7 @@ export function RequestPanel({
   const [body, setBody] = useState(requestBody);
   const [bodyMode, setBodyMode] = useState<BodyMode>(defaultMeta.bodyMode);
   const [formRows, setFormRows] = useState<KvRow[]>(defaultMeta.formRows);
+  const [fileRows, setFileRows] = useState<FileRow[]>(defaultMeta.fileRows);
   const [authType, setAuthType] = useState<AuthType>(defaultMeta.authType);
   const [authToken, setAuthToken] = useState(defaultMeta.authToken);
   const [authUser, setAuthUser] = useState(defaultMeta.authUser);
@@ -263,6 +289,7 @@ export function RequestPanel({
     setApiKeyValue(meta.apiKeyValue);
     setTimeoutMs(meta.timeoutMs);
     setFormRows(meta.formRows);
+    setFileRows(meta.fileRows);
     setParams(meta.params);
     setProtocol(meta.protocol);
     setGqlQuery(meta.gqlQuery);
@@ -283,6 +310,7 @@ export function RequestPanel({
       timeoutMs,
       formRows,
       params,
+      fileRows,
       protocol,
       gqlQuery,
       gqlVariables,
@@ -300,6 +328,7 @@ export function RequestPanel({
     timeoutMs,
     formRows,
     params,
+    fileRows,
     protocol,
     gqlQuery,
     gqlVariables,
@@ -382,6 +411,23 @@ export function RequestPanel({
 
   function updateFormRow(id: string, patch: Partial<KvRow>) {
     setFormRows((rows) => rows.map((row) => (row.id === id ? { ...row, ...patch } : row)));
+  }
+
+  function updateFileRow(id: string, patch: Partial<FileRow>) {
+    setFileRows((rows) => rows.map((row) => (row.id === id ? { ...row, ...patch } : row)));
+  }
+
+  async function pickFile(id: string, file: File) {
+    try {
+      const contentBase64 = await readFileAsBase64(file);
+      updateFileRow(id, {
+        fileName: file.name,
+        contentType: file.type || 'application/octet-stream',
+        contentBase64,
+      });
+    } catch {
+      message.error('读取文件失败');
+    }
   }
 
   function addFormRow() {
@@ -641,12 +687,40 @@ export function RequestPanel({
     setError(null);
     const started = performance.now();
 
+    const multipartPayload =
+      bodyMode === 'multipart'
+        ? [
+            ...formRows
+              .filter((row) => row.enabled && row.key.trim())
+              .map((row) => ({ name: row.key.trim(), value: row.value })),
+            ...fileRows
+              .filter((row) => row.enabled && row.key.trim() && row.contentBase64)
+              .map((row) => ({
+                name: row.key.trim(),
+                fileName: row.fileName,
+                contentType: row.contentType,
+                fileBase64: row.contentBase64,
+              })),
+          ]
+        : undefined;
+
+    const finalHeaders = multipartPayload
+      ? resolvedHeaders.headers.filter(
+          (header) => header.name.toLowerCase() !== 'content-type',
+        )
+      : resolvedHeaders.headers;
+
     try {
       const result = await sendHttpRequest({
         method: effectiveMethod,
         url: finalUrl,
-        headers: resolvedHeaders.headers,
-        body: effectiveMethod === 'GET' || effectiveMethod === 'DELETE' ? undefined : bodyText,
+        headers: finalHeaders,
+        body: multipartPayload
+          ? undefined
+          : effectiveMethod === 'GET' || effectiveMethod === 'DELETE'
+            ? undefined
+            : bodyText,
+        multipart: multipartPayload,
         timeoutMs,
       });
 
@@ -688,8 +762,11 @@ export function RequestPanel({
         name: activeRequest.name,
         method: effectiveMethod,
         url: finalUrl,
-        headers: resolvedHeaders.headers,
-        body: effectiveMethod === 'GET' || effectiveMethod === 'DELETE' ? null : bodyText,
+        headers: finalHeaders,
+        body:
+          multipartPayload || effectiveMethod === 'GET' || effectiveMethod === 'DELETE'
+            ? null
+            : bodyText,
         dataLevel: activeRequest.dataLevel,
       });
       onQueued();
@@ -1025,6 +1102,7 @@ export function RequestPanel({
                   { label: 'JSON', value: 'json' },
                   { label: '文本', value: 'text' },
                   { label: '表单', value: 'form' },
+                  { label: 'form-data', value: 'multipart' },
                 ]}
               />
               <span className="editor-note">
@@ -1032,7 +1110,9 @@ export function RequestPanel({
                   ? 'application/json · 自动格式化'
                   : bodyMode === 'text'
                     ? 'text/plain'
-                    : 'application/x-www-form-urlencoded'}
+                    : bodyMode === 'multipart'
+                      ? 'multipart/form-data · 支持文件'
+                      : 'application/x-www-form-urlencoded'}
               </span>
               <div className="editor-toolbar-spacer" />
               {bodyMode === 'json' && (
@@ -1049,7 +1129,7 @@ export function RequestPanel({
                 生成代码
               </Button>
             </div>
-            {bodyMode === 'form' ? (
+            {bodyMode === 'form' || bodyMode === 'multipart' ? (
               <div className="kv-editor">
                 <div className="kv-head">
                   <span />
@@ -1102,6 +1182,81 @@ export function RequestPanel({
                 <button type="button" className="kv-add" onClick={addFormRow}>
                   <PlusOutlined /> 添加字段
                 </button>
+
+                {bodyMode === 'multipart' && (
+                  <div className="multipart-files">
+                    <div className="multipart-head">
+                      <span>FILE</span>
+                      <span>字段名</span>
+                      <span>文件</span>
+                      <span />
+                    </div>
+                    {fileRows.map((row) => (
+                      <div className="multipart-row" key={row.id}>
+                        <Checkbox
+                          checked={row.enabled}
+                          onChange={(event) =>
+                            updateFileRow(row.id, { enabled: event.target.checked })
+                          }
+                        />
+                        <input
+                          className="kv-input mono"
+                          value={row.key}
+                          placeholder="file"
+                          onChange={(event) =>
+                            updateFileRow(row.id, { key: event.target.value })
+                          }
+                          aria-label="文件字段名"
+                        />
+                        <label className="file-pick">
+                          <input
+                            type="file"
+                            onChange={(event) => {
+                              const file = event.target.files?.[0];
+                              if (file) void pickFile(row.id, file);
+                              event.target.value = '';
+                            }}
+                          />
+                          <span title={row.fileName}>
+                            {row.fileName || '选择文件'}
+                          </span>
+                        </label>
+                        <Tooltip title="删除">
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<DeleteOutlined />}
+                            aria-label="删除文件字段"
+                            onClick={() =>
+                              setFileRows((rows) =>
+                                rows.filter((item) => item.id !== row.id),
+                              )
+                            }
+                          />
+                        </Tooltip>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      className="kv-add"
+                      onClick={() =>
+                        setFileRows((rows) => [
+                          ...rows,
+                          {
+                            id: `file-${Date.now().toString(36)}`,
+                            key: 'file',
+                            fileName: '',
+                            contentType: '',
+                            contentBase64: '',
+                            enabled: true,
+                          },
+                        ])
+                      }
+                    >
+                      <PlusOutlined /> 添加文件字段
+                    </button>
+                  </div>
+                )}
               </div>
             ) : (
               <textarea

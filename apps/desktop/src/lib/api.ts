@@ -13,12 +13,21 @@ export interface Collection {
   updatedAt?: string | null;
 }
 
+export interface MultipartField {
+  name: string;
+  value?: string;
+  fileName?: string;
+  fileBase64?: string;
+  contentType?: string;
+}
+
 export interface SendRequestPayload {
   method: string;
   url: string;
   headers: HeaderPair[];
   body?: string;
   timeoutMs?: number;
+  multipart?: MultipartField[];
 }
 
 export interface SendResponse {
