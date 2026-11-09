@@ -29,6 +29,7 @@ import {
   type SavedRequest,
   type SendResponse,
 } from '../lib/api';
+import type { RequestContext } from '../lib/docTask';
 import { resolveHeaders, resolveTemplate } from '../lib/variables';
 import { MethodTag } from './MethodTag';
 
@@ -42,6 +43,7 @@ interface RequestPanelProps {
   onCloseTab: (requestId: string) => void;
   onHistoryRecorded: () => void;
   onSaved: () => void;
+  onContextChange: (context: RequestContext) => void;
 }
 
 type RequestTabKey = 'params' | 'headers' | 'body' | 'auth' | 'scripts';
@@ -119,6 +121,7 @@ export function RequestPanel({
   onCloseTab,
   onHistoryRecorded,
   onSaved,
+  onContextChange,
 }: RequestPanelProps) {
   const { message } = App.useApp();
   const [method, setMethod] = useState<HttpMethod>(activeRequest.method);
@@ -161,6 +164,25 @@ export function RequestPanel({
     setUrl(replay.url);
     setError(null);
   }, [replay]);
+
+  useEffect(() => {
+    onContextChange({
+      id: activeRequest.id,
+      name: activeRequest.name,
+      method,
+      url,
+      dataLevel: activeRequest.dataLevel,
+      headers: headers
+        .filter((row) => row.enabled && row.key.trim())
+        .map((row) => ({ name: row.key.trim(), value: row.value })),
+      body: method === 'GET' || method === 'DELETE' ? null : body,
+      response: {
+        status: response.status,
+        statusText: response.statusText,
+        body: response.body,
+      },
+    });
+  }, [activeRequest, method, url, headers, body, response, onContextChange]);
 
   const activeRows = useMemo(
     () => (requestTab === 'headers' ? headers : params),

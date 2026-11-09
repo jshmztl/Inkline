@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   CheckCircleFilled,
+  FileTextOutlined,
   LoadingOutlined,
   LockOutlined,
   MoreOutlined,
@@ -12,11 +13,19 @@ import { App, Button, Checkbox, Tag, Tooltip } from 'antd';
 import { Bubble, Prompts, Sender, ThoughtChain } from '@ant-design/x';
 import type { ApiRequest, NetworkMode } from '../data/mock';
 import { networkModes, reviewFields, thoughtSteps } from '../data/mock';
+import { buildDocTask, type RequestContext } from '../lib/docTask';
 import { MethodTag } from './MethodTag';
 
 interface AiPanelProps {
   networkMode: NetworkMode;
   activeRequest: ApiRequest;
+  context: RequestContext | null;
+}
+
+interface ChatMessage {
+  key: string;
+  placement: 'start' | 'end';
+  text: string;
 }
 
 const prompts = ['生成接口文档', '补全字段说明', '生成测试用例', '解释错误'];
@@ -42,14 +51,30 @@ const thoughtItems = thoughtSteps.map((step, index) => ({
   icon: step.state === 'done' ? <CheckCircleFilled /> : <LoadingOutlined spin />,
 }));
 
-export function AiPanel({ networkMode, activeRequest }: AiPanelProps) {
+export function AiPanel({ networkMode, activeRequest, context }: AiPanelProps) {
   const { message } = App.useApp();
   const network = networkModes[networkMode];
   const [composer, setComposer] = useState('');
+  const [messages, setMessages] = useState<ChatMessage[]>(seedMessages);
   const [accepted, setAccepted] = useState<Record<string, boolean>>(
     Object.fromEntries(reviewFields.map((field) => [field.name, true])),
   );
   const [applied, setApplied] = useState(false);
+
+  const task = useMemo(() => (context ? buildDocTask(context) : null), [context]);
+
+  function runTask() {
+    if (!task) return;
+    setMessages((current) => [
+      ...current,
+      {
+        key: `${task.id}-${current.length}`,
+        placement: 'start',
+        text: `已建立文档任务：请求 ${task.stats.requestFields} 个字段，响应示例 ${task.stats.responseFields} 个字段，命中术语 ${task.stats.glossaryHits} 条。可进入字段审阅。`,
+      },
+    ]);
+    message.success('文档任务已建立');
+  }
 
   function applyDraft() {
     setApplied(true);
@@ -91,6 +116,43 @@ export function AiPanel({ networkMode, activeRequest }: AiPanelProps) {
       </div>
 
       <div className="ai-scroll">
+        <div className="ai-task">
+          <div className="ai-task-head">
+            <strong>文档任务</strong>
+            <Tag className={`task-state${task ? ' ready' : ''}`}>
+              {task ? '上下文就绪' : '等待上下文'}
+            </Tag>
+          </div>
+          <div className="ai-task-sources">
+            <span>
+              <code>{task?.stats.requestFields ?? 0}</code> 请求字段
+            </span>
+            <span>
+              <code>{task?.stats.responseFields ?? 0}</code> 响应字段
+            </span>
+            <span>
+              <code>{task?.stats.glossaryHits ?? 0}</code> 术语命中
+            </span>
+          </div>
+          {task && task.glossary.length > 0 && (
+            <div className="ai-task-terms">
+              术语：{task.glossary.map((hit) => hit.entry.term).join(' · ')}
+            </div>
+          )}
+          <div className="ai-task-actions">
+            <Button
+              type="primary"
+              size="small"
+              icon={<FileTextOutlined />}
+              onClick={runTask}
+              disabled={!task}
+            >
+              建立文档任务
+            </Button>
+            <span>请求 + 响应示例 + 术语表</span>
+          </div>
+        </div>
+
         <Prompts
           className="ai-prompts"
           items={prompts.map((label) => ({ key: label, label }))}
@@ -98,7 +160,7 @@ export function AiPanel({ networkMode, activeRequest }: AiPanelProps) {
           onItemClick={({ data }) => setComposer(String(data.label ?? ''))}
         />
 
-        {seedMessages.map((item) => (
+        {messages.map((item) => (
           <Bubble
             key={item.key}
             className={`ai-bubble ai-bubble-${item.placement}`}

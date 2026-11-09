@@ -4,6 +4,7 @@ import { AntProvider, type Density, type ThemeMode } from '@api-workbench/ui';
 import type { ApiRequest, HttpMethod, NetworkMode } from './data/mock';
 import { allRequests } from './data/mock';
 import { listHistory, listRequests, type HistoryEntry, type SavedRequest } from './lib/api';
+import type { RequestContext } from './lib/docTask';
 import { AiPanel } from './components/AiPanel';
 import { RequestPanel } from './components/RequestPanel';
 import { Sidebar } from './components/Sidebar';
@@ -31,6 +32,7 @@ export function App() {
   const [openTabIds, setOpenTabIds] = useState<string[]>(initialOpenTabs);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [savedRequests, setSavedRequests] = useState<SavedRequest[]>([]);
+  const [requestContext, setRequestContext] = useState<RequestContext | null>(null);
   const [replay, setReplay] = useState<{
     method: HttpMethod;
     url: string;
@@ -157,8 +159,13 @@ export function App() {
               onCloseTab={closeTab}
               onHistoryRecorded={refreshHistory}
               onSaved={refreshSaved}
+              onContextChange={setRequestContext}
             />
-            <AiPanel networkMode={networkMode} activeRequest={activeRequest} />
+            <AiPanel
+              networkMode={networkMode}
+              activeRequest={activeRequest}
+              context={requestContext}
+            />
           </div>
 
           <StatusBar networkMode={networkMode} />

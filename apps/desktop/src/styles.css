@@ -1494,6 +1494,78 @@ html[data-theme='dark'] .sidebar {
   overflow: auto;
 }
 
+/* Ant Design X：文档任务上下文 */
+
+.ai-task {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--aw-line-strong);
+  border-radius: 8px;
+  background: var(--aw-surface);
+}
+
+.ai-task-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ai-task-head strong {
+  font-size: 10.5px;
+  font-weight: 650;
+}
+
+.task-state.ant-tag {
+  margin: 0;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 3px;
+  background: var(--aw-surface-2);
+  color: var(--aw-faint);
+  font-size: 8px;
+  line-height: 14px;
+}
+
+.task-state.ready.ant-tag {
+  background: var(--aw-success-soft);
+  color: var(--aw-success);
+}
+
+.ai-task-sources {
+  display: flex;
+  gap: 10px;
+  color: var(--aw-faint);
+  font-size: 9px;
+}
+
+.ai-task-sources code {
+  color: var(--aw-ink-2);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.ai-task-terms {
+  overflow: hidden;
+  color: var(--aw-muted);
+  font-family: var(--aw-font-code);
+  font-size: 8.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-task-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ai-task-actions > span {
+  color: var(--aw-faint);
+  font-size: 8.5px;
+}
+
 /* Ant Design X：紧凑对话区样式 */
 
 .ai-panel .ai-prompts .ant-prompts-list {
