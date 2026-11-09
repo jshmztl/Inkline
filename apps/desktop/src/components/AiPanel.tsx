@@ -9,11 +9,18 @@ import {
   RobotOutlined,
   SendOutlined,
 } from '@ant-design/icons';
-import { App, Button, Checkbox, Tag, Tooltip } from 'antd';
+import { App, Button, Checkbox, Modal, Tag, Tooltip } from 'antd';
 import { Bubble, Prompts, Sender, ThoughtChain } from '@ant-design/x';
 import type { ApiRequest, NetworkMode } from '../data/mock';
 import { networkModes, thoughtSteps } from '../data/mock';
-import { buildDocTask, buildFieldReview, type RequestContext } from '../lib/docTask';
+import {
+  buildDocTask,
+  buildDraftDiff,
+  buildFieldReview,
+  mergeDraftFields,
+  type DraftField,
+  type RequestContext,
+} from '../lib/docTask';
 import { MethodTag } from './MethodTag';
 
 interface AiPanelProps {
@@ -58,16 +65,37 @@ export function AiPanel({ networkMode, activeRequest, context }: AiPanelProps) {
   const [messages, setMessages] = useState<ChatMessage[]>(seedMessages);
   const [accepted, setAccepted] = useState<Record<string, boolean>>({});
   const [applied, setApplied] = useState(false);
+  const [draft, setDraft] = useState<DraftField[]>([]);
+  const [diffOpen, setDiffOpen] = useState(false);
 
   const task = useMemo(() => (context ? buildDocTask(context) : null), [context]);
   const review = useMemo(() => (task ? buildFieldReview(task) : []), [task]);
   const pending = review.filter((item) => item.confidence < 90).length;
   const visibleReview = review.slice(0, 5);
+  const requestId = task?.request.id ?? null;
+  const diff = useMemo(
+    () => (task ? buildDraftDiff(draft, review, accepted) : []),
+    [task, draft, review, accepted],
+  );
 
   useEffect(() => {
     setAccepted({});
     setApplied(false);
   }, [task?.id]);
+
+  useEffect(() => {
+    if (!requestId) {
+      setDraft([]);
+      return;
+    }
+    try {
+      const raw = localStorage.getItem(`aw-doc-draft:${requestId}`);
+      const parsed = raw ? JSON.parse(raw) : [];
+      setDraft(Array.isArray(parsed) ? (parsed as DraftField[]) : []);
+    } catch {
+      setDraft([]);
+    }
+  }, [requestId]);
 
   function runTask() {
     if (!task) return;
@@ -83,8 +111,17 @@ export function AiPanel({ networkMode, activeRequest, context }: AiPanelProps) {
   }
 
   function applyDraft() {
+    if (!task) return;
+    const next = mergeDraftFields(draft, review, accepted);
+    setDraft(next);
+    try {
+      localStorage.setItem(`aw-doc-draft:${task.request.id}`, JSON.stringify(next));
+    } catch {
+      // localStorage 不可用时仅保留内存草稿。
+    }
     setApplied(true);
-    message.success('已应用到文档草稿');
+    setDiffOpen(false);
+    message.success(`已应用到文档草稿 · ${next.length} 个字段`);
   }
 
   function submit() {
@@ -233,7 +270,7 @@ export function AiPanel({ networkMode, activeRequest, context }: AiPanelProps) {
             >
               {applied ? '已应用' : '应用到文档'}
             </Button>
-            <Button size="small" onClick={() => message.info('Diff 视图将在下一步接入')}>
+            <Button size="small" onClick={() => setDiffOpen(true)}>
               查看 diff
             </Button>
             <Button type="text" size="small" onClick={() => message.info('已忽略本次建议')}>
@@ -274,6 +311,51 @@ export function AiPanel({ networkMode, activeRequest, context }: AiPanelProps) {
           }
         />
       </div>
+
+      <Modal
+        open={diffOpen}
+        title="文档草稿 Diff"
+        width={480}
+        onCancel={() => setDiffOpen(false)}
+        footer={[
+          <Button key="close" size="small" onClick={() => setDiffOpen(false)}>
+            关闭
+          </Button>,
+          <Button
+            key="apply"
+            type="primary"
+            size="small"
+            onClick={applyDraft}
+            disabled={diff.length === 0}
+          >
+            应用到草稿
+          </Button>,
+        ]}
+      >
+        {diff.length === 0 ? (
+          <div className="diff-empty">当前草稿已包含所有选中字段。</div>
+        ) : (
+          <div className="diff-list">
+            {diff.map((row) => (
+              <div className={`diff-row ${row.kind}`} key={row.key}>
+                <span className="diff-sign">{row.kind === 'add' ? '+' : '~'}</span>
+                <div className="diff-body">
+                  <div className="diff-path">
+                    <code>{row.path}</code>
+                    <em>{row.type}</em>
+                  </div>
+                  {row.before !== null && <div className="diff-before">- {row.before}</div>}
+                  <div className="diff-after">+ {row.after}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="diff-summary">
+          新增 {diff.filter((row) => row.kind === 'add').length} · 修改{' '}
+          {diff.filter((row) => row.kind === 'update').length}
+        </div>
+      </Modal>
     </aside>
   );
 }

@@ -1833,6 +1833,94 @@ html[data-theme='dark'] .sidebar {
   font-size: 8px;
 }
 
+/* ---------- diff modal ---------- */
+
+.diff-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.diff-row {
+  display: flex;
+  gap: 7px;
+  padding: 6px 8px;
+  border: 1px solid var(--aw-line);
+  border-radius: 6px;
+  background: var(--aw-surface-2);
+}
+
+.diff-row.add {
+  border-color: color-mix(in srgb, var(--aw-success) 35%, transparent);
+}
+
+.diff-row.update {
+  border-color: color-mix(in srgb, var(--aw-warning) 35%, transparent);
+}
+
+.diff-sign {
+  flex: 0 0 auto;
+  color: var(--aw-success);
+  font-family: var(--aw-font-code);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.diff-row.update .diff-sign {
+  color: var(--aw-warning);
+}
+
+.diff-body {
+  min-width: 0;
+}
+
+.diff-path {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.diff-path code {
+  color: var(--aw-accent);
+  font-size: 10px;
+}
+
+.diff-path em {
+  color: var(--aw-faint);
+  font-size: 8px;
+  font-style: normal;
+}
+
+.diff-before {
+  color: var(--aw-faint);
+  font-family: var(--aw-font-code);
+  font-size: 9px;
+  line-height: 1.5;
+  text-decoration: line-through;
+}
+
+.diff-after {
+  color: var(--aw-ink-2);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.diff-empty {
+  padding: 16px;
+  color: var(--aw-faint);
+  font-size: 10px;
+  text-align: center;
+}
+
+.diff-summary {
+  margin-top: 10px;
+  color: var(--aw-faint);
+  font-size: 9px;
+  text-align: right;
+}
+
 /* ---------- status bar ---------- */
 
 .statusbar {

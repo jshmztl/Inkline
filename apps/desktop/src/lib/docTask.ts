@@ -59,6 +59,24 @@ export interface FieldReview {
   term?: string;
 }
 
+export interface DraftField {
+  key: string;
+  path: string;
+  type: string;
+  source: FieldReview['source'];
+  description: string;
+  updatedAt: string;
+}
+
+export interface DocDiffRow {
+  key: string;
+  path: string;
+  type: string;
+  before: string | null;
+  after: string;
+  kind: 'add' | 'update';
+}
+
 export interface DocTask {
   id: string;
   createdAt: string;
@@ -236,4 +254,69 @@ export function buildFieldReview(
     ...collect(task.request.fields, '请求'),
     ...collect(task.response?.fields ?? [], '响应'),
   ].sort((a, b) => a.confidence - b.confidence);
+}
+
+function selectedReviews(review: FieldReview[], accepted: Record<string, boolean>) {
+  return review.filter((item) => accepted[item.key] ?? true);
+}
+
+export function buildDraftDiff(
+  draft: DraftField[],
+  review: FieldReview[],
+  accepted: Record<string, boolean>,
+): DocDiffRow[] {
+  const rows: DocDiffRow[] = [];
+
+  for (const item of selectedReviews(review, accepted)) {
+    const current = draft.find((entry) => entry.key === item.key);
+    if (!current) {
+      rows.push({
+        key: item.key,
+        path: item.path,
+        type: item.type,
+        before: null,
+        after: item.note,
+        kind: 'add',
+      });
+    } else if (current.description !== item.note || current.type !== item.type) {
+      rows.push({
+        key: item.key,
+        path: item.path,
+        type: item.type,
+        before: current.description,
+        after: item.note,
+        kind: 'update',
+      });
+    }
+  }
+
+  return rows;
+}
+
+export function mergeDraftFields(
+  draft: DraftField[],
+  review: FieldReview[],
+  accepted: Record<string, boolean>,
+): DraftField[] {
+  const now = new Date().toISOString();
+  const next = draft.map((entry) => ({ ...entry }));
+
+  for (const item of selectedReviews(review, accepted)) {
+    const entry: DraftField = {
+      key: item.key,
+      path: item.path,
+      type: item.type,
+      source: item.source,
+      description: item.note,
+      updatedAt: now,
+    };
+    const index = next.findIndex((current) => current.key === item.key);
+    if (index === -1) {
+      next.push(entry);
+    } else {
+      next[index] = entry;
+    }
+  }
+
+  return next;
 }
