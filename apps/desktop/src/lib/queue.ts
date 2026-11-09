@@ -1,4 +1,5 @@
 import { sendHttpRequest, type HeaderPair, type SendResponse } from './api';
+import { readNetworkOptions } from './network';
 
 export interface QueuedTask {
   id: string;
@@ -74,6 +75,7 @@ export async function retryTask(task: QueuedTask): Promise<SendResponse> {
       headers: task.headers,
       body: task.body ?? undefined,
       timeoutMs: 30_000,
+      network: readNetworkOptions(),
     });
     removeQueueTask(task.id);
     return result;

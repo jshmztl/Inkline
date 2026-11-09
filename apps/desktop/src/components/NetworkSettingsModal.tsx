@@ -1,0 +1,74 @@
+import { useEffect, useState } from 'react';
+import { Button, Input, Modal } from 'antd';
+import {
+  readNetworkOptions,
+  writeNetworkOptions,
+  type NetworkOptions,
+} from '../lib/network';
+
+interface NetworkSettingsModalProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+export function NetworkSettingsModal({ open, onClose }: NetworkSettingsModalProps) {
+  const [options, setOptions] = useState<NetworkOptions>(readNetworkOptions);
+
+  useEffect(() => {
+    if (open) setOptions(readNetworkOptions());
+  }, [open]);
+
+  return (
+    <Modal
+      open={open}
+      title="网络设置"
+      width={520}
+      onCancel={onClose}
+      footer={[
+        <Button key="cancel" size="small" onClick={onClose}>
+          取消
+        </Button>,
+        <Button
+          key="save"
+          type="primary"
+          size="small"
+          onClick={() => {
+            writeNetworkOptions(options);
+            onClose();
+          }}
+        >
+          保存
+        </Button>,
+      ]}
+    >
+      <div className="network-form">
+        <label>
+          <span>HTTP / HTTPS 代理</span>
+          <Input
+            value={options.proxy}
+            placeholder="http://127.0.0.1:7890"
+            onChange={(event) =>
+              setOptions((current) => ({ ...current, proxy: event.target.value }))
+            }
+          />
+        </label>
+        <label>
+          <span>客户端证书（PEM 文件路径）</span>
+          <Input
+            value={options.clientCertPath}
+            placeholder="C:\\certs\\client.pem"
+            onChange={(event) =>
+              setOptions((current) => ({
+                ...current,
+                clientCertPath: event.target.value,
+              }))
+            }
+          />
+        </label>
+        <p className="network-tip">
+          PEM 文件需同时包含客户端证书与私钥。配置仅在桌面应用中生效，留空表示不使用。
+        </p>
+      </div>
+    </Modal>
+  );
+}

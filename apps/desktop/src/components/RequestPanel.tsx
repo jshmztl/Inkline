@@ -7,6 +7,7 @@ import {
   CopyOutlined,
   DeleteOutlined,
   FormatPainterOutlined,
+  GlobalOutlined,
   LockOutlined,
   MoreOutlined,
   PlusOutlined,
@@ -47,7 +48,9 @@ import {
   type AssertionRow,
 } from '../lib/assertions';
 import { runScript } from '../lib/scriptSandbox';
+import { readNetworkOptions } from '../lib/network';
 import { MethodTag } from './MethodTag';
+import { NetworkSettingsModal } from './NetworkSettingsModal';
 import { ResponseCode } from './ResponseCode';
 
 interface RequestPanelProps {
@@ -282,6 +285,7 @@ export function RequestPanel({
   const [preScript, setPreScript] = useState(defaultMeta.preScript);
   const [postScript, setPostScript] = useState(defaultMeta.postScript);
   const [scriptLogs, setScriptLogs] = useState<ScriptLog[]>([]);
+  const [networkOpen, setNetworkOpen] = useState(false);
   const [streamEvents, setStreamEvents] = useState<StreamEvent[]>([]);
   const [connected, setConnected] = useState(false);
   const [draftMessage, setDraftMessage] = useState('');
@@ -840,6 +844,7 @@ export function RequestPanel({
             : bodyText,
         multipart: multipartPayload,
         timeoutMs,
+        network: readNetworkOptions(),
       });
 
       if (cancelledRef.current) {
@@ -1166,7 +1171,20 @@ export function RequestPanel({
           popupMatchSelectWidth={false}
           aria-label="请求超时"
         />
+        <Tooltip title="代理与客户端证书">
+          <Button
+            size="small"
+            icon={<GlobalOutlined />}
+            onClick={() => setNetworkOpen(true)}
+            aria-label="网络设置"
+          />
+        </Tooltip>
       </div>
+
+      <NetworkSettingsModal
+        open={networkOpen}
+        onClose={() => setNetworkOpen(false)}
+      />
 
       <div className="request-subtabs" role="tablist" aria-label="请求配置">
         {(

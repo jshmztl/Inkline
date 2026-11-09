@@ -3615,3 +3615,30 @@ html[data-theme='dark'] .sidebar {
   font-size: 12.5px;
   text-align: center;
 }
+
+/* ---------- network settings ---------- */
+
+.network-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.network-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.network-form label span {
+  color: var(--aw-muted);
+  font-size: 12px;
+}
+
+.network-tip {
+  margin: 0;
+  color: var(--aw-faint);
+  font-size: 12px;
+  line-height: 1.6;
+}

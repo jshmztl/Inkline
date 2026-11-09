@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { folders } from '../data/mock';
+import type { NetworkOptions } from './network';
 
 export interface HeaderPair {
   name: string;
@@ -29,6 +30,7 @@ export interface SendRequestPayload {
   body?: string;
   timeoutMs?: number;
   multipart?: MultipartField[];
+  network?: NetworkOptions;
 }
 
 export interface SendResponse {

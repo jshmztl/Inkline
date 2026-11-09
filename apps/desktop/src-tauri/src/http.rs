@@ -24,6 +24,13 @@ pub struct MultipartField {
     pub content_type: Option<String>,
 }
 
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct NetworkOptions {
+    pub proxy: Option<String>,
+    pub client_cert_path: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SendRequestPayload {
@@ -35,6 +42,7 @@ pub struct SendRequestPayload {
     pub body: Option<String>,
     pub timeout_ms: Option<u64>,
     pub multipart: Option<Vec<MultipartField>>,
+    pub network: Option<NetworkOptions>,
 }
 
 #[derive(Debug, Serialize)]
@@ -61,8 +69,35 @@ pub async fn send_http_request(
     let method = Method::from_bytes(payload.method.to_uppercase().as_bytes())
         .map_err(|error| format!("请求方法无效：{error}"))?;
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_millis(payload.timeout_ms.unwrap_or(30_000)))
+    let mut client = reqwest::Client::builder()
+        .timeout(Duration::from_millis(payload.timeout_ms.unwrap_or(30_000)));
+
+    if let Some(network) = &payload.network {
+        if let Some(proxy) = network
+            .proxy
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            client = client
+                .proxy(reqwest::Proxy::all(proxy).map_err(|error| format!("代理地址无效：{error}"))?);
+        }
+        if let Some(path) = network
+            .client_cert_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            let pem = tokio::fs::read(path)
+                .await
+                .map_err(|error| format!("读取客户端证书失败：{error}"))?;
+            let identity = reqwest::Identity::from_pem(&pem)
+                .map_err(|error| format!("客户端证书格式无效：{error}"))?;
+            client = client.identity(identity);
+        }
+    }
+
+    let client = client
         .build()
         .map_err(|error| format!("创建 HTTP 客户端失败：{error}"))?;
 
