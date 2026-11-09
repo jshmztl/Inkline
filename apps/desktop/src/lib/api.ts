@@ -74,6 +74,29 @@ function mockResponse(payload: SendRequestPayload): SendResponse {
   }
 
   const durationMs = 96 + Math.round(Math.random() * 64);
+
+  if (payload.url.includes('big')) {
+    const items = Array.from({ length: 3000 }, (_, index) => ({
+      id: `ord_${index.toString(36).padStart(6, '0')}`,
+      status: index % 3 === 0 ? 'paid' : 'pending',
+      amount: 1000 + index,
+      currency: 'CNY',
+      note: `示例订单 ${index}`,
+    }));
+    const bigBody = JSON.stringify({ code: 0, message: 'ok', total: items.length, data: { items } }, null, 2);
+    return {
+      status: 200,
+      statusText: 'OK',
+      headers: [
+        { name: 'content-type', value: 'application/json; charset=utf-8' },
+        { name: 'x-request-id', value: `req_${Math.random().toString(16).slice(2, 10)}` },
+      ],
+      body: bigBody,
+      durationMs,
+      sizeBytes: bigBody.length,
+    };
+  }
+
   const body = JSON.stringify(
     {
       code: 0,

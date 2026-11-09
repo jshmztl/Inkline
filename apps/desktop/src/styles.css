@@ -1353,6 +1353,21 @@ html[data-theme='dark'] .sidebar {
   min-height: 100%;
 }
 
+.response-virtual {
+  height: 100%;
+  padding: 13px 16px;
+}
+
+.response-virtual-inner {
+  position: relative;
+}
+
+.response-line {
+  height: 19px;
+  line-height: 19px;
+  white-space: pre;
+}
+
 .response-kv {
   padding: 6px 12px 12px;
 }

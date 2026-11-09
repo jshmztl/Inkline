@@ -34,6 +34,7 @@ import {
 import type { RequestContext } from '../lib/docTask';
 import { resolveHeaders, resolveTemplate } from '../lib/variables';
 import { MethodTag } from './MethodTag';
+import { ResponseCode } from './ResponseCode';
 
 interface RequestPanelProps {
   activeRequest: ApiRequest;
@@ -77,38 +78,6 @@ const demoResponse: SendResponse = {
   durationMs: 128,
   sizeBytes: 1229,
 };
-
-const JSON_TOKEN =
-  /("(?:\\.|[^"\\])*"\s*:|"(?:\\.|[^"\\])*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|\btrue\b|\bfalse\b|\bnull\b)/g;
-
-function formatBody(body: string) {
-  try {
-    return JSON.stringify(JSON.parse(body), null, 2);
-  } catch {
-    return body;
-  }
-}
-
-function highlightJson(text: string) {
-  return text.split(JSON_TOKEN).map((part, index) => {
-    if (!part) return null;
-    let className = 'tok-punc';
-    if (/^".*":\s*$/.test(part)) {
-      className = 'tok-key';
-    } else if (/^"/.test(part)) {
-      className = 'tok-str';
-    } else if (/^-?\d/.test(part)) {
-      className = 'tok-num';
-    } else if (/^(true|false|null)$/.test(part)) {
-      className = 'tok-bool';
-    }
-    return (
-      <span className={className} key={index}>
-        {part}
-      </span>
-    );
-  });
-}
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -620,9 +589,7 @@ export function RequestPanel({
                 </div>
               </div>
             ) : (
-              <pre className="code-block response-code">
-                {highlightJson(formatBody(response.body))}
-              </pre>
+              <ResponseCode body={response.body} />
             ))}
 
           {responseTab === 'headers' &&
