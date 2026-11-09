@@ -1,8 +1,16 @@
 import { invoke } from '@tauri-apps/api/core';
+import { folders } from '../data/mock';
 
 export interface HeaderPair {
   name: string;
   value: string;
+}
+
+export interface Collection {
+  id: string;
+  name: string;
+  sort?: number;
+  updatedAt?: string | null;
 }
 
 export interface SendRequestPayload {
@@ -30,6 +38,7 @@ export interface SavedRequest {
   headers: HeaderPair[];
   body: string | null;
   dataLevel: string;
+  collectionId?: string;
   updatedAt: string | null;
 }
 
@@ -47,6 +56,41 @@ export interface HistoryEntry {
 
 const HISTORY_KEY = 'aw-request-history';
 const SAVED_KEY = 'aw-saved-requests';
+const COLLECTIONS_KEY = 'aw-collections';
+
+function seedBrowserWorkspace() {
+  try {
+    if (localStorage.getItem(COLLECTIONS_KEY)) return;
+    const now = new Date().toISOString();
+    const collections = folders.map((folder, index) => ({
+      id: folder.id,
+      name: folder.name,
+      sort: index,
+      updatedAt: now,
+    }));
+    const existing = readJson<SavedRequest[]>(SAVED_KEY, []);
+    const existingIds = new Set(existing.map((item) => item.id));
+    const seeded = folders.flatMap((folder) =>
+      folder.requests
+        .filter((request) => !existingIds.has(request.id))
+        .map((request) => ({
+          id: request.id,
+          name: request.name,
+          method: request.method,
+          url: `{{host}}${request.path}`,
+          headers: [],
+          body: null,
+          dataLevel: request.dataLevel,
+          collectionId: folder.id,
+          updatedAt: now,
+        })),
+    );
+    writeJson(COLLECTIONS_KEY, collections);
+    writeJson(SAVED_KEY, [...existing, ...seeded]);
+  } catch {
+    // 初始化失败时保持空工作区。
+  }
+}
 
 const isTauri =
   typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -187,5 +231,69 @@ export async function listRequests(): Promise<SavedRequest[]> {
     return invoke<SavedRequest[]>('list_requests');
   }
 
+  seedBrowserWorkspace();
   return readJson<SavedRequest[]>(SAVED_KEY, []);
+}
+
+export async function deleteRequest(id: string): Promise<void> {
+  if (isTauri) {
+    return invoke('delete_request', { id });
+  }
+
+  seedBrowserWorkspace();
+  writeJson(
+    SAVED_KEY,
+    readJson<SavedRequest[]>(SAVED_KEY, []).filter((request) => request.id !== id),
+  );
+}
+
+export async function clearHistory(): Promise<void> {
+  if (isTauri) {
+    return invoke('clear_history');
+  }
+
+  writeJson(HISTORY_KEY, []);
+}
+
+export async function listCollections(): Promise<Collection[]> {
+  if (isTauri) {
+    return invoke<Collection[]>('list_collections');
+  }
+
+  seedBrowserWorkspace();
+  return readJson<Collection[]>(COLLECTIONS_KEY, []).sort(
+    (left, right) => (left.sort ?? 0) - (right.sort ?? 0),
+  );
+}
+
+export async function saveCollection(collection: Collection): Promise<Collection> {
+  if (isTauri) {
+    return invoke<Collection>('save_collection', { collection });
+  }
+
+  seedBrowserWorkspace();
+  const list = readJson<Collection[]>(COLLECTIONS_KEY, []);
+  const item: Collection = {
+    ...collection,
+    sort: collection.sort ?? list.length,
+    updatedAt: new Date().toISOString(),
+  };
+  writeJson(COLLECTIONS_KEY, [...list.filter((entry) => entry.id !== item.id), item]);
+  return item;
+}
+
+export async function deleteCollection(id: string): Promise<void> {
+  if (isTauri) {
+    return invoke('delete_collection', { id });
+  }
+
+  seedBrowserWorkspace();
+  writeJson(
+    COLLECTIONS_KEY,
+    readJson<Collection[]>(COLLECTIONS_KEY, []).filter((collection) => collection.id !== id),
+  );
+  writeJson(
+    SAVED_KEY,
+    readJson<SavedRequest[]>(SAVED_KEY, []).filter((request) => request.collectionId !== id),
+  );
 }

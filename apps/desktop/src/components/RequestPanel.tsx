@@ -43,6 +43,7 @@ interface RequestPanelProps {
   saved: SavedRequest | null;
   environment: string;
   actor: string;
+  collectionId: string;
   onSelectTab: (requestId: string) => void;
   onCloseTab: (requestId: string) => void;
   onHistoryRecorded: () => void;
@@ -179,6 +180,7 @@ export function RequestPanel({
   saved,
   environment,
   actor,
+  collectionId,
   onSelectTab,
   onCloseTab,
   onHistoryRecorded,
@@ -571,6 +573,7 @@ export function RequestPanel({
           .map((row) => ({ name: row.key.trim(), value: row.value })),
         body: method === 'GET' || method === 'DELETE' ? null : body,
         dataLevel: activeRequest.dataLevel,
+        collectionId,
         updatedAt: null,
       });
       message.success({ content: '已保存到本地 SQLite', duration: 2 });

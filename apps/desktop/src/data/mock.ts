@@ -9,6 +9,7 @@ export interface ApiRequest {
   name: string;
   dataLevel: DataLevel;
   updatedAt: string;
+  collectionId?: string;
 }
 
 export interface ApiFolder {

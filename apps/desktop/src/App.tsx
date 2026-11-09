@@ -1,9 +1,19 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { App as AntApp } from 'antd';
 import { AntProvider, type Density, type ThemeMode } from '@api-workbench/ui';
-import type { ApiRequest, HttpMethod, NetworkMode } from './data/mock';
-import { allRequests } from './data/mock';
-import { listHistory, listRequests, saveRequest, type HistoryEntry, type SavedRequest } from './lib/api';
+import type { ApiFolder, ApiRequest, DataLevel, HttpMethod, NetworkMode } from './data/mock';
+import {
+  deleteCollection as apiDeleteCollection,
+  deleteRequest as apiDeleteRequest,
+  listCollections,
+  listHistory,
+  listRequests,
+  saveCollection as apiSaveCollection,
+  saveRequest,
+  type Collection,
+  type HistoryEntry,
+  type SavedRequest,
+} from './lib/api';
 import type { RequestContext } from './lib/docTask';
 import {
   collectLocalDocuments,
@@ -42,6 +52,20 @@ function readStoredDensity(): Density {
   return 'default';
 }
 
+function toApiRequest(saved: SavedRequest): ApiRequest {
+  const prefix = '{{host}}';
+  const path = saved.url.startsWith(prefix) ? saved.url.slice(prefix.length) : saved.url;
+  return {
+    id: saved.id,
+    name: saved.name,
+    method: saved.method as HttpMethod,
+    path,
+    dataLevel: (saved.dataLevel as DataLevel) ?? 'L1',
+    updatedAt: saved.updatedAt ?? '',
+    collectionId: saved.collectionId,
+  };
+}
+
 export function App() {
   const [session, setSession] = useState<Session | null>(readSession);
   const [mode, setMode] = useState<ThemeMode>(readStoredMode);
@@ -52,6 +76,7 @@ export function App() {
   const [openTabIds, setOpenTabIds] = useState<string[]>(initialOpenTabs);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [savedRequests, setSavedRequests] = useState<SavedRequest[]>([]);
+  const [collections, setCollections] = useState<Collection[]>([]);
   const [requestContext, setRequestContext] = useState<RequestContext | null>(null);
   const [teamSnapshot, setTeamSnapshot] = useState<TeamSnapshot | null>(readTeamSnapshot);
   const [syncNonce, setSyncNonce] = useState(0);
@@ -79,6 +104,13 @@ export function App() {
       .catch(() => {
         // 已保存请求加载失败不阻断主流程。
       });
+    listCollections()
+      .then((entries) => {
+        if (alive) setCollections(entries);
+      })
+      .catch(() => {
+        // 集合加载失败不阻断主流程。
+      });
     return () => {
       alive = false;
     };
@@ -95,14 +127,49 @@ export function App() {
     return () => window.removeEventListener('keydown', handleHotkey);
   }, []);
 
+  const folders: ApiFolder[] = useMemo(
+    () =>
+      collections.map((collection) => ({
+        id: collection.id,
+        name: collection.name,
+        requests: savedRequests
+          .filter((request) => (request.collectionId ?? 'payment') === collection.id)
+          .map(toApiRequest),
+      })),
+    [collections, savedRequests],
+  );
+
+  const allRequests = useMemo(
+    () => folders.flatMap((folder) => folder.requests),
+    [folders],
+  );
+
+  const emptyRequest: ApiRequest = {
+    id: '',
+    method: 'GET',
+    path: '/',
+    name: '暂无请求',
+    dataLevel: 'L1',
+    updatedAt: '',
+  };
+
   const activeRequest =
-    allRequests.find((request) => request.id === activeRequestId) ?? allRequests[0];
+    allRequests.find((request) => request.id === activeRequestId) ??
+    allRequests[0] ??
+    emptyRequest;
   const activeSaved =
-    savedRequests.find((request) => request.id === activeRequestId) ?? null;
+    savedRequests.find((request) => request.id === activeRequest.id) ?? null;
 
   const openTabs = openTabIds
     .map((id) => allRequests.find((request) => request.id === id))
     .filter((request): request is ApiRequest => Boolean(request));
+
+  useEffect(() => {
+    if (allRequests.length === 0) return;
+    if (!allRequests.some((request) => request.id === activeRequestId)) {
+      setActiveRequestId(allRequests[0].id);
+    }
+  }, [allRequests, activeRequestId]);
 
   function toggleMode() {
     const next = mode === 'light' ? 'dark' : 'light';
@@ -151,12 +218,76 @@ export function App() {
     });
   }
 
+  async function refreshWorkspace() {
+    try {
+      const [nextCollections, nextSaved] = await Promise.all([
+        listCollections(),
+        listRequests(),
+      ]);
+      setCollections(nextCollections);
+      setSavedRequests(nextSaved);
+    } catch {
+      // 忽略刷新失败，保持当前视图。
+    }
+  }
+
   function refreshSaved() {
-    listRequests()
-      .then(setSavedRequests)
-      .catch(() => {
-        // 忽略已保存请求刷新失败。
-      });
+    void refreshWorkspace();
+  }
+
+  async function handleCreateCollection(name: string) {
+    await apiSaveCollection({
+      id: `collection-${Date.now().toString(36)}`,
+      name,
+      sort: collections.length,
+    });
+    await refreshWorkspace();
+  }
+
+  async function handleRenameCollection(id: string, name: string) {
+    const existing = collections.find((collection) => collection.id === id);
+    if (!existing) return;
+    await apiSaveCollection({ ...existing, name });
+    await refreshWorkspace();
+  }
+
+  async function handleDeleteCollection(id: string) {
+    await apiDeleteCollection(id);
+    setOpenTabIds((current) => current.filter((tabId) => tabId !== activeRequestId));
+    await refreshWorkspace();
+  }
+
+  async function handleCreateRequest(collectionId: string) {
+    const id = `request-${Date.now().toString(36)}`;
+    const created = await saveRequest({
+      id,
+      name: '新建请求',
+      method: 'GET',
+      url: '{{host}}/v1/new',
+      headers: [],
+      body: null,
+      dataLevel: 'L1',
+      collectionId,
+      updatedAt: null,
+    });
+    await refreshWorkspace();
+    setActiveRequestId(created.id);
+    setOpenTabIds((current) =>
+      current.includes(created.id) ? current : [...current, created.id],
+    );
+  }
+
+  async function handleRenameRequest(id: string, name: string) {
+    const existing = savedRequests.find((request) => request.id === id);
+    if (!existing) return;
+    await saveRequest({ ...existing, name });
+    await refreshWorkspace();
+  }
+
+  async function handleDeleteRequest(id: string) {
+    await apiDeleteRequest(id);
+    setOpenTabIds((current) => current.filter((tabId) => tabId !== id));
+    await refreshWorkspace();
   }
 
   function handleSignOut() {
@@ -225,6 +356,7 @@ export function App() {
           <div className="workspace">
             <Sidebar
               activeRequestId={activeRequestId}
+              folders={folders}
               history={history}
               savedRequests={savedRequests}
               environment={environment}
@@ -237,6 +369,12 @@ export function App() {
               onPush={handlePush}
               onPull={handlePull}
               onMerged={handleMerged}
+              onCreateCollection={handleCreateCollection}
+              onRenameCollection={handleRenameCollection}
+              onDeleteCollection={handleDeleteCollection}
+              onCreateRequest={handleCreateRequest}
+              onRenameRequest={handleRenameRequest}
+              onDeleteRequest={handleDeleteRequest}
             />
             <RequestPanel
               activeRequest={activeRequest}
@@ -245,6 +383,7 @@ export function App() {
               saved={activeSaved}
               environment={environment}
               actor={session.account}
+              collectionId={activeRequest.collectionId ?? 'payment'}
               onSelectTab={selectTab}
               onCloseTab={closeTab}
               onHistoryRecorded={refreshHistory}

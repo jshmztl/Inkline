@@ -11,8 +11,13 @@ import {
   SearchOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
-import { App, Button, Modal, Segmented, Tooltip } from 'antd';
-import { environmentVariables, environments, folders, type ApiRequest } from '../data/mock';
+import { App, Button, Dropdown, Input, Modal, Segmented, Tooltip } from 'antd';
+import {
+  environmentVariables,
+  environments,
+  type ApiFolder,
+  type ApiRequest,
+} from '../data/mock';
 import { saveRequest, type HistoryEntry, type SavedRequest } from '../lib/api';
 import { recordAudit } from '../lib/audit';
 import { planThreeWayMerge } from '../lib/merge';
@@ -28,6 +33,7 @@ import { MethodTag } from './MethodTag';
 
 interface SidebarProps {
   activeRequestId: string;
+  folders: ApiFolder[];
   history: HistoryEntry[];
   savedRequests: SavedRequest[];
   environment: string;
@@ -40,6 +46,12 @@ interface SidebarProps {
   onPush: () => TeamSnapshot;
   onPull: () => Promise<{ snapshot: TeamSnapshot; pulled: number } | null>;
   onMerged: () => void;
+  onCreateCollection: (name: string) => Promise<void>;
+  onRenameCollection: (id: string, name: string) => Promise<void>;
+  onDeleteCollection: (id: string) => Promise<void>;
+  onCreateRequest: (collectionId: string) => Promise<void>;
+  onRenameRequest: (id: string, name: string) => Promise<void>;
+  onDeleteRequest: (id: string) => Promise<void>;
 }
 
 function shortUrl(url: string) {
@@ -61,6 +73,7 @@ function formatSavedAt(value: string | null | undefined) {
 
 export function Sidebar({
   activeRequestId,
+  folders,
   history,
   savedRequests,
   environment,
@@ -73,8 +86,14 @@ export function Sidebar({
   onPush,
   onPull,
   onMerged,
+  onCreateCollection,
+  onRenameCollection,
+  onDeleteCollection,
+  onCreateRequest,
+  onRenameRequest,
+  onDeleteRequest,
 }: SidebarProps) {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [query, setQuery] = useState('');
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [syncing, setSyncing] = useState<'push' | 'pull' | null>(null);
@@ -82,6 +101,55 @@ export function Sidebar({
   const [lastSync, setLastSync] = useState<string | null>(null);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [decisions, setDecisions] = useState<Record<string, 'local' | 'remote'>>({});
+  const [editor, setEditor] = useState<{
+    mode: 'create' | 'rename-collection' | 'rename-request';
+    id?: string;
+    value: string;
+  } | null>(null);
+
+  async function submitEditor() {
+    if (!editor) return;
+    const name = editor.value.trim();
+    if (!name) {
+      message.warning('名称不能为空');
+      return;
+    }
+    try {
+      if (editor.mode === 'create') {
+        await onCreateCollection(name);
+      } else if (editor.mode === 'rename-collection' && editor.id) {
+        await onRenameCollection(editor.id, name);
+      } else if (editor.mode === 'rename-request' && editor.id) {
+        await onRenameRequest(editor.id, name);
+      }
+      setEditor(null);
+      message.success('已保存');
+    } catch {
+      message.error('保存失败，请稍后重试');
+    }
+  }
+
+  function confirmDeleteRequest(request: ApiRequest) {
+    modal.confirm({
+      title: '删除请求',
+      content: `确定删除「${request.name}」？`,
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: () => onDeleteRequest(request.id),
+    });
+  }
+
+  function confirmDeleteCollection(folder: ApiFolder) {
+    modal.confirm({
+      title: '删除集合',
+      content: `将删除「${folder.name}」及其 ${folder.requests.length} 个请求。`,
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: () => onDeleteCollection(folder.id),
+    });
+  }
 
   const plan = useMemo(() => {
     if (!mergeOpen) return null;
@@ -189,7 +257,7 @@ export function Sidebar({
         ),
       }))
       .filter((folder) => folder.requests.length > 0);
-  }, [query]);
+  }, [folders, query]);
 
   return (
     <aside className="sidebar">
@@ -205,6 +273,7 @@ export function Sidebar({
             icon={<PlusOutlined />}
             className="sidebar-icon-btn"
             aria-label="新建集合"
+            onClick={() => setEditor({ mode: 'create', value: '' })}
           />
         </Tooltip>
       </div>
@@ -223,59 +292,107 @@ export function Sidebar({
       <div className="sidebar-section">
         <div className="sidebar-section-head">
           <span>集合</span>
-          <span className="sidebar-count">7</span>
+          <span className="sidebar-count">{folders.length}</span>
         </div>
 
         {filtered.map((folder) => {
           const isCollapsed = collapsed[folder.id] ?? false;
           return (
             <div className="folder" key={folder.id}>
-              <button
-                type="button"
-                className="folder-head"
-                aria-expanded={!isCollapsed}
-                onClick={() =>
-                  setCollapsed((current) => ({ ...current, [folder.id]: !isCollapsed }))
-                }
+              <Dropdown
+                trigger={['contextMenu']}
+                menu={{
+                  items: [
+                    { key: 'new', label: '新建请求', icon: <PlusOutlined /> },
+                    { key: 'rename', label: '重命名集合' },
+                    { type: 'divider' },
+                    { key: 'delete', label: '删除集合', danger: true },
+                  ],
+                  onClick: ({ key, domEvent }) => {
+                    domEvent.stopPropagation();
+                    if (key === 'new') onCreateRequest(folder.id);
+                    if (key === 'rename') {
+                      setEditor({
+                        mode: 'rename-collection',
+                        id: folder.id,
+                        value: folder.name,
+                      });
+                    }
+                    if (key === 'delete') confirmDeleteCollection(folder);
+                  },
+                }}
               >
-                <DownOutlined
-                  className={`folder-caret${isCollapsed ? ' collapsed' : ''}`}
-                />
-                <FolderOpenOutlined />
-                <span>{folder.name}</span>
-                <em>{folder.requests.length}</em>
-              </button>
+                <button
+                  type="button"
+                  className="folder-head"
+                  aria-expanded={!isCollapsed}
+                  onClick={() =>
+                    setCollapsed((current) => ({ ...current, [folder.id]: !isCollapsed }))
+                  }
+                >
+                  <DownOutlined
+                    className={`folder-caret${isCollapsed ? ' collapsed' : ''}`}
+                  />
+                  <FolderOpenOutlined />
+                  <span>{folder.name}</span>
+                  <em>{folder.requests.length}</em>
+                </button>
+              </Dropdown>
 
               {!isCollapsed && (
                 <div className="folder-body">
                   {folder.requests.map((request) => {
                     const saved = savedMap.get(request.id);
                     return (
-                      <button
+                      <Dropdown
                         key={request.id}
-                        type="button"
-                        className={`request-row${
-                          request.id === activeRequestId ? ' active' : ''
-                        }`}
-                        onClick={() => onSelectRequest(request)}
-                        title={request.name}
+                        trigger={['contextMenu']}
+                        menu={{
+                          items: [
+                            { key: 'new', label: '新建请求', icon: <PlusOutlined /> },
+                            { key: 'rename', label: '重命名请求' },
+                            { type: 'divider' },
+                            { key: 'delete', label: '删除请求', danger: true },
+                          ],
+                          onClick: ({ key: action, domEvent }) => {
+                            domEvent.stopPropagation();
+                            if (action === 'new') onCreateRequest(folder.id);
+                            if (action === 'rename') {
+                              setEditor({
+                                mode: 'rename-request',
+                                id: request.id,
+                                value: request.name,
+                              });
+                            }
+                            if (action === 'delete') confirmDeleteRequest(request);
+                          },
+                        }}
                       >
-                        <MethodTag method={request.method} />
-                        <span className="request-path">{request.path}</span>
-                        {saved && (
-                          <span
-                            className="saved-flag"
-                            title={`已保存 · ${formatSavedAt(saved.updatedAt)}`}
-                          >
-                            <CheckCircleFilled />
-                          </span>
-                        )}
-                        {request.dataLevel === 'L3' && (
-                          <span className="request-lock" title="L3 涉密">
-                            L3
-                          </span>
-                        )}
-                      </button>
+                        <button
+                          type="button"
+                          className={`request-row${
+                            request.id === activeRequestId ? ' active' : ''
+                          }`}
+                          onClick={() => onSelectRequest(request)}
+                          title={`${request.name} · ${request.path}`}
+                        >
+                          <MethodTag method={request.method} />
+                          <span className="request-path">{request.name}</span>
+                          {saved && (
+                            <span
+                              className="saved-flag"
+                              title={`已保存 · ${formatSavedAt(saved.updatedAt)}`}
+                            >
+                              <CheckCircleFilled />
+                            </span>
+                          )}
+                          {request.dataLevel === 'L3' && (
+                            <span className="request-lock" title="L3 涉密">
+                              L3
+                            </span>
+                          )}
+                        </button>
+                      </Dropdown>
                     );
                   })}
                 </div>
@@ -387,7 +504,17 @@ export function Sidebar({
       </div>
 
       <div className="sidebar-foot">
-        <button type="button" className="sidebar-foot-btn">
+        <button
+          type="button"
+          className="sidebar-foot-btn"
+          onClick={() => {
+            const activeFolder = folders.find((folder) =>
+              folder.requests.some((request) => request.id === activeRequestId),
+            );
+            const target = activeFolder?.id ?? folders[0]?.id;
+            if (target) onCreateRequest(target);
+          }}
+        >
           <PlusOutlined />
           新建请求
         </button>
@@ -496,6 +623,32 @@ export function Sidebar({
             <p className="merge-note">本地变更会保留，可在合并后再次推送。</p>
           </div>
         )}
+      </Modal>
+      <Modal
+        open={editor !== null}
+        title={
+          editor?.mode === 'create'
+            ? '新建集合'
+            : editor?.mode === 'rename-collection'
+              ? '重命名集合'
+              : '重命名请求'
+        }
+        width={380}
+        okText="保存"
+        cancelText="取消"
+        onCancel={() => setEditor(null)}
+        onOk={submitEditor}
+      >
+        <Input
+          autoFocus
+          value={editor?.value ?? ''}
+          onChange={(event) =>
+            setEditor((current) => (current ? { ...current, value: event.target.value } : current))
+          }
+          onPressEnter={submitEditor}
+          placeholder="名称"
+          aria-label="名称"
+        />
       </Modal>
     </aside>
   );

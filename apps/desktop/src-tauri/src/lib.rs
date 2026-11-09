@@ -26,8 +26,13 @@ pub fn run() {
             http::send_http_request,
             db::save_request,
             db::list_requests,
+            db::delete_request,
+            db::list_collections,
+            db::save_collection,
+            db::delete_collection,
             db::record_history,
-            db::list_history
+            db::list_history,
+            db::clear_history
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
