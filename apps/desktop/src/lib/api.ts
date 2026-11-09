@@ -22,6 +22,7 @@ export interface MultipartField {
 }
 
 export interface SendRequestPayload {
+  id?: string;
   method: string;
   url: string;
   headers: HeaderPair[];
@@ -193,6 +194,12 @@ export async function sendHttpRequest(
 
   await new Promise((resolve) => window.setTimeout(resolve, 520));
   return mockResponse(payload);
+}
+
+export async function cancelHttpRequest(id: string): Promise<void> {
+  if (isTauri) {
+    await invoke('cancel_http_request', { id });
+  }
 }
 
 export async function recordHistory(entry: HistoryEntry): Promise<HistoryEntry> {

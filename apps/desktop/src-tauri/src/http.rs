@@ -1,11 +1,18 @@
+use std::collections::HashMap;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use reqwest::multipart::{Form, Part};
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
+use tauri::State;
+use tokio::sync::oneshot;
 
 use crate::model::HeaderPair;
+
+#[derive(Default)]
+pub struct CancelState(pub Mutex<HashMap<String, oneshot::Sender<()>>>);
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,6 +27,7 @@ pub struct MultipartField {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SendRequestPayload {
+    pub id: Option<String>,
     pub method: String,
     pub url: String,
     #[serde(default)]
@@ -41,7 +49,10 @@ pub struct SendResponse {
 }
 
 #[tauri::command]
-pub async fn send_http_request(payload: SendRequestPayload) -> Result<SendResponse, String> {
+pub async fn send_http_request(
+    payload: SendRequestPayload,
+    cancel: State<'_, CancelState>,
+) -> Result<SendResponse, String> {
     let url = reqwest::Url::parse(&payload.url).map_err(|error| format!("URL 无效：{error}"))?;
     if !matches!(url.scheme(), "http" | "https") {
         return Err("仅支持 http/https 请求".to_string());
@@ -100,32 +111,72 @@ pub async fn send_http_request(payload: SendRequestPayload) -> Result<SendRespon
     }
 
     let started = Instant::now();
-    let response = request
-        .send()
-        .await
-        .map_err(|error| format!("请求失败：{error}"))?;
+    let request_id = payload.id.clone();
+    let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
 
-    let status = response.status();
-    let headers = response
-        .headers()
-        .iter()
-        .map(|(name, value)| HeaderPair {
-            name: name.to_string(),
-            value: value.to_str().unwrap_or("").to_string(),
+    if let Some(id) = &request_id {
+        cancel
+            .0
+            .lock()
+            .map_err(|error| error.to_string())?
+            .insert(id.clone(), cancel_tx);
+    }
+
+    let work = async {
+        let response = request
+            .send()
+            .await
+            .map_err(|error| format!("请求失败：{error}"))?;
+
+        let status = response.status();
+        let headers = response
+            .headers()
+            .iter()
+            .map(|(name, value)| HeaderPair {
+                name: name.to_string(),
+                value: value.to_str().unwrap_or("").to_string(),
+            })
+            .collect();
+        let body = response
+            .text()
+            .await
+            .map_err(|error| format!("读取响应失败：{error}"))?;
+        let size_bytes = body.len();
+
+        Ok::<SendResponse, String>(SendResponse {
+            status: status.as_u16(),
+            status_text: status.canonical_reason().unwrap_or("").to_string(),
+            headers,
+            body,
+            duration_ms: started.elapsed().as_millis() as u64,
+            size_bytes,
         })
-        .collect();
-    let body = response
-        .text()
-        .await
-        .map_err(|error| format!("读取响应失败：{error}"))?;
-    let size_bytes = body.len();
+    };
 
-    Ok(SendResponse {
-        status: status.as_u16(),
-        status_text: status.canonical_reason().unwrap_or("").to_string(),
-        headers,
-        body,
-        duration_ms: started.elapsed().as_millis() as u64,
-        size_bytes,
-    })
+    let result = if request_id.is_some() {
+        tokio::select! {
+            result = work => result,
+            _ = cancel_rx => Err("请求已取消".to_string()),
+        }
+    } else {
+        work.await
+    };
+
+    if let Some(id) = &request_id {
+        if let Ok(mut pending) = cancel.0.lock() {
+            pending.remove(id);
+        }
+    }
+
+    result
+}
+
+#[tauri::command]
+pub fn cancel_http_request(cancel: State<'_, CancelState>, id: String) -> Result<(), String> {
+    if let Ok(mut pending) = cancel.0.lock() {
+        if let Some(sender) = pending.remove(&id) {
+            let _ = sender.send(());
+        }
+    }
+    Ok(())
 }

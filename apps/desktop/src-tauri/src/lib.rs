@@ -12,6 +12,7 @@ pub fn run() {
         .setup(|app| {
             let connection = db::open(app.handle())?;
             app.manage(db::DbState(Mutex::new(connection)));
+            app.manage(http::CancelState::default());
 
             #[cfg(desktop)]
             {
@@ -24,6 +25,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             http::send_http_request,
+            http::cancel_http_request,
             db::save_request,
             db::list_requests,
             db::delete_request,

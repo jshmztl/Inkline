@@ -21,6 +21,7 @@ import { headerRows as initialHeaders, queryParams as initialParams, requestBody
 import { recordAudit } from '../lib/audit';
 import { enqueueTask } from '../lib/queue';
 import {
+  cancelHttpRequest,
   recordHistory,
   saveRequest,
   sendHttpRequest,
@@ -251,6 +252,8 @@ export function RequestPanel({
   const [draftMessage, setDraftMessage] = useState('');
   const socketRef = useRef<WebSocketHandle | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const pendingRequestId = useRef<string | null>(null);
+  const cancelledRef = useRef(false);
   const [sending, setSending] = useState(false);
   const [response, setResponse] = useState<SendResponse>(demoResponse);
   const [error, setError] = useState<string | null>(null);
@@ -522,6 +525,7 @@ export function RequestPanel({
   }
 
   async function handleSend() {
+    if (sending) return;
     const paramPairs = params
       .filter((row) => row.enabled && row.key.trim())
       .map((row) => ({
@@ -685,6 +689,9 @@ export function RequestPanel({
 
     setSending(true);
     setError(null);
+    const requestId = `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    pendingRequestId.current = requestId;
+    cancelledRef.current = false;
     const started = performance.now();
 
     const multipartPayload =
@@ -712,6 +719,7 @@ export function RequestPanel({
 
     try {
       const result = await sendHttpRequest({
+        id: requestId,
         method: effectiveMethod,
         url: finalUrl,
         headers: finalHeaders,
@@ -723,6 +731,11 @@ export function RequestPanel({
         multipart: multipartPayload,
         timeoutMs,
       });
+
+      if (cancelledRef.current) {
+        setFeedback('请求已取消');
+        return;
+      }
 
       setResponse(result);
       setFeedback(`请求完成 · ${result.status} ${result.statusText}`);
@@ -753,6 +766,11 @@ export function RequestPanel({
       });
     } catch (caught) {
       const text = caught instanceof Error ? caught.message : String(caught);
+      if (cancelledRef.current || text.includes('已取消')) {
+        setError(null);
+        setFeedback('请求已取消');
+        return;
+      }
       setError(text);
       setFeedback('请求失败 · 已加入离线队列');
       message.error({ content: '请求失败，已加入离线队列', duration: 2.2 });
@@ -790,10 +808,18 @@ export function RequestPanel({
         // 历史写入失败不影响错误提示。
       }
     } finally {
+      pendingRequestId.current = null;
       setSending(false);
       onHistoryRecorded();
       window.setTimeout(() => setFeedback(null), 3000);
     }
+  }
+
+  async function cancelSend() {
+    if (!pendingRequestId.current) return;
+    cancelledRef.current = true;
+    await cancelHttpRequest(pendingRequestId.current);
+    setFeedback('已取消请求');
   }
 
   const sendRef = useRef(handleSend);
@@ -947,11 +973,19 @@ export function RequestPanel({
           >
             {connected ? '断开' : '连接'}
           </Button>
+        ) : sending ? (
+          <Button
+            danger
+            icon={<CloseCircleOutlined />}
+            onClick={cancelSend}
+            className="send-button"
+          >
+            取消
+          </Button>
         ) : (
           <Button
             type="primary"
             icon={<SendOutlined />}
-            loading={sending}
             onClick={handleSend}
             className="send-button"
           >
