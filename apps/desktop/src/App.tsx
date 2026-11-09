@@ -17,7 +17,7 @@ import {
   type SavedRequest,
 } from './lib/api';
 import type { RequestContext } from './lib/docTask';
-import { listEnvironments, saveEnvironmentVariables } from './lib/envStore';
+import { listEnvironments, saveEnvironmentVariables, writeEnvironments } from './lib/envStore';
 import { parseImport } from './lib/importer';
 import {
   collectLocalDocuments,
@@ -75,7 +75,7 @@ export function App() {
   const [mode, setMode] = useState<ThemeMode>(readStoredMode);
   const [density, setDensity] = useState<Density>(readStoredDensity);
   const [networkMode, setNetworkMode] = useState<NetworkMode>('B');
-  const [environment, setEnvironment] = useState('local');
+  const [environment, setEnvironment] = useState('');
   const [workspaceEnvs, setWorkspaceEnvs] = useState(listEnvironments);
   const [activeRequestId, setActiveRequestId] = useState('');
   const [openTabIds, setOpenTabIds] = useState<string[]>([]);
@@ -166,6 +166,16 @@ export function App() {
     () => workspaceEnvs.find((item) => item.value === environment)?.variables ?? {},
     [workspaceEnvs, environment],
   );
+
+  useEffect(() => {
+    if (workspaceEnvs.length === 0) {
+      if (environment) setEnvironment('');
+      return;
+    }
+    if (!workspaceEnvs.some((item) => item.value === environment)) {
+      setEnvironment(workspaceEnvs[0].value);
+    }
+  }, [workspaceEnvs, environment]);
 
   const emptyRequest: ApiRequest = {
     id: '',
@@ -375,8 +385,35 @@ export function App() {
   function handleSaveEnvironment(
     environmentValue: string,
     variables: Record<string, string>,
+    label?: string,
   ) {
-    setWorkspaceEnvs(saveEnvironmentVariables(environmentValue, variables));
+    if (!environmentValue) return;
+    setWorkspaceEnvs(saveEnvironmentVariables(environmentValue, variables, label));
+  }
+
+  function handleCreateEnvironment(
+    label: string,
+    variables: Record<string, string>,
+  ) {
+    const created = {
+      value: `env-${Date.now().toString(36)}`,
+      label,
+      variables,
+    };
+    const next = [...workspaceEnvs, created];
+    writeEnvironments(next);
+    setWorkspaceEnvs(next);
+    setEnvironment(created.value);
+    return created.value;
+  }
+
+  function handleDeleteEnvironment(value: string) {
+    const next = workspaceEnvs.filter((item) => item.value !== value);
+    writeEnvironments(next);
+    setWorkspaceEnvs(next);
+    if (environment === value) {
+      setEnvironment(next[0]?.value ?? '');
+    }
   }
 
   function handlePush() {
@@ -463,6 +500,8 @@ export function App() {
               onReplayHistory={replayHistory}
               onEnvironmentChange={setEnvironment}
               onSaveEnvironment={handleSaveEnvironment}
+              onCreateEnvironment={handleCreateEnvironment}
+              onDeleteEnvironment={handleDeleteEnvironment}
               onPush={handlePush}
               onPull={handlePull}
               onMerged={handleMerged}

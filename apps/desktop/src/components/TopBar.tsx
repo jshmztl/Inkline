@@ -189,6 +189,7 @@ export function TopBar({
           variant="borderless"
           value={environment}
           options={environments}
+          placeholder="未选择环境"
           onChange={onEnvironmentChange}
           popupMatchSelectWidth={false}
           className="environment-select"

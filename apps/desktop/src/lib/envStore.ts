@@ -6,28 +6,47 @@ export interface WorkspaceEnvironment {
 
 const STORAGE_KEY = 'aw-environments';
 
-const defaultEnvironments: WorkspaceEnvironment[] = [
-  { value: 'local', label: '本地环境', variables: {} },
-  { value: 'dev', label: '开发环境', variables: {} },
-  { value: 'staging', label: '预发环境', variables: {} },
-  { value: 'prod', label: '生产环境', variables: {} },
-];
+const legacyPresetHosts: Record<string, string> = {
+  local: 'http://127.0.0.1:8080',
+  dev: 'https://dev-api.internal',
+  staging: 'https://staging-api.internal',
+  prod: 'https://api.internal',
+};
+
+function isLegacyPreset(environment: WorkspaceEnvironment) {
+  const legacyHost = legacyPresetHosts[environment.value];
+  if (!legacyHost) return false;
+  const keys = Object.keys(environment.variables ?? {});
+  if (keys.length === 0) return true;
+  return environment.variables.host === legacyHost;
+}
+
+function sanitize(list: WorkspaceEnvironment[]) {
+  return list.filter((environment) => !isLegacyPreset(environment));
+}
 
 export function listEnvironments(): WorkspaceEnvironment[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as WorkspaceEnvironment[];
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as WorkspaceEnvironment[];
+    if (!Array.isArray(parsed)) return [];
+    const cleaned = sanitize(parsed);
+    if (cleaned.length !== parsed.length) {
+      writeEnvironments(cleaned);
     }
+    return cleaned;
   } catch {
-    // 解析失败时回退到默认环境。
+    return [];
   }
+}
 
-  return defaultEnvironments.map((item) => ({
-    ...item,
-    variables: { ...item.variables },
-  }));
+export function writeEnvironments(list: WorkspaceEnvironment[]) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+  } catch {
+    // 存储不可用时仅对本次会话生效。
+  }
 }
 
 export function readEnvironmentVariables(value: string): Record<string, string> {
@@ -38,14 +57,13 @@ export function readEnvironmentVariables(value: string): Record<string, string> 
 export function saveEnvironmentVariables(
   value: string,
   variables: Record<string, string>,
+  label?: string,
 ): WorkspaceEnvironment[] {
   const list = listEnvironments().map((item) =>
-    item.value === value ? { ...item, variables } : item,
+    item.value === value
+      ? { ...item, label: label?.trim() || item.label, variables }
+      : item,
   );
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-  } catch {
-    // 存储不可用时仅对本次会话生效。
-  }
+  writeEnvironments(list);
   return list;
 }

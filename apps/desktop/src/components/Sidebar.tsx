@@ -47,7 +47,9 @@ interface SidebarProps {
   onSelectRequest: (request: ApiRequest) => void;
   onReplayHistory: (entry: HistoryEntry) => void;
   onEnvironmentChange: (environment: string) => void;
-  onSaveEnvironment: (environment: string, variables: Record<string, string>) => void;
+  onSaveEnvironment: (environment: string, variables: Record<string, string>, label?: string) => void;
+  onCreateEnvironment: (label: string, variables: Record<string, string>) => string;
+  onDeleteEnvironment: (environment: string) => void;
   onPush: () => TeamSnapshot;
   onPull: () => Promise<{ snapshot: TeamSnapshot; pulled: number } | null>;
   onMerged: () => void;
@@ -94,6 +96,8 @@ export function Sidebar({
   onReplayHistory,
   onEnvironmentChange,
   onSaveEnvironment,
+  onCreateEnvironment,
+  onDeleteEnvironment,
   onPush,
   onPull,
   onMerged,
@@ -123,6 +127,7 @@ export function Sidebar({
     value: string;
   } | null>(null);
   const [envEditor, setEnvEditor] = useState<{
+    isNew: boolean;
     value: string;
     label: string;
     rows: { id: string; key: string; value: string }[];
@@ -169,6 +174,7 @@ export function Sidebar({
     const target = workspaceEnvironments.find((item) => item.value === value);
     if (!target) return;
     setEnvEditor({
+      isNew: false,
       value: target.value,
       label: target.label,
       rows: Object.entries(target.variables).map(([key, val], index) => ({
@@ -176,6 +182,26 @@ export function Sidebar({
         key,
         value: val,
       })),
+    });
+  }
+
+  function openNewEnvEditor() {
+    setEnvEditor({
+      isNew: true,
+      value: '',
+      label: `环境 ${workspaceEnvironments.length + 1}`,
+      rows: [{ id: `env-${Date.now().toString(36)}`, key: 'host', value: '' }],
+    });
+  }
+
+  function confirmDeleteEnvironment(value: string, label: string) {
+    modal.confirm({
+      title: '删除环境',
+      content: `确定删除「${label}」及其变量？`,
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: () => onDeleteEnvironment(value),
     });
   }
 
@@ -192,15 +218,25 @@ export function Sidebar({
 
   function submitEnvEditor() {
     if (!envEditor) return;
+    const label = envEditor.label.trim();
+    if (!label) {
+      message.warning('环境名称不能为空');
+      return;
+    }
     const variables: Record<string, string> = {};
     for (const row of envEditor.rows) {
       const key = row.key.trim();
       if (!key) continue;
       variables[key] = row.value;
     }
-    onSaveEnvironment(envEditor.value, variables);
+    if (envEditor.isNew) {
+      onCreateEnvironment(label, variables);
+      message.success(`已创建「${label}」`);
+    } else {
+      onSaveEnvironment(envEditor.value, variables, label);
+      message.success(`已保存「${label}」`);
+    }
     setEnvEditor(null);
-    message.success(`已保存「${envEditor.label}」变量`);
   }
 
   async function submitEditor() {
@@ -555,23 +591,53 @@ export function Sidebar({
       <div className="sidebar-section">
         <div className="sidebar-section-head">
           <span>环境</span>
-          <span className="sidebar-count">{workspaceEnvironments.length}</span>
+          <span className="sidebar-head-actions">
+            <span className="sidebar-count">{workspaceEnvironments.length}</span>
+            <Tooltip title="新增环境">
+              <Button
+                type="text"
+                size="small"
+                className="sidebar-icon-btn"
+                icon={<PlusOutlined />}
+                aria-label="新增环境"
+                onClick={openNewEnvEditor}
+              />
+            </Tooltip>
+          </span>
         </div>
+        {workspaceEnvironments.length === 0 && (
+          <p className="sidebar-empty">暂无环境，点击 + 新增。</p>
+        )}
         {workspaceEnvironments.map((item) => {
           const host = item.variables.host ?? '';
           return (
-            <button
+            <Dropdown
               key={item.value}
-              type="button"
-              className={`environment-row${item.value === environment ? ' active' : ''}`}
-              onClick={() => onEnvironmentChange(item.value)}
-              onDoubleClick={() => openEnvEditor(item.value)}
-              title={`${host} · 双击编辑变量`}
+              trigger={['contextMenu']}
+              menu={{
+                items: [
+                  { key: 'edit', label: '编辑变量' },
+                  { key: 'delete', label: '删除环境', danger: true },
+                ],
+                onClick: ({ key, domEvent }) => {
+                  domEvent.stopPropagation();
+                  if (key === 'edit') openEnvEditor(item.value);
+                  if (key === 'delete') confirmDeleteEnvironment(item.value, item.label);
+                },
+              }}
             >
-              <i />
-              <span>{item.label}</span>
-              <em>{host.replace(/^https?:\/\//, '')}</em>
-            </button>
+              <button
+                type="button"
+                className={`environment-row${item.value === environment ? ' active' : ''}`}
+                onClick={() => onEnvironmentChange(item.value)}
+                onDoubleClick={() => openEnvEditor(item.value)}
+                title={`${host || '未设置 host'} · 双击编辑变量`}
+              >
+                <i />
+                <span>{item.label}</span>
+                <em>{host.replace(/^https?:\/\//, '')}</em>
+              </button>
+            </Dropdown>
           );
         })}
       </div>
@@ -716,7 +782,9 @@ export function Sidebar({
             icon={<SettingOutlined />}
             className="sidebar-icon-btn"
             aria-label="设置"
-            onClick={() => openEnvEditor(environment)}
+            onClick={() =>
+              environment ? openEnvEditor(environment) : openNewEnvEditor()
+            }
           />
         </Tooltip>
       </div>
@@ -845,7 +913,7 @@ export function Sidebar({
 
       <Modal
         open={envEditor !== null}
-        title={`环境变量 · ${envEditor?.label ?? ''}`}
+        title={envEditor?.isNew ? '新增环境' : `环境设置 · ${envEditor?.label ?? ''}`}
         width={520}
         okText="保存"
         cancelText="取消"
@@ -853,6 +921,20 @@ export function Sidebar({
         onOk={submitEnvEditor}
       >
         <div className="env-editor">
+          <div className="env-editor-name">
+            <span>名称</span>
+            <Input
+              size="small"
+              value={envEditor?.label ?? ''}
+              placeholder="开发环境"
+              aria-label="环境名称"
+              onChange={(event) =>
+                setEnvEditor((current) =>
+                  current ? { ...current, label: event.target.value } : current,
+                )
+              }
+            />
+          </div>
           <p className="env-editor-hint">
             在 URL、Headers、Body 中使用 <code>{'{{变量名}}'}</code> 引用，例如{' '}
             <code>{'{{host}}/v1/orders'}</code>。
