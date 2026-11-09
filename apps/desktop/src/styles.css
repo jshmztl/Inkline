@@ -273,9 +273,9 @@ html[data-theme='dark'] .sidebar {
   --side-row: #aeb9c8;
   --side-row-hover: #e2e8f0;
   --side-hover: rgba(255, 255, 255, 0.045);
-  --side-active-bg: rgba(129, 140, 248, 0.16);
+  --side-active-bg: rgba(127, 158, 243, 0.14);
   --side-active-ink: #f1f5fb;
-  --side-accent: #818cf8;
+  --side-accent: #7f9ef3;
 }
 
 .sidebar-head {
@@ -3277,7 +3277,7 @@ html[data-theme='dark'] .ai-panel .ai-bubble-end .ant-bubble-content {
 
 .login-points .anticon {
   margin-top: 2px;
-  color: #818cf8;
+  color: #7f9ef3;
   font-size: 15px;
 }
 

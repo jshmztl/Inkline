@@ -51,15 +51,15 @@ export const densityControlHeight: Record<Density, number> = {
 };
 
 const lightColors = {
-  primary: '#4F46E5',
-  primaryHover: '#6366F1',
-  primaryActive: '#4338CA',
-  primaryBg: '#EEF0FF',
-  primaryBorder: '#C7C9FC',
+  primary: '#2B4ACB',
+  primaryHover: '#2F54EB',
+  primaryActive: '#1D39C4',
+  primaryBg: '#EDF1FD',
+  primaryBorder: '#ADC6FF',
 
-  accent2: '#8B5CF6',
-  accent2Bg: '#F4EEFF',
-  accent2Border: '#DDCCFF',
+  accent2: '#2F54EB',
+  accent2Bg: '#EDF1FD',
+  accent2Border: '#ADC6FF',
 
   success: '#0E9F6E',
   successBg: '#E8FAF3',
@@ -105,15 +105,15 @@ const lightColors = {
 } as const;
 
 const darkColors: Record<keyof typeof lightColors, string> = {
-  primary: '#818CF8',
-  primaryHover: '#A5B4FC',
-  primaryActive: '#6366F1',
-  primaryBg: '#232452',
-  primaryBorder: '#4F46E5',
+  primary: '#7F9EF3',
+  primaryHover: '#A8C1F8',
+  primaryActive: '#5273E0',
+  primaryBg: '#1D2A4D',
+  primaryBorder: '#3E5FCB',
 
-  accent2: '#A78BFA',
-  accent2Bg: '#2A2048',
-  accent2Border: '#6D4FD0',
+  accent2: '#A8C1F8',
+  accent2Bg: '#1D2A4D',
+  accent2Border: '#3E5FCB',
 
   success: '#34D399',
   successBg: '#10291F',
@@ -282,8 +282,8 @@ export function getThemeConfig(mode: ThemeMode, density: Density = 'default'): T
         fontWeight: 600,
         primaryShadow:
           mode === 'dark'
-            ? '0 4px 14px rgba(129, 140, 248, 0.28)'
-            : '0 4px 12px rgba(79, 70, 229, 0.22)',
+            ? '0 4px 14px rgba(127, 158, 243, 0.26)'
+            : '0 4px 12px rgba(43, 74, 203, 0.22)',
         defaultShadow: 'none',
         defaultBorderColor: c.lineStrong,
         defaultColor: c.ink2,
@@ -384,7 +384,7 @@ export function getCssVars(
     '--aw-accent-2-soft': c.accent2Bg,
     '--aw-accent-gradient': `linear-gradient(135deg, ${c.primary} 0%, ${c.accent2} 100%)`,
     '--aw-accent-glow':
-      mode === 'dark' ? 'rgba(129, 140, 248, 0.22)' : 'rgba(79, 70, 229, 0.16)',
+      mode === 'dark' ? 'rgba(127, 158, 243, 0.24)' : 'rgba(43, 74, 203, 0.18)',
 
     '--aw-success': c.success,
     '--aw-success-soft': c.successBg,
