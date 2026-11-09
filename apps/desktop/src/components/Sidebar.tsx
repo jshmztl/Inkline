@@ -7,6 +7,7 @@ import {
   CopyOutlined,
   DeleteOutlined,
   DownOutlined,
+  EditOutlined,
   FolderOpenOutlined,
   ImportOutlined,
   MergeCellsOutlined,
@@ -481,6 +482,7 @@ export function Sidebar({
           const isCollapsed = collapsed[folder.id] ?? false;
           return (
             <div className="folder" key={folder.id}>
+              <div className="folder-head-wrap">
               <Dropdown
                 trigger={['contextMenu']}
                 menu={{
@@ -515,6 +517,14 @@ export function Sidebar({
                   onClick={() =>
                     setCollapsed((current) => ({ ...current, [folder.id]: !isCollapsed }))
                   }
+                  onDoubleClick={() =>
+                    setEditor({
+                      mode: 'rename-collection',
+                      id: folder.id,
+                      value: folder.name,
+                    })
+                  }
+                  title="双击重命名集合"
                 >
                   <DownOutlined
                     className={`folder-caret${isCollapsed ? ' collapsed' : ''}`}
@@ -524,14 +534,31 @@ export function Sidebar({
                   <em>{folder.requests.length}</em>
                 </button>
               </Dropdown>
+                <Tooltip title="重命名集合">
+                  <button
+                    type="button"
+                    className="row-edit"
+                    aria-label={`重命名集合 ${folder.name}`}
+                    onClick={() =>
+                      setEditor({
+                        mode: 'rename-collection',
+                        id: folder.id,
+                        value: folder.name,
+                      })
+                    }
+                  >
+                    <EditOutlined />
+                  </button>
+                </Tooltip>
+              </div>
 
               {!isCollapsed && (
                 <div className="folder-body">
                   {folder.requests.map((request) => {
                     const saved = savedMap.get(request.id);
                     return (
+                      <div className="request-row-wrap" key={request.id}>
                       <Dropdown
-                        key={request.id}
                         trigger={['contextMenu']}
                         menu={{
                           items: [
@@ -560,7 +587,14 @@ export function Sidebar({
                             request.id === activeRequestId ? ' active' : ''
                           }`}
                           onClick={() => onSelectRequest(request)}
-                          title={`${request.name} · ${request.path}`}
+                          onDoubleClick={() =>
+                            setEditor({
+                              mode: 'rename-request',
+                              id: request.id,
+                              value: request.name,
+                            })
+                          }
+                          title={`${request.name} · ${request.path} · 双击重命名`}
                         >
                           <MethodTag method={request.method} />
                           <span className="request-path">{request.name}</span>
@@ -579,6 +613,23 @@ export function Sidebar({
                           )}
                         </button>
                       </Dropdown>
+                        <Tooltip title="重命名请求">
+                          <button
+                            type="button"
+                            className="row-edit"
+                            aria-label={`重命名请求 ${request.name}`}
+                            onClick={() =>
+                              setEditor({
+                                mode: 'rename-request',
+                                id: request.id,
+                                value: request.name,
+                              })
+                            }
+                          >
+                            <EditOutlined />
+                          </button>
+                        </Tooltip>
+                      </div>
                     );
                   })}
                 </div>

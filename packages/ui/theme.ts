@@ -184,7 +184,7 @@ export function getMethodColors(mode: ThemeMode): MethodColorSet {
     get: c.primary,
     post: c.success,
     put: c.warning,
-    patch: c.purple,
+    patch: c.info,
     delete: c.error,
     head: c.muted,
     options: c.muted,

@@ -1077,12 +1077,16 @@ export function RequestPanel({
           value={protocol === 'graphql' ? 'POST' : method}
           options={methods.map((item) => ({ value: item, label: item }))}
           onChange={(value) => setMethod(value as HttpMethod)}
-          className="method-select"
+          className={`method-select method-${(protocol === 'graphql' ? 'post' : method).toLowerCase()}`}
           popupMatchSelectWidth={false}
           disabled={protocol !== 'http'}
+          optionRender={(option) => (
+            <span className={`method-option method-${String(option.value).toLowerCase()}`}>
+              {option.label}
+            </span>
+          )}
         />
         <Select
-          size="small"
           value={protocol}
           onChange={(value) => {
             const next = value as ProtocolKind;
@@ -1147,7 +1151,6 @@ export function RequestPanel({
           </Button>
         </Tooltip>
         <Select
-          size="small"
           value={timeoutMs}
           onChange={(value) => setTimeoutMs(value)}
           options={[
@@ -1162,7 +1165,6 @@ export function RequestPanel({
         />
         <Tooltip title="代理与客户端证书">
           <Button
-            size="small"
             icon={<GlobalOutlined />}
             onClick={() => setNetworkOpen(true)}
             aria-label="网络设置"
