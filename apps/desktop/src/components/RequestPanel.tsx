@@ -23,6 +23,7 @@ import {
   requestBody,
 } from '../data/mock';
 import { recordAudit } from '../lib/audit';
+import { enqueueTask } from '../lib/queue';
 import {
   recordHistory,
   saveRequest,
@@ -45,6 +46,7 @@ interface RequestPanelProps {
   onCloseTab: (requestId: string) => void;
   onHistoryRecorded: () => void;
   onSaved: () => void;
+  onQueued: () => void;
   onContextChange: (context: RequestContext) => void;
 }
 
@@ -124,6 +126,7 @@ export function RequestPanel({
   onCloseTab,
   onHistoryRecorded,
   onSaved,
+  onQueued,
   onContextChange,
 }: RequestPanelProps) {
   const { message } = App.useApp();
@@ -268,8 +271,19 @@ export function RequestPanel({
     } catch (caught) {
       const text = caught instanceof Error ? caught.message : String(caught);
       setError(text);
-      setFeedback('请求失败');
-      message.error({ content: '请求失败，请检查 URL 或网络', duration: 2.2 });
+      setFeedback('请求失败 · 已加入离线队列');
+      message.error({ content: '请求失败，已加入离线队列', duration: 2.2 });
+
+      enqueueTask({
+        requestId: activeRequest.id,
+        name: activeRequest.name,
+        method,
+        url: resolvedUrl.value,
+        headers: resolvedHeaders.headers,
+        body: method === 'GET' || method === 'DELETE' ? null : resolvedBody.value,
+        dataLevel: activeRequest.dataLevel,
+      });
+      onQueued();
 
       recordAudit({
         type: 'request',
@@ -386,6 +400,7 @@ export function RequestPanel({
           onChange={(event) => setUrl(event.target.value)}
           className="url-input"
           prefix={<LockOutlined />}
+          aria-label="请求地址"
           spellCheck={false}
         />
         <Button

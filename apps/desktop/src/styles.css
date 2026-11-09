@@ -2293,6 +2293,84 @@ html[data-theme='dark'] .sidebar {
   font-size: 8.5px;
 }
 
+/* ---------- offline queue ---------- */
+
+.status-queue.ant-btn {
+  height: 20px;
+  padding: 0 6px;
+  color: var(--aw-warning);
+  font-size: 9.5px;
+}
+
+.status-queue.ant-btn:hover {
+  background: var(--aw-warning-soft) !important;
+  color: var(--aw-warning) !important;
+}
+
+.queue-empty {
+  padding: 24px 16px;
+  border: 1px dashed var(--aw-line);
+  border-radius: 6px;
+  color: var(--aw-faint);
+  font-size: 10px;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.queue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.queue-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 10px;
+  border: 1px solid var(--aw-line);
+  border-radius: 6px;
+  background: var(--aw-surface-2);
+}
+
+.queue-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.queue-row-head code {
+  overflow: hidden;
+  flex: 1;
+  color: var(--aw-ink);
+  font-size: 9.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-row-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--aw-faint);
+  font-size: 9px;
+}
+
+.queue-row-foot .ant-btn-link {
+  height: auto;
+  padding: 0;
+  font-size: 9px;
+}
+
+.queue-error {
+  overflow: hidden;
+  max-width: 220px;
+  color: var(--aw-error);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---------- status bar ---------- */
 
 .statusbar {

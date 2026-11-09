@@ -46,6 +46,7 @@ export function App() {
   const [requestContext, setRequestContext] = useState<RequestContext | null>(null);
   const [teamSnapshot, setTeamSnapshot] = useState<TeamSnapshot | null>(readTeamSnapshot);
   const [syncNonce, setSyncNonce] = useState(0);
+  const [queueNonce, setQueueNonce] = useState(0);
   const [replay, setReplay] = useState<{
     method: HttpMethod;
     url: string;
@@ -226,6 +227,7 @@ export function App() {
               onCloseTab={closeTab}
               onHistoryRecorded={refreshHistory}
               onSaved={refreshSaved}
+              onQueued={() => setQueueNonce((current) => current + 1)}
               onContextChange={setRequestContext}
             />
             <AiPanel
@@ -237,7 +239,12 @@ export function App() {
             />
           </div>
 
-          <StatusBar networkMode={networkMode} />
+          <StatusBar
+            networkMode={networkMode}
+            actor={session.account}
+            queueNonce={queueNonce}
+            onQueueChange={() => setQueueNonce((current) => current + 1)}
+          />
         </div>
       </AntApp>
     </AntProvider>
