@@ -1,0 +1,11 @@
+{
+  "name": "api-workbench",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter @api-workbench/desktop dev",
+    "build": "pnpm --filter @api-workbench/desktop build",
+    "tauri": "pnpm --filter @api-workbench/desktop tauri",
+    "typecheck:ui": "pnpm --filter @api-workbench/ui typecheck"
+  }
+}
