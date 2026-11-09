@@ -1,0 +1,73 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 校验标签与版本一致
+        shell: pwsh
+        run: |
+          $version = (Get-Content apps/desktop/src-tauri/tauri.conf.json -Raw -Encoding UTF8 | ConvertFrom-Json).version
+          if ("v$version" -ne "$env:GITHUB_REF_NAME") {
+            throw "标签 $env:GITHUB_REF_NAME 与 tauri.conf.json 版本 v$version 不一致"
+          }
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "apps/desktop/src-tauri -> target"
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 构建签名 MSI
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          UPDATE_BASE_URL: ${{ format('https://github.com/{0}/releases/latest/download', github.repository) }}
+          UPDATE_ASSET_NAME: api-workbench_x64.msi
+        run: pnpm release
+
+      - name: 整理发布产物
+        shell: pwsh
+        run: |
+          $bundle = 'apps/desktop/src-tauri/target/release/bundle'
+          $msi = Get-ChildItem "$bundle/msi/*.msi" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $msi) { throw '未找到 MSI' }
+          Copy-Item $msi.FullName "$bundle/api-workbench_x64.msi" -Force
+          Get-ChildItem $bundle -File | Where-Object { $_.Name -match '\.(msi|sig|json)$' } | Select-Object Name, Length
+
+      - name: 发布 GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $bundle = 'apps/desktop/src-tauri/target/release/bundle'
+          $msi = Get-ChildItem "$bundle/msi/*.msi" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          gh release create $env:GITHUB_REF_NAME `
+            "$($msi.FullName)" `
+            "$bundle/api-workbench_x64.msi" `
+            "$bundle/latest.json" `
+            --title "API Workbench $env:GITHUB_REF_NAME" `
+            --notes "API Workbench $env:GITHUB_REF_NAME"

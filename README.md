@@ -78,15 +78,39 @@ pnpm release
 
 ## 自动更新
 
-桌面端使用 Tauri Updater 检查 Gitee 发行版上的静态清单，更新包经 minisign 签名校验后以 MSI passive 模式安装。
+桌面端使用 Tauri Updater 检查发行版上的静态清单，更新包经 minisign 签名校验后以 MSI passive 模式安装。
 
 - 启动后约 2.5 秒自动检查一次，发现新版本时在右下角提示；失败静默，不打扰使用
 - 也可随时在「账户菜单 → 检查更新」手动检查
-- 清单地址：`https://gitee.com/LeonAmour/api-workbench/releases/download/latest/latest.json`
+- 清单地址（按顺序尝试，非 2xx 时回退下一个）：
+  1. `https://github.com/LeonAmour/api-workbench/releases/latest/download/latest.json`
+  2. `https://gitee.com/LeonAmour/api-workbench/releases/download/latest/latest.json`
 - 公钥：写在 `apps/desktop/src-tauri/tauri.conf.json` 的 `plugins.updater.pubkey`
 - 私钥：默认 `%USERPROFILE%\.tauri\api-workbench.key`，不进入仓库
 
-### 发布一次更新
+### 标签触发的流水线（GitHub Actions）
+
+推送 `v*` 标签会自动在 `windows-latest` 上构建签名 MSI 并创建 GitHub Release，清单里的下载地址指向该 Release 的稳定文件名 `api-workbench_x64.msi`。
+
+需要先在 GitHub 仓库的 Secrets 中配置：
+
+| Secret | 内容 |
+| --- | --- |
+| `TAURI_SIGNING_PRIVATE_KEY` | 私钥文件全文，或私钥路径 |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | 私钥口令（无口令时留空） |
+
+发布流程：
+
+```bash
+# 1. 同步版本号后提交
+# 2. 打标签并推送
+git tag v0.1.1
+git push origin v0.1.1
+```
+
+流水线会校验标签与 `tauri.conf.json` 版本一致，再构建、签名并发布。
+
+### 手动发布（Gitee 备用源）
 
 1. 提升版本号：同步修改 `apps/desktop/src-tauri/tauri.conf.json` 与 `apps/desktop/package.json`。
 2. 构建并签名：
@@ -102,7 +126,7 @@ pnpm release
 
 注意事项：
 
-- 仓库需为公开仓库，否则客户端匿名拉取清单会返回 403。
+- 发行版仓库需公开，否则客户端匿名拉取清单会返回 403。
 - 私钥丢失后，已安装的客户端将无法再接收更新，请离线备份。
 - 浏览器预览不支持安装更新，仅桌面端可用。
 

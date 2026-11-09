@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "API Workbench",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "identifier": "com.apiworkbench.desktop",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -46,6 +46,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDA5QzVBRkEyQkRBQkE0MDIKUldRQ3BLdTlvcS9GQ2RsL0k5UGVDTXpIdXg5dlY5YWtPbXc4aG1oZEZXMUpWcmo3b09hdjBDcVMK",
       "endpoints": [
+        "https://github.com/LeonAmour/api-workbench/releases/latest/download/latest.json",
         "https://gitee.com/LeonAmour/api-workbench/releases/download/latest/latest.json"
       ],
       "windows": {

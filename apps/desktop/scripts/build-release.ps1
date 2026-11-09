@@ -1,16 +1,19 @@
 ﻿param(
-  [string]$KeyPath = "$env:USERPROFILE\.tauri\api-workbench.key"
+  [string]$KeyPath = "$env:USERPROFILE\.tauri\api-workbench.key",
+  [string]$BaseUrl = 'https://gitee.com/LeonAmour/api-workbench/releases/download/latest',
+  [string]$AssetName = ''
 )
 
 $ErrorActionPreference = 'Stop'
 $appDir = Split-Path -Parent $PSScriptRoot
 
-if (-not (Test-Path $KeyPath)) {
-  throw "未找到签名私钥：$KeyPath。请先执行 pnpm tauri signer generate -w <路径> 生成密钥。"
+if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
+  if (-not (Test-Path $KeyPath)) {
+    throw "未找到签名私钥：$KeyPath。请先执行 pnpm tauri signer generate -w <路径> 生成密钥。"
+  }
+  $env:TAURI_SIGNING_PRIVATE_KEY = $KeyPath
+  $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ''
 }
-
-$env:TAURI_SIGNING_PRIVATE_KEY = $KeyPath
-$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ''
 
 Push-Location $appDir
 try {
@@ -28,8 +31,9 @@ $sigPath = "$($msi.FullName).sig"
 if (-not (Test-Path $sigPath)) { throw "未生成签名文件：$sigPath" }
 
 $version = (Get-Content (Join-Path $appDir 'src-tauri\tauri.conf.json') -Raw -Encoding UTF8 | ConvertFrom-Json).version
-$base = 'https://gitee.com/LeonAmour/api-workbench/releases/download/latest'
-$fileName = [uri]::EscapeDataString($msi.Name)
+if ($env:UPDATE_BASE_URL) { $BaseUrl = $env:UPDATE_BASE_URL }
+if ($env:UPDATE_ASSET_NAME) { $AssetName = $env:UPDATE_ASSET_NAME }
+$fileName = if ($AssetName) { [uri]::EscapeDataString($AssetName) } else { [uri]::EscapeDataString($msi.Name) }
 $manifest = [ordered]@{
   version   = $version
   notes     = "API Workbench $version"
@@ -37,7 +41,7 @@ $manifest = [ordered]@{
   platforms = [ordered]@{
     'windows-x86_64' = [ordered]@{
       signature = (Get-Content $sigPath -Raw).Trim()
-      url       = "$base/$fileName"
+      url       = "$BaseUrl/$fileName"
     }
   }
 }
