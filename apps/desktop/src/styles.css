@@ -2420,6 +2420,49 @@ html[data-theme='dark'] .ai-panel .ai-bubble-end .ant-bubble-content {
   background: var(--aw-surface-2);
 }
 
+.doc-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  color: var(--aw-muted);
+  font-size: 12px;
+}
+
+.doc-meta code {
+  color: var(--aw-ink-2);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.doc-tip {
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--aw-info) 26%, transparent);
+  border-radius: 8px;
+  background: var(--aw-info-soft);
+  color: var(--aw-info);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.doc-preview {
+  max-height: 56vh;
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--aw-line);
+  border-radius: 10px;
+  background: var(--aw-code-bg);
+  color: var(--aw-code-ink);
+  font-family: var(--aw-font-code);
+  font-size: 12.5px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow: auto;
+}
+
 .ai-footnote {
   display: flex;
   align-items: center;

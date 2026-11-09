@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   DownOutlined,
+  EyeOutlined,
   FileTextOutlined,
   LockOutlined,
   MoreOutlined,
@@ -61,6 +62,7 @@ export function AiPanel({
   const [applied, setApplied] = useState(false);
   const [draft, setDraft] = useState<DraftField[]>([]);
   const [diffOpen, setDiffOpen] = useState(false);
+  const [docOpen, setDocOpen] = useState(false);
   const [preflightOpen, setPreflightOpen] = useState(false);
   const [gatewayOpen, setGatewayOpen] = useState(false);
   const [gatewayConfig, setGatewayConfig] = useState(readGatewayConfig);
@@ -78,6 +80,10 @@ export function AiPanel({
   const diff = useMemo(
     () => (task ? buildDraftDiff(draft, review, accepted) : []),
     [task, draft, review, accepted],
+  );
+  const docMarkdown = useMemo(
+    () => (task ? docToMarkdown(task, draft) : ''),
+    [task, draft],
   );
 
   useEffect(() => {
@@ -119,6 +125,7 @@ export function AiPanel({
       level: task.request.dataLevel,
     });
     message.success(route.egress ? '已审批并建立文档任务' : '文档任务已建立');
+    setDocOpen(true);
 
     const config = readGatewayConfig();
     const prompt = [
@@ -238,6 +245,16 @@ export function AiPanel({
     message.success(`已导出 ${format === 'markdown' ? 'Markdown' : 'OpenAPI'}`);
   }
 
+  async function copyDoc() {
+    if (!docMarkdown) return;
+    try {
+      await navigator.clipboard.writeText(docMarkdown);
+      message.success('已复制 Markdown');
+    } catch {
+      message.warning('当前环境无法访问剪贴板');
+    }
+  }
+
   return (
     <aside className="ai-panel">
       <div className="ai-head">
@@ -329,7 +346,17 @@ export function AiPanel({
             >
               建立文档任务
             </Button>
-            <span>请求 + 响应示例 + 术语表</span>
+            <Button
+              variant="text"
+              size="small"
+              color="cyan"
+              icon={<EyeOutlined />}
+              onClick={() => setDocOpen(true)}
+              disabled={!task}
+            >
+              查看文档
+            </Button>
+            <span>生成后自动打开文档预览</span>
           </div>
         </div>
 
@@ -467,6 +494,42 @@ export function AiPanel({
           }
         />
       </div>
+
+      <Modal
+        open={docOpen}
+        title={task ? `接口文档 · ${task.request.name}` : '接口文档'}
+        width={780}
+        onCancel={() => setDocOpen(false)}
+        footer={[
+          <Button key="copy" size="small" color="cyan" variant="filled" onClick={() => void copyDoc()}>
+            复制 Markdown
+          </Button>,
+          <Button key="md" size="small" color="green" variant="filled" onClick={() => downloadDoc('markdown')}>
+            下载 .md
+          </Button>,
+          <Button key="openapi" size="small" onClick={() => downloadDoc('openapi')}>
+            下载 OpenAPI
+          </Button>,
+          <Button key="close" size="small" type="primary" onClick={() => setDocOpen(false)}>
+            关闭
+          </Button>,
+        ]}
+      >
+        <div className="doc-meta">
+          <MethodTag method={task?.request.method ?? 'GET'} />
+          <code>{task?.request.url ?? '尚未选择接口'}</code>
+          <span>
+            {draft.length} 个已应用字段 · 识别请求空间 {task?.stats.requestFields ?? 0} / 响应{' '}
+            {task?.stats.responseFields ?? 0}
+          </span>
+        </div>
+        {draft.length === 0 && (
+          <div className="doc-tip">
+            当前为自动生成的文档骨架。在「字段审阅」中勾选并点击「应用到文档」后，字段说明会补进这份文档。
+          </div>
+        )}
+        <pre className="doc-preview">{docMarkdown || '暂无文档内容'}</pre>
+      </Modal>
 
       <Modal
         open={diffOpen}
