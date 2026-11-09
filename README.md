@@ -67,11 +67,42 @@ pnpm tauri dev
 # 仅前端构建与类型检查
 pnpm build
 
-# 生成 Windows 安装包（NSIS）
+# 生成 Windows 安装包（MSI，不签名）
 pnpm tauri build
+
+# 生成带更新签名的发布产物
+pnpm release
 ```
 
-安装包输出到 `apps/desktop/src-tauri/target/release/bundle/nsis/`。
+普通构建输出到 `apps/desktop/src-tauri/target/release/bundle/msi/`。
+
+## 自动更新
+
+桌面端使用 Tauri Updater 检查 Gitee 发行版上的静态清单，更新包经 minisign 签名校验后以 MSI passive 模式安装。
+
+- 清单地址：`https://gitee.com/LeonAmour/api-workbench/releases/download/latest/latest.json`
+- 公钥：写在 `apps/desktop/src-tauri/tauri.conf.json` 的 `plugins.updater.pubkey`
+- 私钥：默认 `%USERPROFILE%\.tauri\api-workbench.key`，不进入仓库
+
+### 发布一次更新
+
+1. 提升版本号：同步修改 `apps/desktop/src-tauri/tauri.conf.json` 与 `apps/desktop/package.json`。
+2. 构建并签名：
+
+```powershell
+pnpm release
+```
+
+脚本会输出 MSI、`<msi>.sig` 与 `latest.json`，均位于 `apps/desktop/src-tauri/target/release/bundle/`。
+
+3. 在 Gitee 创建（或更新）标签为 `latest` 的发行版，上传 MSI 与 `latest.json`。
+4. 客户端在「账户菜单 → 检查更新」中检查、下载并安装。
+
+注意事项：
+
+- 仓库需为公开仓库，否则客户端匿名拉取清单会返回 403。
+- 私钥丢失后，已安装的客户端将无法再接收更新，请离线备份。
+- 浏览器预览不支持安装更新，仅桌面端可用。
 
 ## 演示账号
 

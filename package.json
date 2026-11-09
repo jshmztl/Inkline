@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "pnpm --filter @api-workbench/desktop dev",
     "build": "pnpm --filter @api-workbench/desktop build",
+    "release": "pnpm --filter @api-workbench/desktop release",
     "tauri": "pnpm --filter @api-workbench/desktop tauri",
     "typecheck:ui": "pnpm --filter @api-workbench/ui typecheck"
   }

@@ -10,12 +10,12 @@ import {
   SunOutlined,
   SyncOutlined,
 } from '@ant-design/icons';
-import { App, Button, Drawer, Dropdown, Modal, Segmented, Select, Tooltip } from 'antd';
+import { App, Button, Drawer, Dropdown, Modal, Progress, Segmented, Select, Tooltip } from 'antd';
 import type { Density, ThemeMode } from '@api-workbench/ui';
 import { environments, networkModes, type NetworkMode } from '../data/mock';
 import { clearAudit, listAudit, type AuditEntry, type AuditType } from '../lib/audit';
 import type { Session } from '../lib/session';
-import { checkUpdate, type UpdateInfo } from '../lib/update';
+import { checkUpdate, installUpdate, type UpdateInfo, type UpdateProgress } from '../lib/update';
 
 interface TopBarProps {
   mode: ThemeMode;
@@ -82,6 +82,9 @@ export function TopBar({
   const [updateOpen, setUpdateOpen] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [checking, setChecking] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+  const [installing, setInstalling] = useState(false);
+  const [progress, setProgress] = useState<UpdateProgress>({ downloaded: 0, total: null });
 
   useEffect(() => {
     if (!auditOpen) return;
@@ -100,20 +103,27 @@ export function TopBar({
   async function handleCheckUpdate() {
     setUpdateOpen(true);
     setChecking(true);
+    setUpdateError(null);
+    setUpdateInfo(null);
     try {
       setUpdateInfo(await checkUpdate());
+    } catch (error) {
+      setUpdateError(error instanceof Error ? error.message : String(error));
     } finally {
       setChecking(false);
     }
   }
 
-  async function copyUpdateUrl() {
-    if (!updateInfo?.url) return;
+  async function handleInstallUpdate() {
+    setInstalling(true);
+    setUpdateError(null);
+    setProgress({ downloaded: 0, total: null });
     try {
-      await navigator.clipboard.writeText(updateInfo.url);
-      message.success('下载链接已复制');
-    } catch {
-      message.warning('当前环境无法访问剪贴板');
+      await installUpdate(setProgress);
+      message.success('更新已安装，正在重启…');
+    } catch (error) {
+      setUpdateError(error instanceof Error ? error.message : String(error));
+      setInstalling(false);
     }
   }
 
@@ -286,26 +296,44 @@ export function TopBar({
       <Modal
         open={updateOpen}
         title="检查更新"
-        width={420}
-        onCancel={() => setUpdateOpen(false)}
+        width={440}
+        onCancel={() => {
+          if (installing) return;
+          setUpdateOpen(false);
+        }}
+        maskClosable={!installing}
+        closable={!installing}
         footer={[
-          <Button key="close" size="small" onClick={() => setUpdateOpen(false)}>
-            关闭
+          <Button
+            key="close"
+            size="small"
+            disabled={installing}
+            onClick={() => setUpdateOpen(false)}
+          >
+            稍后
           </Button>,
-          ...(updateInfo?.available && updateInfo.url
+          ...(updateInfo?.available && updateInfo.runtime === 'tauri'
             ? [
-                <Button key="download" type="primary" size="small" onClick={copyUpdateUrl}>
-                  复制下载链接
+                <Button
+                  key="install"
+                  type="primary"
+                  size="small"
+                  loading={installing}
+                  onClick={handleInstallUpdate}
+                >
+                  下载并安装
                 </Button>,
               ]
             : []),
         ]}
       >
-        {checking || !updateInfo ? (
+        {checking ? (
           <div className="update-checking">
             <SyncOutlined spin /> 正在检查更新…
           </div>
-        ) : (
+        ) : updateError ? (
+          <div className="update-error">{updateError}</div>
+        ) : updateInfo ? (
           <div className="update-body">
             <div className="update-row">
               <span>当前版本</span>
@@ -321,10 +349,35 @@ export function TopBar({
                 {updateInfo.available ? '发现新版本' : '已是最新'}
               </b>
             </div>
+            {updateInfo.date && (
+              <div className="update-row">
+                <span>发布时间</span>
+                <code>{updateInfo.date.slice(0, 10)}</code>
+              </div>
+            )}
             {updateInfo.notes && <p className="update-note">{updateInfo.notes}</p>}
-            {updateInfo.url && <code className="update-url">{updateInfo.url}</code>}
+            {installing && (
+              <div className="update-progress">
+                <Progress
+                  percent={
+                    progress.total
+                      ? Math.min(100, Math.round((progress.downloaded / progress.total) * 100))
+                      : 0
+                  }
+                  size="small"
+                  status="active"
+                  showInfo={Boolean(progress.total)}
+                />
+                <span>
+                  正在下载更新{' '}
+                  {progress.total
+                    ? `${(progress.downloaded / 1024 / 1024).toFixed(1)} / ${(progress.total / 1024 / 1024).toFixed(1)} MB`
+                    : `${(progress.downloaded / 1024).toFixed(0)} KB`}
+                </span>
+              </div>
+            )}
           </div>
-        )}
+        ) : null}
       </Modal>
     </header>
   );

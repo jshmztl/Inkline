@@ -1,60 +1,100 @@
+import { isTauri } from '@tauri-apps/api/core';
+import { getVersion } from '@tauri-apps/api/app';
+import { check, type Update } from '@tauri-apps/plugin-updater';
+import { relaunch } from '@tauri-apps/plugin-process';
+
+export const APP_VERSION = '0.1.0';
+
 export interface UpdateInfo {
   current: string;
   latest: string;
   notes: string;
-  url: string;
+  date: string;
   available: boolean;
-  simulated: boolean;
+  runtime: 'tauri' | 'browser';
 }
 
-export const APP_VERSION = '0.1.0';
+export interface UpdateProgress {
+  downloaded: number;
+  total: number | null;
+}
 
-const UPDATE_ENDPOINT = 'https://updates.example.com/api-workbench/latest.json';
+let pendingUpdate: Update | null = null;
 
-function compareVersion(a: string, b: string) {
-  const left = a.split('.').map((part) => Number.parseInt(part, 10) || 0);
-  const right = b.split('.').map((part) => Number.parseInt(part, 10) || 0);
-  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
-    const diff = (left[index] ?? 0) - (right[index] ?? 0);
-    if (diff !== 0) return diff;
+function describeError(error: unknown) {
+  const text = error instanceof Error ? error.message : String(error);
+  if (/error sending request|failed to fetch|network|connect/i.test(text)) {
+    return '无法连接更新源，请检查网络或使用内网更新地址。';
   }
-  return 0;
+  return text;
 }
 
 export async function checkUpdate(): Promise<UpdateInfo> {
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 4000);
-
-  try {
-    const response = await fetch(UPDATE_ENDPOINT, {
-      signal: controller.signal,
-      cache: 'no-store',
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const data = (await response.json()) as {
-      version?: string;
-      notes?: string;
-      url?: string;
-    };
-    const latest = data.version ?? APP_VERSION;
-    return {
-      current: APP_VERSION,
-      latest,
-      notes: data.notes ?? '',
-      url: data.url ?? '',
-      available: compareVersion(latest, APP_VERSION) > 0,
-      simulated: false,
-    };
-  } catch {
+  if (!isTauri()) {
     return {
       current: APP_VERSION,
       latest: APP_VERSION,
-      notes: '无法连接更新服务，当前为离线或内网未配置更新源。',
-      url: '',
+      notes: '浏览器预览不支持自动更新，请在桌面端检查。',
+      date: '',
       available: false,
-      simulated: true,
+      runtime: 'browser',
     };
-  } finally {
-    window.clearTimeout(timer);
   }
+
+  const current = await getVersion();
+
+  try {
+    const update = await check();
+    pendingUpdate = update;
+
+    if (!update) {
+      return {
+        current,
+        latest: current,
+        notes: '当前已是最新版本。',
+        date: '',
+        available: false,
+        runtime: 'tauri',
+      };
+    }
+
+    return {
+      current,
+      latest: update.version,
+      notes: update.body ?? '',
+      date: update.date ?? '',
+      available: true,
+      runtime: 'tauri',
+    };
+  } catch (error) {
+    throw new Error(describeError(error));
+  }
+}
+
+export async function installUpdate(onProgress: (progress: UpdateProgress) => void) {
+  if (!pendingUpdate) {
+    throw new Error('没有可安装的更新，请重新检查。');
+  }
+
+  let downloaded = 0;
+  let total: number | null = null;
+  onProgress({ downloaded, total });
+
+  try {
+    await pendingUpdate.downloadAndInstall((event) => {
+      if (event.event === 'Started') {
+        total = event.data.contentLength ?? null;
+        onProgress({ downloaded, total });
+      } else if (event.event === 'Progress') {
+        downloaded += event.data.chunkLength;
+        onProgress({ downloaded, total });
+      } else {
+        onProgress({ downloaded: total ?? downloaded, total });
+      }
+    });
+  } finally {
+    pendingUpdate = null;
+  }
+
+  await relaunch();
 }

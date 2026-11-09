@@ -2618,17 +2618,27 @@ html[data-theme='dark'] .sidebar {
   line-height: 1.6;
 }
 
-.update-url {
-  display: block;
-  overflow: hidden;
-  padding: 6px 8px;
-  border-radius: 5px;
-  background: var(--aw-surface-3);
-  color: var(--aw-accent);
+.update-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.update-progress span {
+  color: var(--aw-faint);
   font-family: var(--aw-font-code);
   font-size: 9px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.update-error {
+  padding: 18px 12px;
+  border: 1px solid var(--aw-line);
+  border-radius: 6px;
+  background: var(--aw-error-soft, var(--aw-surface-2));
+  color: var(--aw-error);
+  font-size: 10px;
+  line-height: 1.6;
 }
 
 /* ---------- accessibility ---------- */

@@ -12,6 +12,14 @@ pub fn run() {
         .setup(|app| {
             let connection = db::open(app.handle())?;
             app.manage(db::DbState(Mutex::new(connection)));
+
+            #[cfg(desktop)]
+            {
+                app.handle()
+                    .plugin(tauri_plugin_updater::Builder::new().build())?;
+                app.handle().plugin(tauri_plugin_process::init())?;
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
