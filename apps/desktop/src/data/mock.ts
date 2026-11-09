@@ -88,6 +88,29 @@ export const environments = [
   { value: 'prod', label: '生产环境' },
 ];
 
+export const environmentVariables: Record<string, Record<string, string>> = {
+  local: {
+    host: 'http://127.0.0.1:8080',
+    PAYMENT_TOKEN: 'local_dev_token_9f2c',
+    tenantId: 'tenant_2048',
+  },
+  dev: {
+    host: 'https://dev-api.internal',
+    PAYMENT_TOKEN: 'dev_token_7f3a',
+    tenantId: 'tenant_2048',
+  },
+  staging: {
+    host: 'https://staging-api.internal',
+    PAYMENT_TOKEN: 'staging_token_4b81',
+    tenantId: 'tenant_1024',
+  },
+  prod: {
+    host: 'https://api.internal',
+    PAYMENT_TOKEN: 'prod_token_2c90',
+    tenantId: 'tenant_1024',
+  },
+};
+
 export interface KvRow {
   id: string;
   key: string;
@@ -104,7 +127,7 @@ export const queryParams: KvRow[] = [
 ];
 
 export const headerRows: KvRow[] = [
-  { id: 'authorization', key: 'Authorization', value: 'Bearer••••••••', description: '环境变量注入', enabled: true },
+  { id: 'authorization', key: 'Authorization', value: 'Bearer {{PAYMENT_TOKEN}}', description: '环境变量注入', enabled: true },
   { id: 'content-type', key: 'Content-Type', value: 'application/json', description: '请求体类型', enabled: true },
   { id: 'request-id', key: 'X-Request-Id', value: '{{$uuid}}', description: '自动生成，便于追踪', enabled: true },
   { id: 'tenant', key: 'X-Tenant-Id', value: 'tenant_2048', description: '租户标识', enabled: false },
@@ -118,7 +141,8 @@ export const requestBody = `{
   "description": "年度订阅 · 专业版",
   "metadata": {
     "plan": "pro",
-    "seats": 12
+    "seats": 12,
+    "tenantId": "{{tenantId}}"
   }
 }`;
 

@@ -17,6 +17,7 @@ import {
 import { App, Button, Checkbox, Input, Select, Tag, Tooltip } from 'antd';
 import type { ApiRequest, HttpMethod, KvRow } from '../data/mock';
 import {
+  environmentVariables,
   headerRows as initialHeaders,
   queryParams as initialParams,
   requestBody,
@@ -28,6 +29,7 @@ import {
   type SavedRequest,
   type SendResponse,
 } from '../lib/api';
+import { resolveHeaders, resolveTemplate } from '../lib/variables';
 import { MethodTag } from './MethodTag';
 
 interface RequestPanelProps {
@@ -35,6 +37,7 @@ interface RequestPanelProps {
   openTabs: ApiRequest[];
   replay: { method: HttpMethod; url: string; nonce: number } | null;
   saved: SavedRequest | null;
+  environment: string;
   onSelectTab: (requestId: string) => void;
   onCloseTab: (requestId: string) => void;
   onHistoryRecorded: () => void;
@@ -111,6 +114,7 @@ export function RequestPanel({
   openTabs,
   replay,
   saved,
+  environment,
   onSelectTab,
   onCloseTab,
   onHistoryRecorded,
@@ -118,7 +122,7 @@ export function RequestPanel({
 }: RequestPanelProps) {
   const { message } = App.useApp();
   const [method, setMethod] = useState<HttpMethod>(activeRequest.method);
-  const [url, setUrl] = useState(`https://api.internal${activeRequest.path}`);
+  const [url, setUrl] = useState(`{{host}}${activeRequest.path}`);
   const [requestTab, setRequestTab] = useState<RequestTabKey>('body');
   const [responseTab, setResponseTab] = useState<ResponseTabKey>('body');
   const [params, setParams] = useState<KvRow[]>(initialParams);
@@ -136,7 +140,7 @@ export function RequestPanel({
     appliedKey.current = key;
 
     setMethod((saved?.method as HttpMethod) ?? activeRequest.method);
-    setUrl(saved?.url ?? `https://api.internal${activeRequest.path}`);
+    setUrl(saved?.url ?? `{{host}}${activeRequest.path}`);
     setBody(saved?.body ?? requestBody);
     setHeaders(
       saved && saved.headers.length > 0
@@ -163,6 +167,9 @@ export function RequestPanel({
     [requestTab, headers, params],
   );
 
+  const variables = environmentVariables[environment] ?? {};
+  const resolvedUrl = useMemo(() => resolveTemplate(url, variables), [url, variables]);
+
   const visibleRows = requestTab === 'headers' || requestTab === 'params' ? activeRows : [];
 
   function updateRow(id: string, patch: Partial<KvRow>) {
@@ -176,20 +183,33 @@ export function RequestPanel({
   }
 
   async function handleSend() {
-    setSending(true);
-    setError(null);
-
-    const requestHeaders = headers
+    const rawHeaders = headers
       .filter((row) => row.enabled && row.key.trim())
       .map((row) => ({ name: row.key.trim(), value: row.value }));
+    const resolvedHeaders = resolveHeaders(rawHeaders, variables);
+    const resolvedBody = resolveTemplate(body, variables);
+    const missing = [
+      ...new Set([...resolvedUrl.missing, ...resolvedHeaders.missing, ...resolvedBody.missing]),
+    ];
+
+    if (missing.length > 0) {
+      const names = missing.map((name) => `{{${name}}}`).join('、');
+      setError(`缺少环境变量：${names}`);
+      setFeedback(null);
+      message.error({ content: `缺少环境变量：${names}`, duration: 2.4 });
+      return;
+    }
+
+    setSending(true);
+    setError(null);
     const started = performance.now();
 
     try {
       const result = await sendHttpRequest({
         method,
-        url,
-        headers: requestHeaders,
-        body: method === 'GET' || method === 'DELETE' ? undefined : body,
+        url: resolvedUrl.value,
+        headers: resolvedHeaders.headers,
+        body: method === 'GET' || method === 'DELETE' ? undefined : resolvedBody.value,
         timeoutMs: 30_000,
       });
 
@@ -199,7 +219,7 @@ export function RequestPanel({
       try {
         await recordHistory({
           method,
-          url,
+          url: resolvedUrl.value,
           status: result.status,
           durationMs: result.durationMs,
           sizeBytes: result.sizeBytes,
@@ -221,7 +241,7 @@ export function RequestPanel({
       try {
         await recordHistory({
           method,
-          url,
+          url: resolvedUrl.value,
           error: text,
           durationMs: Math.round(performance.now() - started),
         });
@@ -368,8 +388,9 @@ export function RequestPanel({
           </button>
         ))}
         <div className="subtab-spacer" />
-        <span className="request-hint">
-          <ThunderboltOutlined /> 继承集合变量 · 4 个
+        <span className={`request-hint${resolvedUrl.missing.length > 0 ? ' bad' : ''}`}>
+          <ThunderboltOutlined /> {Object.keys(variables).length} 个变量
+          <code className="request-hint-url">{resolvedUrl.value}</code>
         </span>
       </div>
 
@@ -445,7 +466,7 @@ export function RequestPanel({
           <div className="auth-panel">
             <div className="auth-card">
               <span className="panel-eyebrow">BEARER TOKEN</span>
-              <Input.Password value="aw_live_9f2c8b41e7" readOnly />
+              <Input.Password value={variables.PAYMENT_TOKEN ?? ''} readOnly />
               <p>
                 从环境变量 <code>PAYMENT_TOKEN</code> 读取，不写入工作区文件。当前值仅在本机内存中解密。
               </p>

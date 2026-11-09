@@ -9,7 +9,7 @@ import {
   SettingOutlined,
 } from '@ant-design/icons';
 import { Button, Tooltip } from 'antd';
-import { folders, type ApiRequest } from '../data/mock';
+import { environmentVariables, environments, folders, type ApiRequest } from '../data/mock';
 import type { HistoryEntry, SavedRequest } from '../lib/api';
 import { MethodTag } from './MethodTag';
 
@@ -17,8 +17,10 @@ interface SidebarProps {
   activeRequestId: string;
   history: HistoryEntry[];
   savedRequests: SavedRequest[];
+  environment: string;
   onSelectRequest: (request: ApiRequest) => void;
   onReplayHistory: (entry: HistoryEntry) => void;
+  onEnvironmentChange: (environment: string) => void;
 }
 
 function shortUrl(url: string) {
@@ -42,8 +44,10 @@ export function Sidebar({
   activeRequestId,
   history,
   savedRequests,
+  environment,
   onSelectRequest,
   onReplayHistory,
+  onEnvironmentChange,
 }: SidebarProps) {
   const [query, setQuery] = useState('');
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -159,18 +163,21 @@ export function Sidebar({
       <div className="sidebar-section">
         <div className="sidebar-section-head">
           <span>环境</span>
-          <span className="sidebar-count">2</span>
+          <span className="sidebar-count">{environments.length}</span>
         </div>
-        <div className="environment-row active">
-          <i />
-          <span>本地环境</span>
-          <em>SQLite</em>
-        </div>
-        <div className="environment-row">
-          <i />
-          <span>开发环境</span>
-          <em>team-api</em>
-        </div>
+        {environments.map((item) => (
+          <button
+            key={item.value}
+            type="button"
+            className={`environment-row${item.value === environment ? ' active' : ''}`}
+            onClick={() => onEnvironmentChange(item.value)}
+            title={environmentVariables[item.value]?.host}
+          >
+            <i />
+            <span>{item.label}</span>
+            <em>{environmentVariables[item.value]?.host.replace(/^https?:\/\//, '')}</em>
+          </button>
+        ))}
       </div>
 
       <div className="sidebar-section">

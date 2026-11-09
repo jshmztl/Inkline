@@ -469,10 +469,21 @@ html[data-theme='dark'] .sidebar {
   display: flex;
   align-items: center;
   gap: 7px;
+  width: 100%;
   padding: 5px 6px;
+  border: 0;
   border-radius: 4px;
+  background: transparent;
   color: var(--side-muted);
+  font-family: inherit;
   font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.environment-row:hover {
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--side-ink);
 }
 
 .environment-row i {
@@ -937,6 +948,24 @@ html[data-theme='dark'] .sidebar {
 .request-hint .anticon {
   margin-right: 3px;
   color: var(--aw-warning);
+}
+
+.request-hint.bad,
+.request-hint.bad .anticon {
+  color: var(--aw-danger, #e5484d);
+}
+
+.request-hint-url {
+  display: inline-block;
+  max-width: 320px;
+  overflow: hidden;
+  margin-left: 6px;
+  color: var(--aw-muted);
+  font-family: var(--aw-font-code);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
 }
 
 .request-body {

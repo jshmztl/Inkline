@@ -142,14 +142,17 @@ export function App() {
               activeRequestId={activeRequestId}
               history={history}
               savedRequests={savedRequests}
+              environment={environment}
               onSelectRequest={selectRequest}
               onReplayHistory={replayHistory}
+              onEnvironmentChange={setEnvironment}
             />
             <RequestPanel
               activeRequest={activeRequest}
               openTabs={openTabs}
               replay={replay}
               saved={activeSaved}
+              environment={environment}
               onSelectTab={selectTab}
               onCloseTab={closeTab}
               onHistoryRecorded={refreshHistory}
