@@ -278,6 +278,16 @@ export function AiPanel({
       </div>
 
       <div className="ai-scroll">
+        {messages.length === 0 && (
+          <div className="ai-welcome">
+            <span className="ai-welcome-icon">
+              <RobotOutlined />
+            </span>
+            <strong>把接口文档交给 AI</strong>
+            <p>基于当前请求与响应生成字段说明、示例与术语，过程可追溯、可审计。</p>
+          </div>
+        )}
+
         <div className="ai-task">
           <div className="ai-task-head">
             <strong>文档任务</strong>

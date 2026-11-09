@@ -49,6 +49,7 @@ import {
 import { runScript } from '../lib/scriptSandbox';
 import { readNetworkOptions } from '../lib/network';
 import { MethodTag } from './MethodTag';
+import { CodeEditor, formatJson, formatXml } from './CodeEditor';
 import { NetworkSettingsModal } from './NetworkSettingsModal';
 import { ResponseCode } from './ResponseCode';
 
@@ -71,7 +72,7 @@ interface RequestPanelProps {
 
 type RequestTabKey = 'params' | 'headers' | 'body' | 'auth' | 'assertions' | 'scripts';
 type ResponseTabKey = 'body' | 'headers' | 'cookies' | 'console' | 'assertions';
-type BodyMode = 'json' | 'text' | 'form' | 'multipart';
+type BodyMode = 'json' | 'xml' | 'text' | 'form' | 'multipart';
 type AuthType = 'none' | 'bearer' | 'basic' | 'apikey';
 
 interface FileRow {
@@ -196,40 +197,9 @@ function mergeQuery(base: string, pairs: { key: string; value: string }[]) {
 
 const methods: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 
-const demoResponse: SendResponse = {
-  status: 200,
-  statusText: 'OK',
-  headers: [
-    { name: 'content-type', value: 'application/json; charset=utf-8' },
-    { name: 'x-request-id', value: 'req_7f3a9c21' },
-    { name: 'x-ratelimit-remaining', value: '998' },
-    { name: 'server-timing', value: 'db;dur=18, app;dur=42' },
-  ],
-  body: `{
-  "code": 0,
-  "message": "ok",
-  "data": {
-    "id": "ord_9f2c8b41e7",
-    "status": "paid",
-    "amount": 12800,
-    "paidAt": "2026-11-09T10:24:18Z"
-  }
-}`,
-  durationMs: 128,
-  sizeBytes: 1229,
-};
-
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   return `${(bytes / 1024).toFixed(1)} KB`;
-}
-
-function formatJsonBody(body: string) {
-  try {
-    return JSON.stringify(JSON.parse(body), null, 2);
-  } catch {
-    return body;
-  }
 }
 
 export function RequestPanel({
@@ -615,6 +585,18 @@ export function RequestPanel({
     );
   }
 
+  function formatRequestBody() {
+    if (bodyMode !== 'json' && bodyMode !== 'xml') return;
+    const result = bodyMode === 'json' ? formatJson(body) : formatXml(body);
+    if (!result.ok) {
+      message.warning(
+        bodyMode === 'json' ? 'JSON 语法有误，暂无法格式化' : 'XML 语法有误，暂无法格式化',
+      );
+      return;
+    }
+    setBody(result.value);
+  }
+
   async function handleSend() {
     if (sending) return;
     setScriptLogs([]);
@@ -754,6 +736,14 @@ export function RequestPanel({
       const resolvedBody = resolveTemplate(body, effectiveVariables);
       bodyMissing.push(...resolvedBody.missing);
       bodyText = resolvedBody.value;
+      if (
+        bodyMode === 'xml' &&
+        !resolvedHeaders.headers.some(
+          (header) => header.name.toLowerCase() === 'content-type',
+        )
+      ) {
+        resolvedHeaders.headers.push({ name: 'Content-Type', value: 'application/xml' });
+      }
     }
 
     if (protocol === 'graphql') {
@@ -1303,6 +1293,7 @@ export function RequestPanel({
                 onChange={(value) => setBodyMode(value as BodyMode)}
                 options={[
                   { label: 'JSON', value: 'json' },
+                  { label: 'XML', value: 'xml' },
                   { label: '文本', value: 'text' },
                   { label: '表单', value: 'form' },
                   { label: 'form-data', value: 'multipart' },
@@ -1311,19 +1302,21 @@ export function RequestPanel({
               <span className="editor-note">
                 {bodyMode === 'json'
                   ? 'application/json · 自动格式化'
-                  : bodyMode === 'text'
-                    ? 'text/plain'
-                    : bodyMode === 'multipart'
-                      ? 'multipart/form-data · 支持文件'
-                      : 'application/x-www-form-urlencoded'}
+                  : bodyMode === 'xml'
+                    ? 'application/xml · 自动格式化'
+                    : bodyMode === 'text'
+                      ? 'text/plain'
+                      : bodyMode === 'multipart'
+                        ? 'multipart/form-data · 支持文件'
+                        : 'application/x-www-form-urlencoded'}
               </span>
               <div className="editor-toolbar-spacer" />
-              {bodyMode === 'json' && (
+              {(bodyMode === 'json' || bodyMode === 'xml') && (
                 <Button
                   type="text"
                   size="small"
                   icon={<FormatPainterOutlined />}
-                  onClick={() => setBody((current) => formatJsonBody(current))}
+                  onClick={formatRequestBody}
                 >
                   格式化
                 </Button>
@@ -1462,12 +1455,20 @@ export function RequestPanel({
                 )}
               </div>
             ) : (
-              <textarea
-                className="code-block body-input"
+              <CodeEditor
                 value={body}
-                onChange={(event) => setBody(event.target.value)}
-                spellCheck={false}
-                aria-label="请求体"
+                onChange={setBody}
+                language={
+                  bodyMode === 'json' ? 'json' : bodyMode === 'xml' ? 'xml' : 'text'
+                }
+                ariaLabel="请求体"
+                placeholder={
+                  bodyMode === 'json'
+                    ? '{\n  "key": "value"\n}'
+                    : bodyMode === 'xml'
+                      ? '<root>\n  <key>value</key>\n</root>'
+                      : '请输入请求体…'
+                }
               />
             )}
           </div>

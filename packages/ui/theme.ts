@@ -51,96 +51,104 @@ export const densityControlHeight: Record<Density, number> = {
 };
 
 const lightColors = {
-  primary: '#2B4ACB',
-  primaryHover: '#2F54EB',
-  primaryActive: '#1D39C4',
-  primaryBg: '#EDF1FD',
-  primaryBorder: '#ADC6FF',
+  primary: '#4F46E5',
+  primaryHover: '#6366F1',
+  primaryActive: '#4338CA',
+  primaryBg: '#EEF0FF',
+  primaryBorder: '#C7C9FC',
 
-  success: '#389E0D',
-  successBg: '#F6FFED',
-  successBorder: '#B7EB8F',
+  accent2: '#8B5CF6',
+  accent2Bg: '#F4EEFF',
+  accent2Border: '#DDCCFF',
 
-  warning: '#AD6800',
-  warningBg: '#FFF7E6',
-  warningBorder: '#FFE7BA',
+  success: '#0E9F6E',
+  successBg: '#E8FAF3',
+  successBorder: '#A8E6CF',
 
-  error: '#CF1322',
-  errorBg: '#FFF1F0',
-  errorBorder: '#FFCCC7',
+  warning: '#C2740B',
+  warningBg: '#FFF6E5',
+  warningBorder: '#FAD9A0',
 
-  info: '#006D75',
-  infoBg: '#E6FFFB',
-  infoBorder: '#87E8DE',
+  error: '#DC2A3E',
+  errorBg: '#FFEEF0',
+  errorBorder: '#F9C2C8',
 
-  purple: '#531DAB',
-  purpleBg: '#F9F0FF',
-  purpleBorder: '#D3ADF7',
+  info: '#0891B2',
+  infoBg: '#E6F8FB',
+  infoBorder: '#A5E3EE',
 
-  bg: '#ECEAE0',
-  surface: '#FBFAF5',
-  surface2: '#E3E3D6',
-  surface3: '#D5D8C9',
+  purple: '#7C3AED',
+  purpleBg: '#F3EEFF',
+  purpleBorder: '#DCCBFF',
 
-  ink: '#1B211E',
-  ink2: '#3A423E',
-  muted: '#56605A',
-  faint: '#737D77',
-  line: '#CFD2C4',
-  lineStrong: '#B7BDAD',
+  bg: '#F3F5FA',
+  surface: '#FFFFFF',
+  surface2: '#F5F7FC',
+  surface3: '#E9EDF6',
 
-  codeBg: '#ECECE1',
-  codeInk: '#2F3834',
+  ink: '#131722',
+  ink2: '#333A4A',
+  muted: '#5A6377',
+  faint: '#8A93A6',
+  line: '#E3E8F2',
+  lineStrong: '#CFD6E4',
+
+  codeBg: '#F7F9FE',
+  codeInk: '#262E3F',
 
   shadow1:
-    '0 1px 2px -2px rgba(38,45,40,.16), 0 3px 6px 0 rgba(38,45,40,.12), 0 5px 12px 4px rgba(38,45,40,.09)',
+    '0 1px 2px -2px rgba(23,29,48,.10), 0 3px 6px 0 rgba(23,29,48,.08), 0 5px 12px 4px rgba(23,29,48,.05)',
   shadow2:
-    '0 3px 6px -4px rgba(38,45,40,.12), 0 6px 16px 0 rgba(38,45,40,.08), 0 9px 28px 8px rgba(38,45,40,.05)',
+    '0 3px 6px -4px rgba(23,29,48,.10), 0 6px 16px 0 rgba(23,29,48,.07), 0 9px 28px 8px rgba(23,29,48,.05)',
   shadow3:
-    '0 6px 16px -8px rgba(38,45,40,.08), 0 9px 28px 0 rgba(38,45,40,.05), 0 12px 48px 16px rgba(38,45,40,.03)',
+    '0 6px 16px -8px rgba(23,29,48,.08), 0 9px 28px 0 rgba(23,29,48,.05), 0 12px 48px 16px rgba(23,29,48,.04)',
 } as const;
 
 const darkColors: Record<keyof typeof lightColors, string> = {
-  primary: '#7F9EF3',
-  primaryHover: '#A8C1F8',
-  primaryActive: '#5273E0',
-  primaryBg: '#1D2A4D',
-  primaryBorder: '#3E5FCB',
+  primary: '#818CF8',
+  primaryHover: '#A5B4FC',
+  primaryActive: '#6366F1',
+  primaryBg: '#232452',
+  primaryBorder: '#4F46E5',
 
-  success: '#6ABE39',
-  successBg: '#1D3712',
-  successBorder: '#306317',
+  accent2: '#A78BFA',
+  accent2Bg: '#2A2048',
+  accent2Border: '#6D4FD0',
 
-  warning: '#E8B339',
+  success: '#34D399',
+  successBg: '#10291F',
+  successBorder: '#1D6B4F',
+
+  warning: '#F4B740',
   warningBg: '#2B2111',
   warningBorder: '#7C5914',
 
-  error: '#E84749',
-  errorBg: '#2A1215',
-  errorBorder: '#791A1F',
+  error: '#F87171',
+  errorBg: '#2C1418',
+  errorBorder: '#7F2027',
 
-  info: '#33BCB7',
-  infoBg: '#112123',
-  infoBorder: '#144848',
+  info: '#22D3EE',
+  infoBg: '#0D2429',
+  infoBorder: '#155E6B',
 
-  purple: '#AB7AE0',
-  purpleBg: '#1F1533',
-  purpleBorder: '#3E2069',
+  purple: '#C4B5FD',
+  purpleBg: '#221A3C',
+  purpleBorder: '#4C3A85',
 
-  bg: '#090D12',
-  surface: '#131A23',
-  surface2: '#1B242F',
-  surface3: '#25303D',
+  bg: '#0A0D14',
+  surface: '#121826',
+  surface2: '#1A2233',
+  surface3: '#232D40',
 
-  ink: '#E6EBF3',
-  ink2: '#C1C9D6',
-  muted: '#A6B1C0',
-  faint: '#8591A2',
-  line: '#2A3340',
-  lineStrong: '#3C4757',
+  ink: '#E8EDF7',
+  ink2: '#C4CDDF',
+  muted: '#9AA6BD',
+  faint: '#7C889E',
+  line: '#233049',
+  lineStrong: '#33425C',
 
-  codeBg: '#070A0E',
-  codeInk: '#D6DEEA',
+  codeBg: '#0C111C',
+  codeInk: '#D6DEEF',
 
   shadow1:
     '0 1px 2px -2px rgba(0,0,0,.64), 0 3px 6px 0 rgba(0,0,0,.48), 0 5px 12px 4px rgba(0,0,0,.36)',
@@ -213,6 +221,7 @@ export function getThemeConfig(mode: ThemeMode, density: Density = 'default'): T
       colorPrimaryHover: c.primaryHover,
       colorPrimaryActive: c.primaryActive,
       colorPrimaryBg: c.primaryBg,
+      colorPrimaryBgHover: mode === 'dark' ? c.primaryBorder : '#E3E6FF',
       colorPrimaryBorder: c.primaryBorder,
 
       colorLink: c.primary,
@@ -271,13 +280,29 @@ export function getThemeConfig(mode: ThemeMode, density: Density = 'default'): T
     components: {
       Button: {
         fontWeight: 600,
-        primaryShadow: 'none',
+        primaryShadow:
+          mode === 'dark'
+            ? '0 4px 14px rgba(129, 140, 248, 0.28)'
+            : '0 4px 12px rgba(79, 70, 229, 0.22)',
         defaultShadow: 'none',
+        defaultBorderColor: c.lineStrong,
+        defaultColor: c.ink2,
+      },
+      Segmented: {
+        trackBg: c.surface2,
+        trackPadding: 3,
+        itemColor: c.muted,
+        itemHoverColor: c.ink,
+        itemHoverBg: mode === 'dark' ? 'rgba(255, 255, 255, 0.06)' : 'rgba(19, 23, 34, 0.05)',
+        itemActiveBg: mode === 'dark' ? 'rgba(255, 255, 255, 0.10)' : 'rgba(19, 23, 34, 0.08)',
+        itemSelectedBg: c.primary,
+        itemSelectedColor: mode === 'dark' ? '#0B1020' : '#FFFFFF',
       },
       Tabs: {
         inkBarColor: c.primary,
         itemSelectedColor: c.primary,
         itemHoverColor: c.primaryHover,
+        itemColor: c.muted,
       },
       Tree: {
         nodeSelectedBg: c.primaryBg,
@@ -291,6 +316,7 @@ export function getThemeConfig(mode: ThemeMode, density: Density = 'default'): T
       },
       Modal: {
         footerBg: c.surface,
+        titleFontSize: 16,
       },
       Input: {
         activeBorderColor: c.primary,
@@ -299,10 +325,24 @@ export function getThemeConfig(mode: ThemeMode, density: Density = 'default'): T
       },
       Select: {
         optionSelectedBg: c.primaryBg,
+        optionActiveBg: c.surface2,
       },
       Menu: {
         itemSelectedBg: c.primaryBg,
         itemSelectedColor: c.primary,
+      },
+      Checkbox: {
+        borderRadiusSM: radius.sm,
+      },
+      Switch: {
+        colorPrimary: c.primary,
+      },
+      Tag: {
+        defaultBg: c.surface2,
+        defaultColor: c.muted,
+      },
+      Tooltip: {
+        colorBgSpotlight: mode === 'dark' ? c.surface3 : c.ink,
       },
     },
   };
@@ -339,6 +379,12 @@ export function getCssVars(
     '--aw-accent-hover': c.primaryHover,
     '--aw-accent-active': c.primaryActive,
     '--aw-accent-soft': c.primaryBg,
+    '--aw-accent-border': c.primaryBorder,
+    '--aw-accent-2': c.accent2,
+    '--aw-accent-2-soft': c.accent2Bg,
+    '--aw-accent-gradient': `linear-gradient(135deg, ${c.primary} 0%, ${c.accent2} 100%)`,
+    '--aw-accent-glow':
+      mode === 'dark' ? 'rgba(129, 140, 248, 0.22)' : 'rgba(79, 70, 229, 0.16)',
 
     '--aw-success': c.success,
     '--aw-success-soft': c.successBg,
