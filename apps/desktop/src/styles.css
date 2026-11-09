@@ -1422,6 +1422,13 @@ html[data-theme='dark'] .sidebar {
   box-shadow: -1px 0 0 var(--aw-line-strong);
 }
 
+.ai-panel-fallback {
+  align-items: center;
+  justify-content: center;
+  color: var(--aw-faint);
+  font-size: 10px;
+}
+
 .ai-head {
   display: flex;
   align-items: center;

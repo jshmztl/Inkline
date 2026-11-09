@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { App as AntApp } from 'antd';
 import { AntProvider, type Density, type ThemeMode } from '@api-workbench/ui';
 import type { ApiRequest, HttpMethod, NetworkMode } from './data/mock';
@@ -13,14 +13,22 @@ import {
   writeRemoteDocuments,
   type TeamSnapshot,
 } from './lib/team';
-import { AiPanel } from './components/AiPanel';
-import { CommandPalette } from './components/CommandPalette';
 import { LoginScreen } from './components/LoginScreen';
 import { RequestPanel } from './components/RequestPanel';
 import { Sidebar } from './components/Sidebar';
 import { StatusBar } from './components/StatusBar';
 import { TopBar } from './components/TopBar';
 import { readSession, signOut, type Session } from './lib/session';
+
+const AiPanel = lazy(() =>
+  import('./components/AiPanel').then((module) => ({ default: module.AiPanel })),
+);
+
+const CommandPalette = lazy(() =>
+  import('./components/CommandPalette').then((module) => ({
+    default: module.CommandPalette,
+  })),
+);
 
 const initialOpenTabs = ['orders-create', 'orders-list', 'refunds-create'];
 
@@ -244,13 +252,21 @@ export function App() {
               onQueued={() => setQueueNonce((current) => current + 1)}
               onContextChange={setRequestContext}
             />
-            <AiPanel
-              networkMode={networkMode}
-              activeRequest={activeRequest}
-              context={requestContext}
-              syncNonce={syncNonce}
-              actor={session.account}
-            />
+            <Suspense
+              fallback={
+                <aside className="ai-panel ai-panel-fallback">
+                  <span>AI 文档助手加载中…</span>
+                </aside>
+              }
+            >
+              <AiPanel
+                networkMode={networkMode}
+                activeRequest={activeRequest}
+                context={requestContext}
+                syncNonce={syncNonce}
+                actor={session.account}
+              />
+            </Suspense>
           </div>
 
           <StatusBar
@@ -260,14 +276,18 @@ export function App() {
             onQueueChange={() => setQueueNonce((current) => current + 1)}
           />
 
-          <CommandPalette
-            open={paletteOpen}
-            requests={allRequests}
-            onClose={() => setPaletteOpen(false)}
-            onSelectRequest={selectRequest}
-            onEnvironmentChange={setEnvironment}
-            onNetworkModeChange={setNetworkMode}
-          />
+          {paletteOpen && (
+            <Suspense fallback={null}>
+              <CommandPalette
+                open={paletteOpen}
+                requests={allRequests}
+                onClose={() => setPaletteOpen(false)}
+                onSelectRequest={selectRequest}
+                onEnvironmentChange={setEnvironment}
+                onNetworkModeChange={setNetworkMode}
+              />
+            </Suspense>
+          )}
         </div>
       </AntApp>
     </AntProvider>
