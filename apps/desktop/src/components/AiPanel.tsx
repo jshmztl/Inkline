@@ -9,6 +9,7 @@ import {
   PaperClipOutlined,
   RobotOutlined,
   SendOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 import { App, Button, Checkbox, Dropdown, Modal, Tag, Tooltip } from 'antd';
 import { Bubble, Prompts, Sender, ThoughtChain } from '@ant-design/x';
@@ -25,9 +26,11 @@ import {
   type RequestContext,
 } from '../lib/docTask';
 import { MethodTag } from './MethodTag';
+import { AiGatewayModal } from './AiGatewayModal';
 import { preflightEgress } from '../lib/egress';
 import { recordAudit } from '../lib/audit';
 import { resolveModelRoute } from '../lib/modelRoute';
+import { chatWithGateway, readGatewayConfig } from '../lib/aiGateway';
 
 interface AiPanelProps {
   networkMode: NetworkMode;
@@ -82,6 +85,8 @@ export function AiPanel({
   const [draft, setDraft] = useState<DraftField[]>([]);
   const [diffOpen, setDiffOpen] = useState(false);
   const [preflightOpen, setPreflightOpen] = useState(false);
+  const [gatewayOpen, setGatewayOpen] = useState(false);
+  const [gatewayConfig, setGatewayConfig] = useState(readGatewayConfig);
 
   const task = useMemo(() => (context ? buildDocTask(context) : null), [context]);
   const review = useMemo(() => (task ? buildFieldReview(task) : []), [task]);
@@ -117,25 +122,66 @@ export function AiPanel({
     }
   }, [requestId, syncNonce]);
 
-  function startTask() {
+  async function startTask() {
     if (!task) return;
+    const modelLabel = gatewayConfig.model || route.model;
     const masked = route.egress ? `；出网前脱敏 ${preflight?.masks.length ?? 0} 项` : '';
     setMessages((current) => [
       ...current,
       {
         key: `${task.id}-${current.length}`,
         placement: 'start',
-        text: `已建立文档任务（${route.model}）：请求 ${task.stats.requestFields} 个字段，响应示例 ${task.stats.responseFields} 个字段，命中术语 ${task.stats.glossaryHits} 条${masked}。可进入字段审阅。`,
+        text: `已建立文档任务（${modelLabel}）：请求 ${task.stats.requestFields} 个字段，响应示例 ${task.stats.responseFields} 个字段，命中术语 ${task.stats.glossaryHits} 条${masked}。可进入字段审阅。`,
       },
     ]);
     recordAudit({
       type: 'ai-task',
       action: `文档任务 · ${task.request.method} ${task.request.url}`,
-      detail: `${route.model} · ${task.stats.requestFields} 请求字段 / ${task.stats.responseFields} 响应字段 / ${task.stats.glossaryHits} 术语`,
+      detail: `${modelLabel} · ${task.stats.requestFields} 请求字段 / ${task.stats.responseFields} 响应字段 / ${task.stats.glossaryHits} 术语`,
       actor,
       level: task.request.dataLevel,
     });
     message.success(route.egress ? '已审批并建立文档任务' : '文档任务已建立');
+
+    const config = readGatewayConfig();
+    const prompt = [
+      `接口：${task.request.method} ${task.request.url}`,
+      `数据级别：${task.request.dataLevel}`,
+      `请求字段 ${task.stats.requestFields} 个，响应字段 ${task.stats.responseFields} 个`,
+      '请用 2-3 句话概括接口用途、关键字段与文档注意事项。',
+    ].join('\n');
+
+    try {
+      const reply = await chatWithGateway(
+        config,
+        [
+          {
+            role: 'system',
+            content: '你是内网 API 文档助手，回答简洁、专业，使用中文。',
+          },
+          { role: 'user', content: prompt },
+        ],
+        20_000,
+      );
+      setMessages((current) => [
+        ...current,
+        {
+          key: `${task.id}-gateway-${current.length}`,
+          placement: 'start',
+          text: `【${reply.model}】${reply.content}`,
+        },
+      ]);
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      setMessages((current) => [
+        ...current,
+        {
+          key: `${task.id}-gateway-${current.length}`,
+          placement: 'start',
+          text: `AI 网关调用失败：${text}（已保留本地模板结果）`,
+        },
+      ]);
+    }
   }
 
   function runTask() {
@@ -148,7 +194,7 @@ export function AiPanel({
       setPreflightOpen(true);
       return;
     }
-    startTask();
+    void startTask();
   }
 
   function applyDraft() {
@@ -198,7 +244,18 @@ export function AiPanel({
             <span>文档专用 · 可审计</span>
           </div>
         </div>
-        <Tag className={`model-tag tone-${network.tone}`}>{network.modelName}</Tag>
+        <Tag className={`model-tag tone-${network.tone}`}>
+          {gatewayConfig.model || network.modelName}
+        </Tag>
+        <Tooltip title="AI 网关设置">
+          <Button
+            type="text"
+            size="small"
+            icon={<SettingOutlined />}
+            aria-label="AI 网关设置"
+            onClick={() => setGatewayOpen(true)}
+          />
+        </Tooltip>
         <Tooltip title="更多">
           <Button type="text" size="small" icon={<MoreOutlined />} aria-label="更多" />
         </Tooltip>
@@ -240,7 +297,7 @@ export function AiPanel({
           )}
           <div className={`ai-route${route.allowed ? '' : ' blocked'}`}>
             <i className="ai-route-dot" />
-            <code>{route.endpoint}</code>
+            <code>{gatewayConfig.baseUrl || route.endpoint}</code>
             <span>{route.egress ? '出网' : '不出网'}</span>
             {route.approval && <span>需审批</span>}
             {route.egress && <span>脱敏 {preflight?.masks.length ?? 0} 项</span>}
@@ -463,7 +520,7 @@ export function AiPanel({
                 actor,
                 level: activeRequest.dataLevel,
               });
-              startTask();
+              void startTask();
             }}
           >
             确认出网并生成
@@ -505,6 +562,14 @@ export function AiPanel({
           </p>
         </div>
       </Modal>
+
+      <AiGatewayModal
+        open={gatewayOpen}
+        onClose={() => {
+          setGatewayOpen(false);
+          setGatewayConfig(readGatewayConfig());
+        }}
+      />
     </aside>
   );
 }

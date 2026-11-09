@@ -1,3 +1,4 @@
+mod ai;
 mod db;
 mod http;
 mod mock;
@@ -30,6 +31,7 @@ pub fn run() {
             http::cancel_http_request,
             mock::start_mock_server,
             mock::stop_mock_server,
+            ai::ai_chat,
             db::save_request,
             db::list_requests,
             db::delete_request,

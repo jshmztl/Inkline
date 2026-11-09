@@ -3642,3 +3642,57 @@ html[data-theme='dark'] .sidebar {
   font-size: 12px;
   line-height: 1.6;
 }
+
+/* ---------- ai gateway ---------- */
+
+.gateway-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.gateway-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.gateway-form label > span {
+  color: var(--aw-muted);
+  font-size: 12px;
+}
+
+.gateway-hint {
+  color: var(--aw-faint);
+  font-size: 11.5px;
+  font-style: normal;
+}
+
+.gateway-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.gateway-result.ok {
+  color: var(--aw-success);
+  background: var(--aw-success-soft);
+}
+
+.gateway-result.bad {
+  color: var(--aw-error);
+  background: var(--aw-error-soft);
+}
+
+.gateway-tip {
+  margin: 0;
+  color: var(--aw-faint);
+  font-size: 12px;
+  line-height: 1.6;
+}
