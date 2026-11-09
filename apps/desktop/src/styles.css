@@ -1203,6 +1203,96 @@ html[data-theme='dark'] .sidebar {
   width: 74px;
 }
 
+.protocol-select {
+  width: 92px;
+  flex: none;
+}
+
+/* ---------- GraphQL & streams ---------- */
+
+.gql-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.gql-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--aw-muted);
+  font-size: 12.5px;
+}
+
+.gql-field > span {
+  font-weight: 650;
+  letter-spacing: 0.05em;
+}
+
+.stream-body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.stream-log {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  font-family: var(--aw-font-code);
+  font-size: 12px;
+}
+
+.stream-event {
+  padding: 2px 0 2px 8px;
+  border-left: 2px solid var(--aw-line);
+}
+
+.stream-event.open {
+  border-left-color: var(--aw-success, #2f9e5f);
+}
+
+.stream-event.error {
+  border-left-color: var(--aw-error, #c0392b);
+}
+
+.stream-event.close {
+  border-left-color: var(--aw-faint);
+}
+
+.stream-event-head {
+  display: flex;
+  gap: 8px;
+  color: var(--aw-faint);
+  font-size: 11.5px;
+}
+
+.stream-kind {
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.stream-event pre {
+  margin: 2px 0 0;
+  font-family: inherit;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.stream-composer {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--aw-line);
+}
+
 .panel-eyebrow {
   display: block;
   margin-bottom: 7px;

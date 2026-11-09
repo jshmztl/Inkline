@@ -28,6 +28,14 @@ import {
   type SendResponse,
 } from '../lib/api';
 import type { RequestContext } from '../lib/docTask';
+import {
+  nextEventId,
+  openWebSocket,
+  streamSse,
+  type ProtocolKind,
+  type StreamEvent,
+  type WebSocketHandle,
+} from '../lib/protocol';
 import { resolveHeaders, resolveTemplate } from '../lib/variables';
 import { MethodTag } from './MethodTag';
 import { ResponseCode } from './ResponseCode';
@@ -64,6 +72,9 @@ interface RequestMeta {
   timeoutMs: number;
   formRows: KvRow[];
   params: KvRow[];
+  protocol: ProtocolKind;
+  gqlQuery: string;
+  gqlVariables: string;
 }
 
 const defaultMeta: RequestMeta = {
@@ -80,6 +91,9 @@ const defaultMeta: RequestMeta = {
     { id: 'form-2', key: 'currency', value: 'CNY', description: '', enabled: true },
   ],
   params: [],
+  protocol: 'http',
+  gqlQuery: `query Orders {\n  orders(first: 10) {\n    id\n    status\n    amount\n  }\n}`,
+  gqlVariables: '{}',
 };
 
 function readRequestMeta(id: string): RequestMeta {
@@ -203,6 +217,14 @@ export function RequestPanel({
   const [apiKeyValue, setApiKeyValue] = useState(defaultMeta.apiKeyValue);
   const [timeoutMs, setTimeoutMs] = useState(defaultMeta.timeoutMs);
   const [metaFor, setMetaFor] = useState<string | null>(null);
+  const [protocol, setProtocol] = useState<ProtocolKind>(defaultMeta.protocol);
+  const [gqlQuery, setGqlQuery] = useState(defaultMeta.gqlQuery);
+  const [gqlVariables, setGqlVariables] = useState(defaultMeta.gqlVariables);
+  const [streamEvents, setStreamEvents] = useState<StreamEvent[]>([]);
+  const [connected, setConnected] = useState(false);
+  const [draftMessage, setDraftMessage] = useState('');
+  const socketRef = useRef<WebSocketHandle | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const [sending, setSending] = useState(false);
   const [response, setResponse] = useState<SendResponse>(demoResponse);
   const [error, setError] = useState<string | null>(null);
@@ -242,6 +264,9 @@ export function RequestPanel({
     setTimeoutMs(meta.timeoutMs);
     setFormRows(meta.formRows);
     setParams(meta.params);
+    setProtocol(meta.protocol);
+    setGqlQuery(meta.gqlQuery);
+    setGqlVariables(meta.gqlVariables);
     setMetaFor(activeRequest.id);
   }, [activeRequest.id]);
 
@@ -258,6 +283,9 @@ export function RequestPanel({
       timeoutMs,
       formRows,
       params,
+      protocol,
+      gqlQuery,
+      gqlVariables,
     });
   }, [
     metaFor,
@@ -272,6 +300,9 @@ export function RequestPanel({
     timeoutMs,
     formRows,
     params,
+    protocol,
+    gqlQuery,
+    gqlVariables,
   ]);
 
   useEffect(() => {
@@ -306,6 +337,7 @@ export function RequestPanel({
   );
 
   const resolvedUrl = useMemo(() => resolveTemplate(url, variables), [url, variables]);
+  const streamMode = protocol === 'websocket' || protocol === 'sse';
 
   const responseMatchCount = useMemo(() => {
     const needle = responseQuery.trim().toLowerCase();
@@ -365,6 +397,84 @@ export function RequestPanel({
     ]);
   }
 
+  useEffect(() => {
+    return () => {
+      socketRef.current?.close();
+      abortRef.current?.abort();
+    };
+  }, []);
+
+  function appendStreamEvent(event: StreamEvent) {
+    setStreamEvents((current) => [...current.slice(-199), event]);
+  }
+
+  function disconnectStream() {
+    socketRef.current?.close();
+    socketRef.current = null;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setConnected(false);
+  }
+
+  function connectWebSocket(finalUrl: string) {
+    disconnectStream();
+    setStreamEvents([]);
+    setError(null);
+    setFeedback('WebSocket 连接中…');
+    try {
+      socketRef.current = openWebSocket(finalUrl, (event) => {
+        appendStreamEvent(event);
+        if (event.kind === 'open') {
+          setConnected(true);
+          setFeedback('WebSocket 已连接');
+        }
+        if (event.kind === 'close' || event.kind === 'error') {
+          setConnected(false);
+          if (event.kind === 'error') setError(event.payload);
+        }
+      });
+    } catch (caught) {
+      const text = caught instanceof Error ? caught.message : String(caught);
+      setError(text);
+      setFeedback(null);
+    }
+  }
+
+  async function startSse(
+    finalUrl: string,
+    resolvedHeaderPairs: { name: string; value: string }[],
+  ) {
+    disconnectStream();
+    setStreamEvents([]);
+    setError(null);
+    setConnected(true);
+    setFeedback('SSE 连接中…');
+    const controller = new AbortController();
+    abortRef.current = controller;
+    try {
+      await streamSse(finalUrl, resolvedHeaderPairs, null, appendStreamEvent, controller.signal);
+      setFeedback('SSE 流已结束');
+    } catch (caught) {
+      if (controller.signal.aborted) {
+        setFeedback('SSE 已断开');
+      } else {
+        const text = caught instanceof Error ? caught.message : String(caught);
+        setError(text);
+        setFeedback(null);
+      }
+    } finally {
+      setConnected(false);
+      abortRef.current = null;
+    }
+  }
+
+  function sendDraftMessage() {
+    const text = draftMessage.trim();
+    if (!text || !socketRef.current) return;
+    socketRef.current.send(text);
+    setDraftMessage('');
+  }
+
   async function handleSend() {
     const paramPairs = params
       .filter((row) => row.enabled && row.key.trim())
@@ -418,6 +528,40 @@ export function RequestPanel({
       variables,
     );
 
+    if (protocol === 'websocket' || protocol === 'sse') {
+      const urlMissing = [
+        ...new Set([
+          ...resolvedUrl.missing,
+          ...paramPairs.flatMap((pair) => [...pair.key.missing, ...pair.value.missing]),
+          ...resolvedHeaders.missing,
+          ...authMissing,
+        ]),
+      ];
+      if (urlMissing.length > 0) {
+        const names = urlMissing.map((name) => `{{${name}}}`).join('、');
+        setError(`缺少环境变量：${names}`);
+        setFeedback(null);
+        return;
+      }
+      if (connected) {
+        disconnectStream();
+        setFeedback('已断开连接');
+        return;
+      }
+      if (protocol === 'websocket') {
+        const wsUrl = finalUrl.replace(/^http:/i, 'ws:').replace(/^https:/i, 'wss:');
+        if (!/^wss?:\/\//i.test(wsUrl)) {
+          setError('WebSocket 地址需以 ws:// 或 wss:// 开头');
+          setFeedback(null);
+          return;
+        }
+        connectWebSocket(wsUrl);
+      } else {
+        void startSse(finalUrl, resolvedHeaders.headers);
+      }
+      return;
+    }
+
     let bodyText = '';
     const bodyMissing: string[] = [];
 
@@ -449,6 +593,32 @@ export function RequestPanel({
       bodyText = resolvedBody.value;
     }
 
+    if (protocol === 'graphql') {
+      let variablesValue: unknown = {};
+      if (gqlVariables.trim()) {
+        try {
+          variablesValue = JSON.parse(gqlVariables);
+        } catch {
+          setError('GraphQL Variables 不是合法 JSON');
+          setFeedback(null);
+          return;
+        }
+      }
+      bodyText = JSON.stringify({ query: gqlQuery, variables: variablesValue });
+      if (
+        !resolvedHeaders.headers.some(
+          (header) => header.name.toLowerCase() === 'content-type',
+        )
+      ) {
+        resolvedHeaders.headers.push({
+          name: 'Content-Type',
+          value: 'application/json',
+        });
+      }
+    }
+
+    const effectiveMethod = protocol === 'graphql' ? 'POST' : method;
+
     const missing = [
       ...new Set([
         ...resolvedUrl.missing,
@@ -473,10 +643,10 @@ export function RequestPanel({
 
     try {
       const result = await sendHttpRequest({
-        method,
+        method: effectiveMethod,
         url: finalUrl,
         headers: resolvedHeaders.headers,
-        body: method === 'GET' || method === 'DELETE' ? undefined : bodyText,
+        body: effectiveMethod === 'GET' || effectiveMethod === 'DELETE' ? undefined : bodyText,
         timeoutMs,
       });
 
@@ -485,7 +655,7 @@ export function RequestPanel({
 
       recordAudit({
         type: 'request',
-        action: `${method} ${finalUrl}`,
+        action: `${effectiveMethod} ${finalUrl}`,
         detail: `${result.status} ${result.statusText} · ${result.durationMs}ms · ${formatBytes(result.sizeBytes)}`,
         actor,
         level: activeRequest.dataLevel,
@@ -493,7 +663,7 @@ export function RequestPanel({
 
       try {
         await recordHistory({
-          method,
+          method: effectiveMethod,
           url: finalUrl,
           status: result.status,
           durationMs: result.durationMs,
@@ -516,17 +686,17 @@ export function RequestPanel({
       enqueueTask({
         requestId: activeRequest.id,
         name: activeRequest.name,
-        method,
+        method: effectiveMethod,
         url: finalUrl,
         headers: resolvedHeaders.headers,
-        body: method === 'GET' || method === 'DELETE' ? null : bodyText,
+        body: effectiveMethod === 'GET' || effectiveMethod === 'DELETE' ? null : bodyText,
         dataLevel: activeRequest.dataLevel,
       });
       onQueued();
 
       recordAudit({
         type: 'request',
-        action: `${method} ${finalUrl}`,
+        action: `${effectiveMethod} ${finalUrl}`,
         detail: `失败 · ${text}`,
         actor,
         level: activeRequest.dataLevel,
@@ -534,7 +704,7 @@ export function RequestPanel({
 
       try {
         await recordHistory({
-          method,
+          method: effectiveMethod,
           url: finalUrl,
           error: text,
           durationMs: Math.round(performance.now() - started),
@@ -596,8 +766,11 @@ export function RequestPanel({
 
   async function copyResponse() {
     try {
-      await navigator.clipboard.writeText(response.body);
-      message.success('已复制响应');
+      const text = streamMode
+        ? streamEvents.map((event) => `[${event.kind}] ${event.payload}`).join('\n')
+        : response.body;
+      await navigator.clipboard.writeText(text);
+      message.success(streamMode ? '已复制消息记录' : '已复制响应');
     } catch {
       message.warning('当前环境无法访问剪贴板');
     }
@@ -653,11 +826,30 @@ export function RequestPanel({
 
       <div className="url-bar">
         <Select
-          value={method}
+          value={protocol === 'graphql' ? 'POST' : method}
           options={methods.map((item) => ({ value: item, label: item }))}
           onChange={(value) => setMethod(value as HttpMethod)}
           className="method-select"
           popupMatchSelectWidth={false}
+          disabled={protocol !== 'http'}
+        />
+        <Select
+          size="small"
+          value={protocol}
+          onChange={(value) => {
+            const next = value as ProtocolKind;
+            if (next !== 'websocket' && next !== 'sse') disconnectStream();
+            setProtocol(next);
+          }}
+          options={[
+            { value: 'http', label: 'HTTP' },
+            { value: 'graphql', label: 'GraphQL' },
+            { value: 'websocket', label: 'WS' },
+            { value: 'sse', label: 'SSE' },
+          ]}
+          className="protocol-select"
+          popupMatchSelectWidth={false}
+          aria-label="协议"
         />
         <Input
           value={url}
@@ -668,15 +860,27 @@ export function RequestPanel({
           spellCheck={false}
           onPressEnter={handleSend}
         />
-        <Button
-          type="primary"
-          icon={<SendOutlined />}
-          loading={sending}
-          onClick={handleSend}
-          className="send-button"
-        >
-          发送
-        </Button>
+        {protocol === 'websocket' || protocol === 'sse' ? (
+          <Button
+            type={connected ? 'default' : 'primary'}
+            danger={connected}
+            icon={connected ? <CloseCircleOutlined /> : <SendOutlined />}
+            onClick={handleSend}
+            className="send-button"
+          >
+            {connected ? '断开' : '连接'}
+          </Button>
+        ) : (
+          <Button
+            type="primary"
+            icon={<SendOutlined />}
+            loading={sending}
+            onClick={handleSend}
+            className="send-button"
+          >
+            发送
+          </Button>
+        )}
         <Tooltip title="保存到当前集合">
           <Button
             icon={<SaveOutlined />}
@@ -782,7 +986,35 @@ export function RequestPanel({
           </div>
         )}
 
-        {requestTab === 'body' && (
+        {requestTab === 'body' && protocol === 'graphql' && (
+          <div className="body-editor gql-editor">
+            <div className="editor-toolbar">
+              <span className="editor-note">POST · application/json · GraphQL</span>
+            </div>
+            <label className="gql-field">
+              <span>Query</span>
+              <Input.TextArea
+                value={gqlQuery}
+                onChange={(event) => setGqlQuery(event.target.value)}
+                autoSize={{ minRows: 5, maxRows: 12 }}
+                spellCheck={false}
+                aria-label="GraphQL Query"
+              />
+            </label>
+            <label className="gql-field">
+              <span>Variables</span>
+              <Input.TextArea
+                value={gqlVariables}
+                onChange={(event) => setGqlVariables(event.target.value)}
+                autoSize={{ minRows: 3, maxRows: 8 }}
+                spellCheck={false}
+                aria-label="GraphQL Variables"
+              />
+            </label>
+          </div>
+        )}
+
+        {requestTab === 'body' && protocol !== 'graphql' && (
           <div className="body-editor">
             <div className="editor-toolbar">
               <Segmented
@@ -972,19 +1204,27 @@ export function RequestPanel({
       <div className="response-panel">
         <div className="response-head">
           <strong>响应</strong>
-          <span
-            className={`status-pill ${
-              response.status >= 200 && response.status < 300
-                ? 'ok'
-                : response.status >= 500
-                  ? 'bad'
-                  : 'warn'
-            }`}
-          >
-            {response.status} {response.statusText}
-          </span>
-          <span className="response-meta">{response.durationMs} ms</span>
-          <span className="response-meta">{formatBytes(response.sizeBytes)}</span>
+          {streamMode ? (
+            <span className={`status-pill ${connected ? 'ok' : 'warn'}`}>
+              {connected ? '已连接' : '未连接'}
+            </span>
+          ) : (
+            <>
+              <span
+                className={`status-pill ${
+                  response.status >= 200 && response.status < 300
+                    ? 'ok'
+                    : response.status >= 500
+                      ? 'bad'
+                      : 'warn'
+                }`}
+              >
+                {response.status} {response.statusText}
+              </span>
+              <span className="response-meta">{response.durationMs} ms</span>
+              <span className="response-meta">{formatBytes(response.sizeBytes)}</span>
+            </>
+          )}
           {feedback && (
             <span className="send-feedback">
               <CheckCircleFilled /> {feedback}
@@ -992,18 +1232,30 @@ export function RequestPanel({
           )}
           {error && <span className="response-error">{error}</span>}
           <div className="response-spacer" />
-          <Input
-            size="small"
-            allowClear
-            prefix={<SearchOutlined />}
-            className="response-search"
-            placeholder="搜索响应"
-            value={responseQuery}
-            onChange={(event) => setResponseQuery(event.target.value)}
-            disabled={responseTab !== 'body'}
-            aria-label="搜索响应"
-          />
-          {responseQuery.trim() && (
+          {streamMode ? (
+            <Tooltip title="清空消息">
+              <Button
+                type="text"
+                size="small"
+                icon={<DeleteOutlined />}
+                aria-label="清空消息"
+                onClick={() => setStreamEvents([])}
+              />
+            </Tooltip>
+          ) : (
+            <Input
+              size="small"
+              allowClear
+              prefix={<SearchOutlined />}
+              className="response-search"
+              placeholder="搜索响应"
+              value={responseQuery}
+              onChange={(event) => setResponseQuery(event.target.value)}
+              disabled={responseTab !== 'body'}
+              aria-label="搜索响应"
+            />
+          )}
+          {!streamMode && responseQuery.trim() && (
             <span className={`response-meta${responseMatchCount === 0 ? ' bad' : ''}`}>
               {responseMatchCount} 处匹配
             </span>
@@ -1022,72 +1274,128 @@ export function RequestPanel({
           </Tooltip>
         </div>
 
-        <div className="response-subtabs" role="tablist" aria-label="响应内容">
-          {(
-            [
-              ['body', 'Body'],
-              ['headers', 'Headers'],
-              ['cookies', 'Cookies'],
-              ['console', 'Console'],
-            ] as const
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              role="tab"
-              aria-selected={responseTab === key}
-              className={`subtab${responseTab === key ? ' active' : ''}`}
-              onClick={() => setResponseTab(key)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        {!streamMode && (
+          <div className="response-subtabs" role="tablist" aria-label="响应内容">
+            {(
+              [
+                ['body', 'Body'],
+                ['headers', 'Headers'],
+                ['cookies', 'Cookies'],
+                ['console', 'Console'],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={responseTab === key}
+                className={`subtab${responseTab === key ? ' active' : ''}`}
+                onClick={() => setResponseTab(key)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
 
-        <div className="response-body">
-          {responseTab === 'body' &&
-            (error ? (
-              <div className="response-error-panel">
-                <CloseCircleOutlined />
-                <div>
-                  <strong>请求未完成</strong>
-                  <p>{error}</p>
+        <div className={`response-body${streamMode ? ' stream-body' : ''}`}>
+          {streamMode ? (
+            <>
+              <div className="stream-log">
+                {streamEvents.length === 0 ? (
+                  <div className="response-empty">点击「连接」开始接收消息。</div>
+                ) : (
+                  streamEvents.map((event) => (
+                    <div className={`stream-event ${event.kind}`} key={event.id}>
+                      <div className="stream-event-head">
+                        <span className="stream-time">
+                          {new Date(event.at).toLocaleTimeString()}
+                        </span>
+                        <span className="stream-kind">
+                          {event.kind === 'open'
+                            ? 'OPEN'
+                            : event.kind === 'message'
+                              ? 'MESSAGE'
+                              : event.kind === 'error'
+                                ? 'ERROR'
+                                : event.kind === 'close'
+                                  ? 'CLOSE'
+                                  : 'INFO'}
+                        </span>
+                      </div>
+                      <pre>{event.payload}</pre>
+                    </div>
+                  ))
+                )}
+              </div>
+              {protocol === 'websocket' && (
+                <div className="stream-composer">
+                  <Input
+                    value={draftMessage}
+                    onChange={(event) => setDraftMessage(event.target.value)}
+                    onPressEnter={sendDraftMessage}
+                    placeholder={connected ? '输入消息，回车发送' : '连接后可发送消息'}
+                    disabled={!connected}
+                    aria-label="WebSocket 消息"
+                  />
+                  <Button
+                    type="primary"
+                    size="small"
+                    disabled={!connected || !draftMessage.trim()}
+                    onClick={sendDraftMessage}
+                  >
+                    发送
+                  </Button>
                 </div>
-              </div>
-            ) : (
-              <ResponseCode body={response.body} query={responseQuery} />
-            ))}
-
-          {responseTab === 'headers' &&
-            (response.headers.length > 0 ? (
-              <div className="response-kv">
-                {response.headers.map((header) => (
-                  <div key={`${header.name}-${header.value}`}>
-                    <span>{header.name}</span>
-                    <code>{header.value}</code>
+              )}
+            </>
+          ) : (
+            <>
+              {responseTab === 'body' &&
+                (error ? (
+                  <div className="response-error-panel">
+                    <CloseCircleOutlined />
+                    <div>
+                      <strong>请求未完成</strong>
+                      <p>{error}</p>
+                    </div>
                   </div>
+                ) : (
+                  <ResponseCode body={response.body} query={responseQuery} />
                 ))}
-              </div>
-            ) : (
-              <div className="response-empty">该响应没有可显示的响应头。</div>
-            ))}
 
-          {responseTab === 'cookies' && (
-            <div className="response-empty">该响应没有 Set-Cookie。</div>
-          )}
+              {responseTab === 'headers' &&
+                (response.headers.length > 0 ? (
+                  <div className="response-kv">
+                    {response.headers.map((header) => (
+                      <div key={`${header.name}-${header.value}`}>
+                        <span>{header.name}</span>
+                        <code>{header.value}</code>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="response-empty">该响应没有可显示的响应头。</div>
+                ))}
 
-          {responseTab === 'console' && (
-            <div className="console-line">
-              <span>{new Date().toLocaleTimeString()}</span>
-              <span className={error ? 'console-bad' : 'console-ok'}>
-                {error ? '×' : '→'} {method} {url}
-              </span>
-              <span>
-                {error
-                  ? '请求失败'
-                  : `${response.durationMs}ms · ${response.status} ${response.statusText}`}
-              </span>
-            </div>
+              {responseTab === 'cookies' && (
+                <div className="response-empty">该响应没有 Set-Cookie。</div>
+              )}
+
+              {responseTab === 'console' && (
+                <div className="console-line">
+                  <span>{new Date().toLocaleTimeString()}</span>
+                  <span className={error ? 'console-bad' : 'console-ok'}>
+                    {error ? '×' : '→'} {method} {url}
+                  </span>
+                  <span>
+                    {error
+                      ? '请求失败'
+                      : `${response.durationMs}ms · ${response.status} ${response.statusText}`}
+                  </span>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
