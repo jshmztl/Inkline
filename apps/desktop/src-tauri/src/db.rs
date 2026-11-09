@@ -404,3 +404,12 @@ pub fn clear_history(state: State<'_, DbState>) -> Result<(), String> {
         .map_err(|error| error.to_string())?;
     Ok(())
 }
+
+#[tauri::command]
+pub fn delete_history(state: State<'_, DbState>, id: i64) -> Result<(), String> {
+    let connection = state.0.lock().map_err(|error| error.to_string())?;
+    connection
+        .execute("DELETE FROM history WHERE id = ?1", params![id])
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}

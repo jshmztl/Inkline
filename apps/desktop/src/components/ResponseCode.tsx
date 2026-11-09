@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 const ROW_HEIGHT = 19;
 const OVERSCAN = 10;
@@ -36,9 +36,36 @@ function highlightJson(text: string) {
   });
 }
 
-export function ResponseCode({ body }: { body: string }) {
+function markMatches(line: string, needle: string) {
+  if (!needle) return line;
+  const lower = line.toLowerCase();
+  const parts: ReactNode[] = [];
+  let cursor = 0;
+
+  while (cursor <= line.length) {
+    const found = lower.indexOf(needle, cursor);
+    if (found < 0) {
+      parts.push(line.slice(cursor));
+      break;
+    }
+    if (found > cursor) parts.push(line.slice(cursor, found));
+    parts.push(
+      <mark key={`${found}-${cursor}`}>{line.slice(found, found + needle.length)}</mark>,
+    );
+    cursor = found + needle.length;
+  }
+
+  return parts;
+}
+
+export function ResponseCode({ body, query = '' }: { body: string; query?: string }) {
   const text = useMemo(() => formatBody(body), [body]);
-  const lines = useMemo(() => text.split('\n'), [text]);
+  const needle = query.trim().toLowerCase();
+  const lines = useMemo(() => {
+    const all = text.split('\n');
+    if (!needle) return all;
+    return all.filter((line) => line.toLowerCase().includes(needle));
+  }, [text, needle]);
   const virtual = lines.length > VIRTUAL_THRESHOLD;
   const ref = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -57,9 +84,20 @@ export function ResponseCode({ body }: { body: string }) {
 
   useEffect(() => {
     setScrollTop(ref.current?.scrollTop ?? 0);
-  }, [text]);
+  }, [text, needle]);
 
   if (!virtual) {
+    if (needle) {
+      return (
+        <pre className="code-block response-code">
+          {lines.map((line, index) => (
+            <div className="response-line" key={index}>
+              {markMatches(line, needle) || ' '}
+            </div>
+          ))}
+        </pre>
+      );
+    }
     return <pre className="code-block response-code">{highlightJson(text)}</pre>;
   }
 
@@ -80,7 +118,7 @@ export function ResponseCode({ body }: { body: string }) {
         <div style={{ transform: `translateY(${start * ROW_HEIGHT}px)` }}>
           {lines.slice(start, end).map((line, index) => (
             <div className="response-line" key={start + index}>
-              {line || ' '}
+              {markMatches(line, needle) || ' '}
             </div>
           ))}
         </div>

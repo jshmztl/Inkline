@@ -255,6 +255,17 @@ export async function clearHistory(): Promise<void> {
   writeJson(HISTORY_KEY, []);
 }
 
+export async function deleteHistory(id: number): Promise<void> {
+  if (isTauri) {
+    return invoke('delete_history', { id });
+  }
+
+  writeJson(
+    HISTORY_KEY,
+    readJson<HistoryEntry[]>(HISTORY_KEY, []).filter((entry) => entry.id !== id),
+  );
+}
+
 export async function listCollections(): Promise<Collection[]> {
   if (isTauri) {
     return invoke<Collection[]>('list_collections');

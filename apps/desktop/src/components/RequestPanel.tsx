@@ -11,6 +11,7 @@ import {
   MoreOutlined,
   PlusOutlined,
   SaveOutlined,
+  SearchOutlined,
   SendOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
@@ -188,6 +189,7 @@ export function RequestPanel({
   const [url, setUrl] = useState(`{{host}}${activeRequest.path}`);
   const [requestTab, setRequestTab] = useState<RequestTabKey>('body');
   const [responseTab, setResponseTab] = useState<ResponseTabKey>('body');
+  const [responseQuery, setResponseQuery] = useState('');
   const [params, setParams] = useState<KvRow[]>(initialParams);
   const [headers, setHeaders] = useState<KvRow[]>(initialHeaders);
   const [body, setBody] = useState(requestBody);
@@ -304,6 +306,12 @@ export function RequestPanel({
   );
 
   const resolvedUrl = useMemo(() => resolveTemplate(url, variables), [url, variables]);
+
+  const responseMatchCount = useMemo(() => {
+    const needle = responseQuery.trim().toLowerCase();
+    if (!needle) return 0;
+    return response.body.toLowerCase().split(needle).length - 1;
+  }, [response.body, responseQuery]);
 
   const visibleRows = requestTab === 'headers' || requestTab === 'params' ? activeRows : [];
 
@@ -543,12 +551,20 @@ export function RequestPanel({
 
   const sendRef = useRef(handleSend);
   sendRef.current = handleSend;
+  const saveRef = useRef(handleSave);
+  saveRef.current = handleSave;
 
   useEffect(() => {
     function handleHotkey(event: KeyboardEvent) {
-      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+      if (!event.metaKey && !event.ctrlKey) return;
+      if (event.key === 'Enter') {
         event.preventDefault();
         sendRef.current();
+        return;
+      }
+      if (event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        void saveRef.current();
       }
     }
     window.addEventListener('keydown', handleHotkey);
@@ -976,6 +992,22 @@ export function RequestPanel({
           )}
           {error && <span className="response-error">{error}</span>}
           <div className="response-spacer" />
+          <Input
+            size="small"
+            allowClear
+            prefix={<SearchOutlined />}
+            className="response-search"
+            placeholder="搜索响应"
+            value={responseQuery}
+            onChange={(event) => setResponseQuery(event.target.value)}
+            disabled={responseTab !== 'body'}
+            aria-label="搜索响应"
+          />
+          {responseQuery.trim() && (
+            <span className={`response-meta${responseMatchCount === 0 ? ' bad' : ''}`}>
+              {responseMatchCount} 处匹配
+            </span>
+          )}
           <Tooltip title="复制响应">
             <Button
               type="text"
@@ -1023,7 +1055,7 @@ export function RequestPanel({
                 </div>
               </div>
             ) : (
-              <ResponseCode body={response.body} />
+              <ResponseCode body={response.body} query={responseQuery} />
             ))}
 
           {responseTab === 'headers' &&

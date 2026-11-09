@@ -320,3 +320,179 @@ export function mergeDraftFields(
 
   return next;
 }
+
+function descriptionByPath(draft: DraftField[], path: string) {
+  return draft.find((entry) => entry.path === path)?.description ?? '';
+}
+
+function jsonBlock(source: string | null) {
+  if (!source) return '';
+  try {
+    return JSON.stringify(JSON.parse(source), null, 2);
+  } catch {
+    return source;
+  }
+}
+
+export function docToMarkdown(task: DocTask, draft: DraftField[]): string {
+  const lines: string[] = [];
+  lines.push(`# ${task.request.name}`);
+  lines.push('');
+  lines.push(`- 方法：\`${task.request.method}\``);
+  lines.push(`- 地址：\`${task.request.url}\``);
+  lines.push(`- 敏感级别：${task.request.dataLevel}`);
+  lines.push(`- 生成时间：${task.createdAt}`);
+  lines.push('');
+
+  if (task.request.headers.length > 0) {
+    lines.push('## 请求头');
+    lines.push('');
+    lines.push('| 名称 | 值 |');
+    lines.push('| --- | --- |');
+    for (const header of task.request.headers) {
+      lines.push(`| ${header.name} | \`${header.value}\` |`);
+    }
+    lines.push('');
+  }
+
+  if (task.request.body) {
+    lines.push('## 请求体');
+    lines.push('');
+    lines.push('```json');
+    lines.push(jsonBlock(task.request.body));
+    lines.push('```');
+    lines.push('');
+  }
+
+  if (task.response) {
+    lines.push('## 响应示例');
+    lines.push('');
+    lines.push(`\`${task.response.status} ${task.response.statusText}\``);
+    lines.push('');
+    lines.push('```json');
+    lines.push(jsonBlock(task.response.body));
+    lines.push('```');
+    lines.push('');
+  }
+
+  const combined = [...task.request.fields, ...(task.response?.fields ?? [])];
+  if (combined.length > 0) {
+    lines.push('## 字段说明');
+    lines.push('');
+    lines.push('| 字段 | 类型 | 来源 | 说明 |');
+    lines.push('| --- | --- | --- | --- |');
+    for (const field of combined) {
+      const source = task.request.fields.includes(field) ? '请求' : '响应';
+      lines.push(
+        `| \`${field.path}\` | ${field.type} | ${source} | ${descriptionByPath(draft, field.path)} |`,
+      );
+    }
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+function schemaFromValue(value: unknown): Record<string, unknown> {
+  if (Array.isArray(value)) {
+    return { type: 'array', items: value.length > 0 ? schemaFromValue(value[0]) : {} };
+  }
+  if (value === null) return { nullable: true };
+  if (typeof value === 'object') {
+    return {
+      type: 'object',
+      properties: Object.fromEntries(
+        Object.entries(value as Record<string, unknown>).map(([key, child]) => [
+          key,
+          schemaFromValue(child),
+        ]),
+      ),
+    };
+  }
+  if (typeof value === 'number') return { type: Number.isInteger(value) ? 'integer' : 'number' };
+  if (typeof value === 'boolean') return { type: 'boolean' };
+  if (typeof value === 'string') return { type: 'string' };
+  return {};
+}
+
+export function docToOpenApi(task: DocTask, draft: DraftField[]): string {
+  const url = task.request.url;
+  const hostMatch = url.match(/^(https?:\/\/[^/]+)/);
+  const host = hostMatch?.[1] ?? '{{host}}';
+  const path = hostMatch ? url.slice(host.length) || '/' : url;
+
+  let requestExample: unknown = null;
+  try {
+    requestExample = task.request.body ? JSON.parse(task.request.body) : null;
+  } catch {
+    requestExample = null;
+  }
+
+  let responseExample: unknown = null;
+  try {
+    responseExample = task.response?.body ? JSON.parse(task.response.body) : null;
+  } catch {
+    responseExample = null;
+  }
+
+  const operation: Record<string, unknown> = {
+    summary: task.request.name,
+    operationId: task.request.id.replace(/[^A-Za-z0-9_-]/g, '_'),
+    tags: [task.request.name],
+    parameters: task.request.headers.map((header) => ({
+      name: header.name,
+      in: 'header',
+      required: false,
+      schema: { type: 'string' },
+      description: '生成自请求头',
+    })),
+    responses: {
+      [task.response?.status ?? 200]: {
+        description: task.response?.statusText ?? '成功响应',
+        ...(responseExample !== null
+          ? {
+              content: {
+                'application/json': {
+                  schema: schemaFromValue(responseExample),
+                  example: responseExample,
+                },
+              },
+            }
+          : {}),
+      },
+    },
+  };
+
+  if (requestExample !== null) {
+    operation.requestBody = {
+      content: {
+        'application/json': {
+          schema: schemaFromValue(requestExample),
+          example: requestExample,
+        },
+      },
+    };
+  }
+
+  const spec = {
+    openapi: '3.0.3',
+    info: {
+      title: task.request.name,
+      version: '1.0.0',
+      description: [
+        `请求字段 ${task.request.fields.length} 个，响应字段 ${task.response?.fields.length ?? 0} 个。`,
+        draft.length > 0 ? `已合并 ${draft.length} 条字段说明。` : '',
+      ]
+        .filter(Boolean)
+        .join(' '),
+    },
+    servers: [{ url: host }],
+    paths: {
+      [path]: {
+        [task.request.method.toLowerCase()]: operation,
+      },
+    },
+  };
+
+  return JSON.stringify(spec, null, 2);
+}

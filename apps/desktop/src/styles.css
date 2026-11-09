@@ -357,6 +357,16 @@ html[data-theme='dark'] .sidebar {
   text-transform: uppercase;
 }
 
+.sidebar-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.history-search {
+  margin-bottom: 4px;
+}
+
 .sidebar-count {
   padding: 0 4px;
   border-radius: 3px;
@@ -1302,6 +1312,20 @@ html[data-theme='dark'] .sidebar {
   font-size: 12px;
 }
 
+.response-meta.bad {
+  color: var(--aw-error, #c0392b);
+}
+
+.response-search {
+  width: 156px;
+}
+
+.response-code mark {
+  border-radius: 2px;
+  background: rgba(255, 196, 0, 0.35);
+  color: inherit;
+}
+
 .send-feedback {
   display: inline-flex;
   align-items: center;
@@ -1866,6 +1890,7 @@ html[data-theme='dark'] .sidebar {
 
 .review-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 5px;
   padding: 7px 10px;

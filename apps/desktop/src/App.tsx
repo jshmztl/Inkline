@@ -3,7 +3,9 @@ import { App as AntApp } from 'antd';
 import { AntProvider, type Density, type ThemeMode } from '@api-workbench/ui';
 import type { ApiFolder, ApiRequest, DataLevel, HttpMethod, NetworkMode } from './data/mock';
 import {
+  clearHistory as apiClearHistory,
   deleteCollection as apiDeleteCollection,
+  deleteHistory as apiDeleteHistory,
   deleteRequest as apiDeleteRequest,
   listCollections,
   listHistory,
@@ -121,14 +123,22 @@ export function App() {
 
   useEffect(() => {
     function handleHotkey(event: KeyboardEvent) {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+      if (!event.metaKey && !event.ctrlKey) return;
+      const key = event.key.toLowerCase();
+      if (key === 'k') {
         event.preventDefault();
         setPaletteOpen((current) => !current);
+        return;
+      }
+      if (key === 'n') {
+        event.preventDefault();
+        const target = activeRequest.collectionId ?? folders[0]?.id;
+        if (target) void handleCreateRequest(target);
       }
     }
     window.addEventListener('keydown', handleHotkey);
     return () => window.removeEventListener('keydown', handleHotkey);
-  }, []);
+  });
 
   const folders: ApiFolder[] = useMemo(
     () =>
@@ -323,6 +333,16 @@ export function App() {
     return { name: payload.name, count: payload.requests.length };
   }
 
+  async function handleDeleteHistory(id: number) {
+    await apiDeleteHistory(id);
+    refreshHistory();
+  }
+
+  async function handleClearHistory() {
+    await apiClearHistory();
+    refreshHistory();
+  }
+
   function handleSignOut() {
     signOut();
     setSession(null);
@@ -418,6 +438,8 @@ export function App() {
               onRenameRequest={handleRenameRequest}
               onDeleteRequest={handleDeleteRequest}
               onImport={handleImport}
+              onDeleteHistory={handleDeleteHistory}
+              onClearHistory={handleClearHistory}
             />
             <RequestPanel
               activeRequest={activeRequest}

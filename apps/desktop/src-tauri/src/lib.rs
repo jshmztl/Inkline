@@ -32,7 +32,8 @@ pub fn run() {
             db::delete_collection,
             db::record_history,
             db::list_history,
-            db::clear_history
+            db::clear_history,
+            db::delete_history
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

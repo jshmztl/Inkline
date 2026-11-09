@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   CheckCircleFilled,
+  DownOutlined,
   FileTextOutlined,
   LoadingOutlined,
   LockOutlined,
@@ -9,7 +10,7 @@ import {
   RobotOutlined,
   SendOutlined,
 } from '@ant-design/icons';
-import { App, Button, Checkbox, Modal, Tag, Tooltip } from 'antd';
+import { App, Button, Checkbox, Dropdown, Modal, Tag, Tooltip } from 'antd';
 import { Bubble, Prompts, Sender, ThoughtChain } from '@ant-design/x';
 import type { ApiRequest, NetworkMode } from '../data/mock';
 import { networkModes, thoughtSteps } from '../data/mock';
@@ -17,6 +18,8 @@ import {
   buildDocTask,
   buildDraftDiff,
   buildFieldReview,
+  docToMarkdown,
+  docToOpenApi,
   mergeDraftFields,
   type DraftField,
   type RequestContext,
@@ -166,6 +169,21 @@ export function AiPanel({
     if (!composer.trim()) return;
     message.success('已发送到本地模型（演示）');
     setComposer('');
+  }
+
+  function downloadDoc(format: 'markdown' | 'openapi') {
+    if (!task) return;
+    const content =
+      format === 'markdown' ? docToMarkdown(task, draft) : docToOpenApi(task, draft);
+    const extension = format === 'markdown' ? 'md' : 'openapi.json';
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${task.request.name}.${extension}`;
+    link.click();
+    URL.revokeObjectURL(url);
+    message.success(`已导出 ${format === 'markdown' ? 'Markdown' : 'OpenAPI'}`);
   }
 
   return (
@@ -319,6 +337,21 @@ export function AiPanel({
             <Button size="small" onClick={() => setDiffOpen(true)}>
               查看 diff
             </Button>
+            <Dropdown
+              trigger={['click']}
+              disabled={!task}
+              menu={{
+                items: [
+                  { key: 'markdown', label: '导出 Markdown' },
+                  { key: 'openapi', label: '导出 OpenAPI' },
+                ],
+                onClick: ({ key }) => downloadDoc(key as 'markdown' | 'openapi'),
+              }}
+            >
+              <Button size="small" disabled={!task}>
+                导出 <DownOutlined />
+              </Button>
+            </Dropdown>
             <Button type="text" size="small" onClick={() => message.info('已忽略本次建议')}>
               忽略
             </Button>
