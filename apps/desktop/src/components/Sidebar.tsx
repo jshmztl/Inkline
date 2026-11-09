@@ -54,7 +54,7 @@ interface SidebarProps {
   onPush: () => TeamSnapshot;
   onPull: () => Promise<{ snapshot: TeamSnapshot; pulled: number } | null>;
   onMerged: () => void;
-  onCreateCollection: (name: string) => Promise<void>;
+  onCreateCollection: (name: string) => Promise<string>;
   onRenameCollection: (id: string, name: string) => Promise<void>;
   onDeleteCollection: (id: string) => Promise<void>;
   onCreateRequest: (collectionId: string) => Promise<void>;
@@ -123,7 +123,7 @@ export function Sidebar({
   const [mergeOpen, setMergeOpen] = useState(false);
   const [decisions, setDecisions] = useState<Record<string, 'local' | 'remote'>>({});
   const [editor, setEditor] = useState<{
-    mode: 'create' | 'rename-collection' | 'rename-request';
+    mode: 'create' | 'create-request' | 'rename-collection' | 'rename-request';
     id?: string;
     value: string;
   } | null>(null);
@@ -250,6 +250,9 @@ export function Sidebar({
     try {
       if (editor.mode === 'create') {
         await onCreateCollection(name);
+      } else if (editor.mode === 'create-request') {
+        const collectionId = await onCreateCollection(name);
+        await onCreateRequest(collectionId);
       } else if (editor.mode === 'rename-collection' && editor.id) {
         await onRenameCollection(editor.id, name);
       } else if (editor.mode === 'rename-request' && editor.id) {
@@ -447,16 +450,6 @@ export function Sidebar({
             className="sidebar-icon-btn"
             aria-label="导入"
             onClick={() => setImportOpen(true)}
-          />
-        </Tooltip>
-        <Tooltip title="新建集合">
-          <Button
-            type="text"
-            size="small"
-            icon={<PlusOutlined />}
-            className="sidebar-icon-btn"
-            aria-label="新建集合"
-            onClick={() => setEditor({ mode: 'create', value: '' })}
           />
         </Tooltip>
       </div>
@@ -814,13 +807,25 @@ export function Sidebar({
       <div className="sidebar-foot">
         <button
           type="button"
+          className="sidebar-foot-btn ghost"
+          onClick={() => setEditor({ mode: 'create', value: '' })}
+        >
+          <PlusOutlined />
+          新建集合
+        </button>
+        <button
+          type="button"
           className="sidebar-foot-btn"
           onClick={() => {
             const activeFolder = folders.find((folder) =>
               folder.requests.some((request) => request.id === activeRequestId),
             );
             const target = activeFolder?.id ?? folders[0]?.id;
-            if (target) onCreateRequest(target);
+            if (target) {
+              onCreateRequest(target);
+            } else {
+              setEditor({ mode: 'create-request', value: '' });
+            }
           }}
         >
           <PlusOutlined />
@@ -940,9 +945,11 @@ export function Sidebar({
         title={
           editor?.mode === 'create'
             ? '新建集合'
-            : editor?.mode === 'rename-collection'
-              ? '重命名集合'
-              : '重命名请求'
+            : editor?.mode === 'create-request'
+              ? '新建集合与请求'
+              : editor?.mode === 'rename-collection'
+                ? '重命名集合'
+                : '重命名请求'
         }
         width={380}
         okText="保存"

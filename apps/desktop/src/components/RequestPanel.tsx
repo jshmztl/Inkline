@@ -6,6 +6,7 @@ import {
   CodeOutlined,
   CopyOutlined,
   DeleteOutlined,
+  EditOutlined,
   FormatPainterOutlined,
   GlobalOutlined,
   LockOutlined,
@@ -14,6 +15,7 @@ import {
   SaveOutlined,
   SearchOutlined,
   SendOutlined,
+  StopOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import { App, Button, Checkbox, Input, Segmented, Select, Tag, Tooltip } from 'antd';
@@ -254,13 +256,19 @@ export function RequestPanel({
   const [draftMessage, setDraftMessage] = useState('');
   const socketRef = useRef<WebSocketHandle | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const httpAbortRef = useRef<AbortController | null>(null);
   const pendingRequestId = useRef<string | null>(null);
   const cancelledRef = useRef(false);
   const [sending, setSending] = useState(false);
   const [response, setResponse] = useState<SendResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [requestName, setRequestName] = useState(activeRequest.name);
   const appliedKey = useRef<string | null>(null);
+
+  useEffect(() => {
+    setRequestName(saved?.name ?? activeRequest.name);
+  }, [activeRequest.id, activeRequest.name, saved?.name]);
 
   useEffect(() => {
     const key = `${activeRequest.id}:${saved ? 'saved' : 'new'}`;
@@ -364,7 +372,7 @@ export function RequestPanel({
   useEffect(() => {
     onContextChange({
       id: activeRequest.id,
-      name: activeRequest.name,
+      name: requestName.trim() || activeRequest.name,
       method,
       url,
       dataLevel: activeRequest.dataLevel,
@@ -380,7 +388,7 @@ export function RequestPanel({
           }
         : null,
     });
-  }, [activeRequest, method, url, headers, body, response, onContextChange]);
+  }, [activeRequest, method, url, headers, body, response, requestName, onContextChange]);
 
   const activeRows = useMemo(
     () => (requestTab === 'headers' ? headers : params),
@@ -792,6 +800,8 @@ export function RequestPanel({
 
     setSending(true);
     setError(null);
+    const controller = new AbortController();
+    httpAbortRef.current = controller;
     const requestId = `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
     pendingRequestId.current = requestId;
     cancelledRef.current = false;
@@ -834,7 +844,7 @@ export function RequestPanel({
         multipart: multipartPayload,
         timeoutMs,
         network: readNetworkOptions(),
-      });
+      }, controller.signal);
 
       if (cancelledRef.current) {
         setFeedback('请求已取消');
@@ -954,6 +964,7 @@ export function RequestPanel({
       }
     } finally {
       pendingRequestId.current = null;
+      httpAbortRef.current = null;
       setSending(false);
       onHistoryRecorded();
       window.setTimeout(() => setFeedback(null), 3000);
@@ -963,9 +974,22 @@ export function RequestPanel({
   async function cancelSend() {
     if (!pendingRequestId.current) return;
     cancelledRef.current = true;
+    httpAbortRef.current?.abort();
+    setFeedback('正在中断请求…');
     await cancelHttpRequest(pendingRequestId.current);
-    setFeedback('已取消请求');
+    setFeedback('已中断请求');
   }
+
+  useEffect(() => {
+    if (!sending) return;
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      void cancelSend();
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [sending]);
 
   const sendRef = useRef(handleSend);
   sendRef.current = handleSend;
@@ -993,7 +1017,7 @@ export function RequestPanel({
     try {
       await saveRequest({
         id: activeRequest.id,
-        name: activeRequest.name,
+        name: requestName.trim() || activeRequest.name,
         method,
         url,
         headers: headers
@@ -1064,12 +1088,24 @@ export function RequestPanel({
           <PlusOutlined />
         </button>
         <div className="request-tabs-spacer" />
-        <span className="request-title" title={activeRequest.name}>
-          {activeRequest.name}
-        </span>
         <Tag className={`level-tag level-${activeRequest.dataLevel.toLowerCase()}`}>
           {activeRequest.dataLevel}
         </Tag>
+      </div>
+
+      <div className="request-name-bar">
+        <EditOutlined className="request-name-icon" />
+        <Input
+          variant="borderless"
+          value={requestName}
+          maxLength={60}
+          onChange={(event) => setRequestName(event.target.value)}
+          onPressEnter={() => void handleSave()}
+          className="request-name-input"
+          placeholder="接口名称"
+          aria-label="接口名称"
+        />
+        <span className="request-name-hint">回车或保存后更新名称</span>
       </div>
 
       <div className="url-bar">
@@ -1125,11 +1161,12 @@ export function RequestPanel({
         ) : sending ? (
           <Button
             danger
-            icon={<CloseCircleOutlined />}
+            icon={<StopOutlined />}
             onClick={cancelSend}
-            className="send-button"
+            className="send-button cancel-button"
+            title="中断当前请求（Esc）"
           >
-            取消
+            中断
           </Button>
         ) : (
           <Button

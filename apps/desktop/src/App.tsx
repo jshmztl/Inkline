@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
-import { App as AntApp, Button } from 'antd';
+import { App as AntApp, Button, Input, Modal } from 'antd';
 import { AntProvider, type Density, type ThemeMode } from '@api-workbench/ui';
 import type { ApiFolder, ApiRequest, DataLevel, HttpMethod, NetworkMode } from './data/types';
 import {
@@ -87,6 +87,9 @@ export function App() {
   const [syncNonce, setSyncNonce] = useState(0);
   const [queueNonce, setQueueNonce] = useState(0);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [bootstrapOpen, setBootstrapOpen] = useState(false);
+  const [bootstrapName, setBootstrapName] = useState('');
+  const [bootstrapping, setBootstrapping] = useState(false);
   const [testRun, setTestRun] = useState<{
     name: string;
     running: boolean;
@@ -275,12 +278,14 @@ export function App() {
   }
 
   async function handleCreateCollection(name: string) {
+    const id = `collection-${Date.now().toString(36)}`;
     await apiSaveCollection({
-      id: `collection-${Date.now().toString(36)}`,
+      id,
       name,
       sort: collections.length,
     });
     await refreshWorkspace();
+    return id;
   }
 
   async function handleRenameCollection(id: string, name: string) {
@@ -317,16 +322,17 @@ export function App() {
   }
 
   async function handleCreateFirstRequest() {
-    let collectionId = collections[0]?.id;
-    if (!collectionId) {
-      collectionId = `collection-${Date.now().toString(36)}`;
-      await apiSaveCollection({
-        id: collectionId,
-        name: '我的集合',
-        sort: 0,
-      });
+    const name = bootstrapName.trim();
+    if (!name) return;
+    setBootstrapping(true);
+    try {
+      const collectionId = await handleCreateCollection(name);
+      await handleCreateRequest(collectionId);
+      setBootstrapOpen(false);
+      setBootstrapName('');
+    } finally {
+      setBootstrapping(false);
     }
-    await handleCreateRequest(collectionId);
   }
 
   async function handleRenameRequest(id: string, name: string) {
@@ -520,7 +526,7 @@ export function App() {
               <section className="workspace-empty">
                 <strong>还没有请求</strong>
                 <p>创建一个集合与第一条请求，或从 curl / Postman / OpenAPI 导入。</p>
-                <Button type="primary" onClick={() => void handleCreateFirstRequest()}>
+                <Button type="primary" onClick={() => setBootstrapOpen(true)}>
                   新建集合与请求
                 </Button>
               </section>
@@ -580,6 +586,29 @@ export function App() {
               />
             </Suspense>
           )}
+
+          <Modal
+            open={bootstrapOpen}
+            title="新建集合"
+            width={400}
+            okText="创建并新建请求"
+            cancelText="取消"
+            confirmLoading={bootstrapping}
+            okButtonProps={{ disabled: !bootstrapName.trim() }}
+            onOk={() => void handleCreateFirstRequest()}
+            onCancel={() => setBootstrapOpen(false)}
+          >
+            <p className="bootstrap-hint">先给集合起个名字，创建后会同时新建一条请求。</p>
+            <Input
+              autoFocus
+              value={bootstrapName}
+              maxLength={40}
+              onChange={(event) => setBootstrapName(event.target.value)}
+              onPressEnter={() => void handleCreateFirstRequest()}
+              placeholder="例如：订单服务"
+              aria-label="集合名称"
+            />
+          </Modal>
 
           <TestRunModal
             open={testRun !== null}

@@ -148,7 +148,10 @@ function writeJson(key: string, value: unknown) {
   }
 }
 
-async function browserSendRequest(payload: SendRequestPayload): Promise<SendResponse> {
+async function browserSendRequest(
+  payload: SendRequestPayload,
+  signal?: AbortSignal,
+): Promise<SendResponse> {
   const headers = new Headers();
   for (const header of payload.headers) {
     if (header.name.trim()) headers.set(header.name, header.value);
@@ -184,6 +187,7 @@ async function browserSendRequest(payload: SendRequestPayload): Promise<SendResp
     method: payload.method,
     headers,
     body: requestBody,
+    signal,
   });
   const body = await response.text();
 
@@ -202,13 +206,14 @@ async function browserSendRequest(payload: SendRequestPayload): Promise<SendResp
 
 export async function sendHttpRequest(
   payload: SendRequestPayload,
+  signal?: AbortSignal,
 ): Promise<SendResponse> {
   if (isTauri) {
     return invoke<SendResponse>('send_http_request', { payload });
   }
 
   try {
-    return await browserSendRequest(payload);
+    return await browserSendRequest(payload, signal);
   } catch (error) {
     const text = error instanceof Error ? error.message : String(error);
     throw new Error(`请求失败：${text}`);
