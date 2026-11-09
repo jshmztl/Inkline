@@ -13,12 +13,12 @@ import {
 } from '@ant-design/icons';
 import { App, Button, Dropdown, Input, Modal, Segmented, Tooltip } from 'antd';
 import {
-  environmentVariables,
   environments,
   type ApiFolder,
   type ApiRequest,
 } from '../data/mock';
 import { saveRequest, type HistoryEntry, type SavedRequest } from '../lib/api';
+import type { WorkspaceEnvironment } from '../lib/envStore';
 import { recordAudit } from '../lib/audit';
 import { planThreeWayMerge } from '../lib/merge';
 import type { Session } from '../lib/session';
@@ -37,12 +37,14 @@ interface SidebarProps {
   history: HistoryEntry[];
   savedRequests: SavedRequest[];
   environment: string;
+  workspaceEnvironments: WorkspaceEnvironment[];
   session: Session;
   teamRevision: number | null;
   teamUpdatedAt: string | null;
   onSelectRequest: (request: ApiRequest) => void;
   onReplayHistory: (entry: HistoryEntry) => void;
   onEnvironmentChange: (environment: string) => void;
+  onSaveEnvironment: (environment: string, variables: Record<string, string>) => void;
   onPush: () => TeamSnapshot;
   onPull: () => Promise<{ snapshot: TeamSnapshot; pulled: number } | null>;
   onMerged: () => void;
@@ -77,12 +79,14 @@ export function Sidebar({
   history,
   savedRequests,
   environment,
+  workspaceEnvironments,
   session,
   teamRevision,
   teamUpdatedAt,
   onSelectRequest,
   onReplayHistory,
   onEnvironmentChange,
+  onSaveEnvironment,
   onPush,
   onPull,
   onMerged,
@@ -106,6 +110,49 @@ export function Sidebar({
     id?: string;
     value: string;
   } | null>(null);
+  const [envEditor, setEnvEditor] = useState<{
+    value: string;
+    label: string;
+    rows: { id: string; key: string; value: string }[];
+  } | null>(null);
+
+  function openEnvEditor(value: string) {
+    const target = workspaceEnvironments.find((item) => item.value === value);
+    if (!target) return;
+    setEnvEditor({
+      value: target.value,
+      label: target.label,
+      rows: Object.entries(target.variables).map(([key, val], index) => ({
+        id: `env-${index}`,
+        key,
+        value: val,
+      })),
+    });
+  }
+
+  function updateEnvRow(id: string, patch: Partial<{ key: string; value: string }>) {
+    setEnvEditor((current) =>
+      current
+        ? {
+            ...current,
+            rows: current.rows.map((row) => (row.id === id ? { ...row, ...patch } : row)),
+          }
+        : current,
+    );
+  }
+
+  function submitEnvEditor() {
+    if (!envEditor) return;
+    const variables: Record<string, string> = {};
+    for (const row of envEditor.rows) {
+      const key = row.key.trim();
+      if (!key) continue;
+      variables[key] = row.value;
+    }
+    onSaveEnvironment(envEditor.value, variables);
+    setEnvEditor(null);
+    message.success(`已保存「${envEditor.label}」变量`);
+  }
 
   async function submitEditor() {
     if (!editor) return;
@@ -407,19 +454,23 @@ export function Sidebar({
           <span>环境</span>
           <span className="sidebar-count">{environments.length}</span>
         </div>
-        {environments.map((item) => (
-          <button
-            key={item.value}
-            type="button"
-            className={`environment-row${item.value === environment ? ' active' : ''}`}
-            onClick={() => onEnvironmentChange(item.value)}
-            title={environmentVariables[item.value]?.host}
-          >
-            <i />
-            <span>{item.label}</span>
-            <em>{environmentVariables[item.value]?.host.replace(/^https?:\/\//, '')}</em>
-          </button>
-        ))}
+        {workspaceEnvironments.map((item) => {
+          const host = item.variables.host ?? '';
+          return (
+            <button
+              key={item.value}
+              type="button"
+              className={`environment-row${item.value === environment ? ' active' : ''}`}
+              onClick={() => onEnvironmentChange(item.value)}
+              onDoubleClick={() => openEnvEditor(item.value)}
+              title={`${host} · 双击编辑变量`}
+            >
+              <i />
+              <span>{item.label}</span>
+              <em>{host.replace(/^https?:\/\//, '')}</em>
+            </button>
+          );
+        })}
       </div>
 
       <div className="sidebar-section">
@@ -518,13 +569,14 @@ export function Sidebar({
           <PlusOutlined />
           新建请求
         </button>
-        <Tooltip title="工作区设置">
+        <Tooltip title="编辑当前环境变量">
           <Button
             type="text"
             size="small"
             icon={<SettingOutlined />}
             className="sidebar-icon-btn"
             aria-label="设置"
+            onClick={() => openEnvEditor(environment)}
           />
         </Tooltip>
       </div>
@@ -649,6 +701,84 @@ export function Sidebar({
           placeholder="名称"
           aria-label="名称"
         />
+      </Modal>
+
+      <Modal
+        open={envEditor !== null}
+        title={`环境变量 · ${envEditor?.label ?? ''}`}
+        width={520}
+        okText="保存"
+        cancelText="取消"
+        onCancel={() => setEnvEditor(null)}
+        onOk={submitEnvEditor}
+      >
+        <div className="env-editor">
+          <p className="env-editor-hint">
+            在 URL、Headers、Body 中使用 <code>{'{{变量名}}'}</code> 引用，例如{' '}
+            <code>{'{{host}}/v1/orders'}</code>。
+          </p>
+          <div className="env-editor-head">
+            <span>KEY</span>
+            <span>VALUE</span>
+            <span />
+          </div>
+          {envEditor?.rows.map((row) => (
+            <div className="env-editor-row" key={row.id}>
+              <Input
+                size="small"
+                value={row.key}
+                placeholder="host"
+                aria-label="变量名"
+                onChange={(event) => updateEnvRow(row.id, { key: event.target.value })}
+              />
+              <Input
+                size="small"
+                value={row.value}
+                placeholder="http://127.0.0.1:8080"
+                aria-label="变量值"
+                onChange={(event) => updateEnvRow(row.id, { value: event.target.value })}
+              />
+              <Button
+                type="text"
+                size="small"
+                danger
+                onClick={() =>
+                  setEnvEditor((current) =>
+                    current
+                      ? {
+                          ...current,
+                          rows: current.rows.filter((item) => item.id !== row.id),
+                        }
+                      : current,
+                  )
+                }
+              >
+                移除
+              </Button>
+            </div>
+          ))}
+          <Button
+            type="dashed"
+            size="small"
+            block
+            icon={<PlusOutlined />}
+            onClick={() =>
+              setEnvEditor((current) =>
+                current
+                  ? {
+                      ...current,
+                      rows: [
+                        ...current.rows,
+                        { id: `env-${Date.now().toString(36)}`, key: '', value: '' },
+                      ],
+                    }
+                  : current,
+              )
+            }
+          >
+            新增变量
+          </Button>
+        </div>
       </Modal>
     </aside>
   );

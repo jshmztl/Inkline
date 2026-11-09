@@ -16,12 +16,7 @@ import {
 } from '@ant-design/icons';
 import { App, Button, Checkbox, Input, Segmented, Select, Tag, Tooltip } from 'antd';
 import type { ApiRequest, HttpMethod, KvRow } from '../data/mock';
-import {
-  environmentVariables,
-  headerRows as initialHeaders,
-  queryParams as initialParams,
-  requestBody,
-} from '../data/mock';
+import { headerRows as initialHeaders, queryParams as initialParams, requestBody } from '../data/mock';
 import { recordAudit } from '../lib/audit';
 import { enqueueTask } from '../lib/queue';
 import {
@@ -41,7 +36,7 @@ interface RequestPanelProps {
   openTabs: ApiRequest[];
   replay: { method: HttpMethod; url: string; nonce: number } | null;
   saved: SavedRequest | null;
-  environment: string;
+  variables: Record<string, string>;
   actor: string;
   collectionId: string;
   onSelectTab: (requestId: string) => void;
@@ -178,7 +173,7 @@ export function RequestPanel({
   openTabs,
   replay,
   saved,
-  environment,
+  variables,
   actor,
   collectionId,
   onSelectTab,
@@ -308,7 +303,6 @@ export function RequestPanel({
     [requestTab, headers, params],
   );
 
-  const variables = environmentVariables[environment] ?? {};
   const resolvedUrl = useMemo(() => resolveTemplate(url, variables), [url, variables]);
 
   const visibleRows = requestTab === 'headers' || requestTab === 'params' ? activeRows : [];

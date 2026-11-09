@@ -15,6 +15,7 @@ import {
   type SavedRequest,
 } from './lib/api';
 import type { RequestContext } from './lib/docTask';
+import { listEnvironments, saveEnvironmentVariables } from './lib/envStore';
 import {
   collectLocalDocuments,
   pullTeamSnapshot,
@@ -72,6 +73,7 @@ export function App() {
   const [density, setDensity] = useState<Density>(readStoredDensity);
   const [networkMode, setNetworkMode] = useState<NetworkMode>('B');
   const [environment, setEnvironment] = useState('local');
+  const [workspaceEnvs, setWorkspaceEnvs] = useState(listEnvironments);
   const [activeRequestId, setActiveRequestId] = useState('orders-create');
   const [openTabIds, setOpenTabIds] = useState<string[]>(initialOpenTabs);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -142,6 +144,11 @@ export function App() {
   const allRequests = useMemo(
     () => folders.flatMap((folder) => folder.requests),
     [folders],
+  );
+
+  const currentVariables = useMemo(
+    () => workspaceEnvs.find((item) => item.value === environment)?.variables ?? {},
+    [workspaceEnvs, environment],
   );
 
   const emptyRequest: ApiRequest = {
@@ -295,6 +302,13 @@ export function App() {
     setSession(null);
   }
 
+  function handleSaveEnvironment(
+    environmentValue: string,
+    variables: Record<string, string>,
+  ) {
+    setWorkspaceEnvs(saveEnvironmentVariables(environmentValue, variables));
+  }
+
   function handlePush() {
     const snapshot = pushTeamSnapshot(
       session?.account ?? 'local',
@@ -360,12 +374,14 @@ export function App() {
               history={history}
               savedRequests={savedRequests}
               environment={environment}
+              workspaceEnvironments={workspaceEnvs}
               session={session}
               teamRevision={teamSnapshot?.revision ?? null}
               teamUpdatedAt={teamSnapshot?.updatedAt ?? null}
               onSelectRequest={selectRequest}
               onReplayHistory={replayHistory}
               onEnvironmentChange={setEnvironment}
+              onSaveEnvironment={handleSaveEnvironment}
               onPush={handlePush}
               onPull={handlePull}
               onMerged={handleMerged}
@@ -381,7 +397,7 @@ export function App() {
               openTabs={openTabs}
               replay={replay}
               saved={activeSaved}
-              environment={environment}
+              variables={currentVariables}
               actor={session.account}
               collectionId={activeRequest.collectionId ?? 'payment'}
               onSelectTab={selectTab}

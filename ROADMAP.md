@@ -13,7 +13,7 @@
 | Tauri 三栏工作台骨架 | 已完成 |
 | Git 仓库与首个提交 | 已完成 |
 | M1 请求闭环 | 已完成 |
-| 下一项 | M5.6 环境变量编辑与持久化 |
+| 下一项 | M5.7 导入（Postman / OpenAPI / curl） |
 
 ## 里程碑
 
@@ -114,7 +114,7 @@
 - [x] Body 类型：JSON / 文本 / 表单
 - [x] 请求超时设置与 Ctrl+Enter 发送
 - [x] 集合与请求 CRUD（SQLite 持久化）
-- [ ] 环境变量编辑与持久化
+- [x] 环境变量编辑与持久化
 - [ ] 导入：Postman / OpenAPI / curl
 - [ ] 导出：集合 JSON / curl / fetch
 - [ ] 历史搜索、清空、删除
