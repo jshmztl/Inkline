@@ -3,7 +3,7 @@ import { App as AntApp } from 'antd';
 import { AntProvider, type Density, type ThemeMode } from '@api-workbench/ui';
 import type { ApiRequest, HttpMethod, NetworkMode } from './data/mock';
 import { allRequests } from './data/mock';
-import { listHistory, type HistoryEntry } from './lib/api';
+import { listHistory, listRequests, type HistoryEntry, type SavedRequest } from './lib/api';
 import { AiPanel } from './components/AiPanel';
 import { RequestPanel } from './components/RequestPanel';
 import { Sidebar } from './components/Sidebar';
@@ -30,6 +30,7 @@ export function App() {
   const [activeRequestId, setActiveRequestId] = useState('orders-create');
   const [openTabIds, setOpenTabIds] = useState<string[]>(initialOpenTabs);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [savedRequests, setSavedRequests] = useState<SavedRequest[]>([]);
   const [replay, setReplay] = useState<{
     method: HttpMethod;
     url: string;
@@ -45,6 +46,13 @@ export function App() {
       .catch(() => {
         // 历史加载失败不阻断主流程。
       });
+    listRequests()
+      .then((entries) => {
+        if (alive) setSavedRequests(entries);
+      })
+      .catch(() => {
+        // 已保存请求加载失败不阻断主流程。
+      });
     return () => {
       alive = false;
     };
@@ -52,6 +60,8 @@ export function App() {
 
   const activeRequest =
     allRequests.find((request) => request.id === activeRequestId) ?? allRequests[0];
+  const activeSaved =
+    savedRequests.find((request) => request.id === activeRequestId) ?? null;
 
   const openTabs = openTabIds
     .map((id) => allRequests.find((request) => request.id === id))
@@ -104,6 +114,14 @@ export function App() {
     });
   }
 
+  function refreshSaved() {
+    listRequests()
+      .then(setSavedRequests)
+      .catch(() => {
+        // 忽略已保存请求刷新失败。
+      });
+  }
+
   return (
     <AntProvider mode={mode} density={density}>
       <AntApp className="ant-app-root">
@@ -123,6 +141,7 @@ export function App() {
             <Sidebar
               activeRequestId={activeRequestId}
               history={history}
+              savedRequests={savedRequests}
               onSelectRequest={selectRequest}
               onReplayHistory={replayHistory}
             />
@@ -130,9 +149,11 @@ export function App() {
               activeRequest={activeRequest}
               openTabs={openTabs}
               replay={replay}
+              saved={activeSaved}
               onSelectTab={selectTab}
               onCloseTab={closeTab}
               onHistoryRecorded={refreshHistory}
+              onSaved={refreshSaved}
             />
             <AiPanel networkMode={networkMode} activeRequest={activeRequest} />
           </div>

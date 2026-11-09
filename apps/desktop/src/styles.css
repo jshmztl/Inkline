@@ -454,6 +454,17 @@ html[data-theme='dark'] .sidebar {
   line-height: 12px;
 }
 
+.saved-flag {
+  margin-left: auto;
+  display: inline-flex;
+  color: #59c08a;
+  font-size: 9px;
+}
+
+.saved-flag + .request-lock {
+  margin-left: 0;
+}
+
 .environment-row {
   display: flex;
   align-items: center;
@@ -1068,6 +1079,14 @@ html[data-theme='dark'] .sidebar {
 .body-editor .code-block {
   flex: 1;
   min-height: 0;
+}
+
+.body-input {
+  width: 100%;
+  border: 0;
+  outline: none;
+  resize: none;
+  box-sizing: border-box;
 }
 
 .tok-key {

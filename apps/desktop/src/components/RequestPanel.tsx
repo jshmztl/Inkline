@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckCircleFilled,
   CloseCircleOutlined,
@@ -23,7 +23,9 @@ import {
 } from '../data/mock';
 import {
   recordHistory,
+  saveRequest,
   sendHttpRequest,
+  type SavedRequest,
   type SendResponse,
 } from '../lib/api';
 import { MethodTag } from './MethodTag';
@@ -32,9 +34,11 @@ interface RequestPanelProps {
   activeRequest: ApiRequest;
   openTabs: ApiRequest[];
   replay: { method: HttpMethod; url: string; nonce: number } | null;
+  saved: SavedRequest | null;
   onSelectTab: (requestId: string) => void;
   onCloseTab: (requestId: string) => void;
   onHistoryRecorded: () => void;
+  onSaved: () => void;
 }
 
 type RequestTabKey = 'params' | 'headers' | 'body' | 'auth' | 'scripts';
@@ -106,9 +110,11 @@ export function RequestPanel({
   activeRequest,
   openTabs,
   replay,
+  saved,
   onSelectTab,
   onCloseTab,
   onHistoryRecorded,
+  onSaved,
 }: RequestPanelProps) {
   const { message } = App.useApp();
   const [method, setMethod] = useState<HttpMethod>(activeRequest.method);
@@ -117,15 +123,33 @@ export function RequestPanel({
   const [responseTab, setResponseTab] = useState<ResponseTabKey>('body');
   const [params, setParams] = useState<KvRow[]>(initialParams);
   const [headers, setHeaders] = useState<KvRow[]>(initialHeaders);
+  const [body, setBody] = useState(requestBody);
   const [sending, setSending] = useState(false);
   const [response, setResponse] = useState<SendResponse>(demoResponse);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const appliedKey = useRef<string | null>(null);
 
   useEffect(() => {
-    setMethod(activeRequest.method);
-    setUrl(`https://api.internal${activeRequest.path}`);
-  }, [activeRequest]);
+    const key = `${activeRequest.id}:${saved ? 'saved' : 'new'}`;
+    if (appliedKey.current === key) return;
+    appliedKey.current = key;
+
+    setMethod((saved?.method as HttpMethod) ?? activeRequest.method);
+    setUrl(saved?.url ?? `https://api.internal${activeRequest.path}`);
+    setBody(saved?.body ?? requestBody);
+    setHeaders(
+      saved && saved.headers.length > 0
+        ? saved.headers.map((header, index) => ({
+            id: `saved-${index}`,
+            key: header.name,
+            value: header.value,
+            description: '来自已保存请求',
+            enabled: true,
+          }))
+        : initialHeaders,
+    );
+  }, [activeRequest, saved]);
 
   useEffect(() => {
     if (!replay) return;
@@ -165,7 +189,7 @@ export function RequestPanel({
         method,
         url,
         headers: requestHeaders,
-        body: method === 'GET' || method === 'DELETE' ? undefined : requestBody,
+        body: method === 'GET' || method === 'DELETE' ? undefined : body,
         timeoutMs: 30_000,
       });
 
@@ -208,6 +232,28 @@ export function RequestPanel({
       setSending(false);
       onHistoryRecorded();
       window.setTimeout(() => setFeedback(null), 3000);
+    }
+  }
+
+  async function handleSave() {
+    try {
+      await saveRequest({
+        id: activeRequest.id,
+        name: activeRequest.name,
+        method,
+        url,
+        headers: headers
+          .filter((row) => row.enabled && row.key.trim())
+          .map((row) => ({ name: row.key.trim(), value: row.value })),
+        body: method === 'GET' || method === 'DELETE' ? null : body,
+        dataLevel: activeRequest.dataLevel,
+        updatedAt: null,
+      });
+      message.success({ content: '已保存到本地 SQLite', duration: 2 });
+      onSaved();
+    } catch (caught) {
+      const text = caught instanceof Error ? caught.message : String(caught);
+      message.error({ content: `保存失败：${text}`, duration: 2.4 });
     }
   }
 
@@ -294,7 +340,7 @@ export function RequestPanel({
           <Button
             icon={<SaveOutlined />}
             className="save-button"
-            onClick={() => message.info('保存请求将在 M1.3 接入')}
+            onClick={handleSave}
           >
             保存
           </Button>
@@ -385,50 +431,13 @@ export function RequestPanel({
                 生成代码
               </Button>
             </div>
-            <pre className="code-block">
-              <span className="tok-punc">{'{'}</span>
-              {'\n  '}
-              <span className="tok-key">"amount"</span>
-              <span className="tok-punc">: </span>
-              <span className="tok-num">12800</span>
-              <span className="tok-punc">,</span>
-              {'\n  '}
-              <span className="tok-key">"currency"</span>
-              <span className="tok-punc">: </span>
-              <span className="tok-str">"CNY"</span>
-              <span className="tok-punc">,</span>
-              {'\n  '}
-              <span className="tok-key">"idempotencyKey"</span>
-              <span className="tok-punc">: </span>
-              <span className="tok-str">"ord_20261109_7f3a"</span>
-              <span className="tok-punc">,</span>
-              {'\n  '}
-              <span className="tok-key">"channel"</span>
-              <span className="tok-punc">: </span>
-              <span className="tok-str">"wechat_pay"</span>
-              <span className="tok-punc">,</span>
-              {'\n  '}
-              <span className="tok-key">"description"</span>
-              <span className="tok-punc">: </span>
-              <span className="tok-str">"年度订阅 · 专业版"</span>
-              <span className="tok-punc">,</span>
-              {'\n  '}
-              <span className="tok-key">"metadata"</span>
-              <span className="tok-punc">: {'{'}</span>
-              {'\n    '}
-              <span className="tok-key">"plan"</span>
-              <span className="tok-punc">: </span>
-              <span className="tok-str">"pro"</span>
-              <span className="tok-punc">,</span>
-              {'\n    '}
-              <span className="tok-key">"seats"</span>
-              <span className="tok-punc">: </span>
-              <span className="tok-num">12</span>
-              {'\n  '}
-              <span className="tok-punc">{'}'}</span>
-              {'\n'}
-              <span className="tok-punc">{'}'}</span>
-            </pre>
+            <textarea
+              className="code-block body-input"
+              value={body}
+              onChange={(event) => setBody(event.target.value)}
+              spellCheck={false}
+              aria-label="请求体"
+            />
           </div>
         )}
 

@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import {
+  CheckCircleFilled,
   CloudSyncOutlined,
   DownOutlined,
   FolderOpenOutlined,
@@ -9,12 +10,13 @@ import {
 } from '@ant-design/icons';
 import { Button, Tooltip } from 'antd';
 import { folders, type ApiRequest } from '../data/mock';
-import type { HistoryEntry } from '../lib/api';
+import type { HistoryEntry, SavedRequest } from '../lib/api';
 import { MethodTag } from './MethodTag';
 
 interface SidebarProps {
   activeRequestId: string;
   history: HistoryEntry[];
+  savedRequests: SavedRequest[];
   onSelectRequest: (request: ApiRequest) => void;
   onReplayHistory: (entry: HistoryEntry) => void;
 }
@@ -28,14 +30,28 @@ function shortUrl(url: string) {
   }
 }
 
+function formatSavedAt(value: string | null | undefined) {
+  if (!value) return '刚刚';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const pad = (input: number) => String(input).padStart(2, '0');
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 export function Sidebar({
   activeRequestId,
   history,
+  savedRequests,
   onSelectRequest,
   onReplayHistory,
 }: SidebarProps) {
   const [query, setQuery] = useState('');
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+  const savedMap = useMemo(
+    () => new Map(savedRequests.map((request) => [request.id, request])),
+    [savedRequests],
+  );
 
   const filtered = useMemo(() => {
     const keyword = query.trim().toLowerCase();
@@ -103,25 +119,36 @@ export function Sidebar({
 
               {!isCollapsed && (
                 <div className="folder-body">
-                  {folder.requests.map((request) => (
-                    <button
-                      key={request.id}
-                      type="button"
-                      className={`request-row${
-                        request.id === activeRequestId ? ' active' : ''
-                      }`}
-                      onClick={() => onSelectRequest(request)}
-                      title={request.name}
-                    >
-                      <MethodTag method={request.method} />
-                      <span className="request-path">{request.path}</span>
-                      {request.dataLevel === 'L3' && (
-                        <span className="request-lock" title="L3 涉密">
-                          L3
-                        </span>
-                      )}
-                    </button>
-                  ))}
+                  {folder.requests.map((request) => {
+                    const saved = savedMap.get(request.id);
+                    return (
+                      <button
+                        key={request.id}
+                        type="button"
+                        className={`request-row${
+                          request.id === activeRequestId ? ' active' : ''
+                        }`}
+                        onClick={() => onSelectRequest(request)}
+                        title={request.name}
+                      >
+                        <MethodTag method={request.method} />
+                        <span className="request-path">{request.path}</span>
+                        {saved && (
+                          <span
+                            className="saved-flag"
+                            title={`已保存 · ${formatSavedAt(saved.updatedAt)}`}
+                          >
+                            <CheckCircleFilled />
+                          </span>
+                        )}
+                        {request.dataLevel === 'L3' && (
+                          <span className="request-lock" title="L3 涉密">
+                            L3
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>
