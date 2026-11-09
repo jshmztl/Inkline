@@ -473,6 +473,9 @@ export function App() {
               onSaved={refreshSaved}
               onQueued={() => setQueueNonce((current) => current + 1)}
               onContextChange={setRequestContext}
+              onVariablesChange={(variables) =>
+                handleSaveEnvironment(environment, variables)
+              }
             />
             <Suspense
               fallback={

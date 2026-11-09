@@ -3413,3 +3413,63 @@ html[data-theme='dark'] .sidebar {
   background: var(--aw-surface);
   font-size: 12px;
 }
+
+/* ---------- scripts ---------- */
+
+.script-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 10px 12px 12px;
+}
+
+.script-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.script-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.script-head strong {
+  color: var(--aw-ink);
+  font-size: 12.5px;
+}
+
+.script-head span {
+  color: var(--aw-faint);
+  font-size: 12px;
+}
+
+.script-input {
+  width: 100%;
+  min-height: 110px;
+  border: 1px solid var(--aw-line);
+  border-radius: 6px;
+  box-sizing: border-box;
+  resize: vertical;
+}
+
+.script-tip {
+  margin: 0;
+  color: var(--aw-faint);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.script-tip code {
+  color: var(--aw-muted);
+  font-size: 12px;
+}
+
+.console-panel {
+  padding: 8px 0;
+}
+
+.console-panel .console-line {
+  padding: 4px 12px;
+}

@@ -46,6 +46,7 @@ import {
   type AssertionResult,
   type AssertionRow,
 } from '../lib/assertions';
+import { runScript } from '../lib/scriptSandbox';
 import { MethodTag } from './MethodTag';
 import { ResponseCode } from './ResponseCode';
 
@@ -63,6 +64,7 @@ interface RequestPanelProps {
   onSaved: () => void;
   onQueued: () => void;
   onContextChange: (context: RequestContext) => void;
+  onVariablesChange: (variables: Record<string, string>) => void;
 }
 
 type RequestTabKey = 'params' | 'headers' | 'body' | 'auth' | 'assertions' | 'scripts';
@@ -77,6 +79,13 @@ interface FileRow {
   contentType: string;
   contentBase64: string;
   enabled: boolean;
+}
+
+interface ScriptLog {
+  id: string;
+  phase: 'pre' | 'post';
+  text: string;
+  bad: boolean;
 }
 
 interface RequestMeta {
@@ -95,6 +104,8 @@ interface RequestMeta {
   protocol: ProtocolKind;
   gqlQuery: string;
   gqlVariables: string;
+  preScript: string;
+  postScript: string;
 }
 
 const defaultMeta: RequestMeta = {
@@ -119,6 +130,8 @@ const defaultMeta: RequestMeta = {
   protocol: 'http',
   gqlQuery: `query Orders {\n  orders(first: 10) {\n    id\n    status\n    amount\n  }\n}`,
   gqlVariables: '{}',
+  preScript: `// 发送前执行，可改写变量\n// pm.variables.set('nonce', Date.now())\nconsole.log('pre-request ready');`,
+  postScript: `// 收到响应后执行\n// console.log('status', pm.response.status)\n// pm.variables.set('lastOrderId', pm.response.json().data.id)`,
 };
 
 function readRequestMeta(id: string): RequestMeta {
@@ -237,6 +250,7 @@ export function RequestPanel({
   onSaved,
   onQueued,
   onContextChange,
+  onVariablesChange,
 }: RequestPanelProps) {
   const { message } = App.useApp();
   const [method, setMethod] = useState<HttpMethod>(activeRequest.method);
@@ -265,6 +279,9 @@ export function RequestPanel({
   const [protocol, setProtocol] = useState<ProtocolKind>(defaultMeta.protocol);
   const [gqlQuery, setGqlQuery] = useState(defaultMeta.gqlQuery);
   const [gqlVariables, setGqlVariables] = useState(defaultMeta.gqlVariables);
+  const [preScript, setPreScript] = useState(defaultMeta.preScript);
+  const [postScript, setPostScript] = useState(defaultMeta.postScript);
+  const [scriptLogs, setScriptLogs] = useState<ScriptLog[]>([]);
   const [streamEvents, setStreamEvents] = useState<StreamEvent[]>([]);
   const [connected, setConnected] = useState(false);
   const [draftMessage, setDraftMessage] = useState('');
@@ -317,6 +334,9 @@ export function RequestPanel({
     setProtocol(meta.protocol);
     setGqlQuery(meta.gqlQuery);
     setGqlVariables(meta.gqlVariables);
+    setPreScript(meta.preScript);
+    setPostScript(meta.postScript);
+    setScriptLogs([]);
     setMetaFor(activeRequest.id);
   }, [activeRequest.id]);
 
@@ -338,6 +358,8 @@ export function RequestPanel({
       protocol,
       gqlQuery,
       gqlVariables,
+      preScript,
+      postScript,
     });
   }, [
     metaFor,
@@ -357,6 +379,8 @@ export function RequestPanel({
     protocol,
     gqlQuery,
     gqlVariables,
+    preScript,
+    postScript,
   ]);
 
   useEffect(() => {
@@ -565,16 +589,61 @@ export function RequestPanel({
     setDraftMessage('');
   }
 
+  function appendScriptLogs(
+    phase: 'pre' | 'post',
+    logs: string[],
+    error: string | null,
+  ) {
+    if (logs.length === 0 && !error) return;
+    const base = Date.now().toString(36);
+    setScriptLogs((current) =>
+      [
+        ...current,
+        ...logs.map((text, index) => ({
+          id: `${phase}-${base}-${index}`,
+          phase,
+          text,
+          bad: false,
+        })),
+        ...(error
+          ? [{ id: `${phase}-${base}-err`, phase, text: error, bad: true }]
+          : []),
+      ].slice(-60),
+    );
+  }
+
   async function handleSend() {
     if (sending) return;
+    setScriptLogs([]);
+
+    const preResult = await runScript(preScript, {
+      variables,
+      request: {
+        method,
+        url,
+        headers: headers
+          .filter((row) => row.enabled && row.key.trim())
+          .map((row) => ({ name: row.key.trim(), value: row.value })),
+        body: body || null,
+      },
+    });
+    appendScriptLogs('pre', preResult.logs, preResult.error);
+    if (preResult.error) {
+      setError(`前置脚本执行失败：${preResult.error}`);
+      setFeedback(null);
+      return;
+    }
+
+    const effectiveVariables = preResult.variables;
+    const resolvedUrlNow = resolveTemplate(url, effectiveVariables);
     const paramPairs = params
       .filter((row) => row.enabled && row.key.trim())
       .map((row) => ({
-        key: resolveTemplate(row.key, variables),
-        value: resolveTemplate(row.value, variables),
+        key: resolveTemplate(row.key, effectiveVariables),
+        value: resolveTemplate(row.value, effectiveVariables),
       }));
     const finalUrl = mergeQuery(
-      resolvedUrl.value,
+      resolvedUrlNow.value,
       paramPairs.map((pair) => ({ key: pair.key.value, value: pair.value.value })),
     );
 
@@ -582,14 +651,14 @@ export function RequestPanel({
     const authMissing: string[] = [];
 
     if (authType === 'bearer') {
-      const token = resolveTemplate(authToken, variables);
+      const token = resolveTemplate(authToken, effectiveVariables);
       authMissing.push(...token.missing);
       if (token.value.trim()) {
         authHeader = { name: 'Authorization', value: `Bearer ${token.value.trim()}` };
       }
     } else if (authType === 'basic') {
-      const user = resolveTemplate(authUser, variables);
-      const pass = resolveTemplate(authPass, variables);
+      const user = resolveTemplate(authUser, effectiveVariables);
+      const pass = resolveTemplate(authPass, effectiveVariables);
       authMissing.push(...user.missing, ...pass.missing);
       if (user.value || pass.value) {
         authHeader = {
@@ -598,8 +667,8 @@ export function RequestPanel({
         };
       }
     } else if (authType === 'apikey') {
-      const name = resolveTemplate(apiKeyName, variables);
-      const value = resolveTemplate(apiKeyValue, variables);
+      const name = resolveTemplate(apiKeyName, effectiveVariables);
+      const value = resolveTemplate(apiKeyValue, effectiveVariables);
       authMissing.push(...name.missing, ...value.missing);
       if (name.value.trim() && value.value) {
         authHeader = { name: name.value.trim(), value: value.value };
@@ -616,13 +685,13 @@ export function RequestPanel({
       : baseHeaders;
     const resolvedHeaders = resolveHeaders(
       authHeader ? [...withoutAuth, authHeader] : withoutAuth,
-      variables,
+      effectiveVariables,
     );
 
     if (protocol === 'websocket' || protocol === 'sse') {
       const urlMissing = [
         ...new Set([
-          ...resolvedUrl.missing,
+          ...resolvedUrlNow.missing,
           ...paramPairs.flatMap((pair) => [...pair.key.missing, ...pair.value.missing]),
           ...resolvedHeaders.missing,
           ...authMissing,
@@ -660,8 +729,8 @@ export function RequestPanel({
       const pairs = formRows
         .filter((row) => row.enabled && row.key.trim())
         .map((row) => ({
-          key: resolveTemplate(row.key, variables),
-          value: resolveTemplate(row.value, variables),
+          key: resolveTemplate(row.key, effectiveVariables),
+          value: resolveTemplate(row.value, effectiveVariables),
         }));
       pairs.forEach((pair) => {
         bodyMissing.push(...pair.key.missing, ...pair.value.missing);
@@ -679,7 +748,7 @@ export function RequestPanel({
         });
       }
     } else {
-      const resolvedBody = resolveTemplate(body, variables);
+      const resolvedBody = resolveTemplate(body, effectiveVariables);
       bodyMissing.push(...resolvedBody.missing);
       bodyText = resolvedBody.value;
     }
@@ -712,7 +781,7 @@ export function RequestPanel({
 
     const missing = [
       ...new Set([
-        ...resolvedUrl.missing,
+        ...resolvedUrlNow.missing,
         ...paramPairs.flatMap((pair) => [...pair.key.missing, ...pair.value.missing]),
         ...resolvedHeaders.missing,
         ...bodyMissing,
@@ -790,6 +859,37 @@ export function RequestPanel({
           ? `请求完成 · ${result.status} ${result.statusText} · ${failedCount} 条断言失败`
           : `请求完成 · ${result.status} ${result.statusText}`,
       );
+
+      const postResult = await runScript(postScript, {
+        variables: effectiveVariables,
+        request: {
+          method: effectiveMethod,
+          url: finalUrl,
+          headers: finalHeaders,
+          body:
+            multipartPayload || effectiveMethod === 'GET' || effectiveMethod === 'DELETE'
+              ? null
+              : bodyText,
+        },
+        response: {
+          status: result.status,
+          statusText: result.statusText,
+          headers: result.headers,
+          body: result.body,
+          durationMs: result.durationMs,
+        },
+      });
+      appendScriptLogs('post', postResult.logs, postResult.error);
+      const variablesChanged =
+        Object.keys(postResult.variables).some(
+          (key) => postResult.variables[key] !== effectiveVariables[key],
+        ) ||
+        Object.keys(effectiveVariables).some(
+          (key) => !(key in postResult.variables),
+        );
+      if (variablesChanged) {
+        onVariablesChange(postResult.variables);
+      }
 
       recordAudit({
         type: 'request',
@@ -1511,11 +1611,38 @@ export function RequestPanel({
         )}
 
         {requestTab === 'scripts' && (
-          <div className="empty-panel">
-            <CodeOutlined />
-            <strong>前置 / 后置脚本</strong>
-            <p>P1 将提供基于 QuickJS 的沙箱脚本，用于签名、变量提取与断言。</p>
-            <Button size="small">查看路线图</Button>
+          <div className="script-editor">
+            <div className="script-block">
+              <div className="script-head">
+                <strong>前置脚本</strong>
+                <span>发送前执行 · 可用于签名与写入变量</span>
+              </div>
+              <textarea
+                className="code-block script-input"
+                value={preScript}
+                onChange={(event) => setPreScript(event.target.value)}
+                spellCheck={false}
+                aria-label="前置脚本"
+              />
+            </div>
+            <div className="script-block">
+              <div className="script-head">
+                <strong>后置脚本</strong>
+                <span>收到响应后执行 · 可读取 pm.response</span>
+              </div>
+              <textarea
+                className="code-block script-input"
+                value={postScript}
+                onChange={(event) => setPostScript(event.target.value)}
+                spellCheck={false}
+                aria-label="后置脚本"
+              />
+            </div>
+            <p className="script-tip">
+              沙箱内可用 <code>pm.variables.get/set/unset</code>、
+              <code>pm.request</code>、<code>pm.response.status/body/json()</code> 与{' '}
+              <code>console.log</code>。执行结果见响应区「Console」，超时 2 秒强制终止。
+            </p>
           </div>
         )}
       </div>
@@ -1718,16 +1845,32 @@ export function RequestPanel({
               )}
 
               {responseTab === 'console' && (
-                <div className="console-line">
-                  <span>{new Date().toLocaleTimeString()}</span>
-                  <span className={error ? 'console-bad' : 'console-ok'}>
-                    {error ? '×' : '→'} {method} {url}
-                  </span>
-                  <span>
-                    {error
-                      ? '请求失败'
-                      : `${response.durationMs}ms · ${response.status} ${response.statusText}`}
-                  </span>
+                <div className="console-panel">
+                  <div className="console-line">
+                    <span>{new Date().toLocaleTimeString()}</span>
+                    <span className={error ? 'console-bad' : 'console-ok'}>
+                      {error ? '×' : '→'} {method} {url}
+                    </span>
+                    <span>
+                      {error
+                        ? '请求失败'
+                        : `${response.durationMs}ms · ${response.status} ${response.statusText}`}
+                    </span>
+                  </div>
+                  {scriptLogs.map((entry) => (
+                    <div className="console-line" key={entry.id}>
+                      <span>script</span>
+                      <span className={entry.bad ? 'console-bad' : 'console-ok'}>
+                        [{entry.phase}] {entry.text}
+                      </span>
+                    </div>
+                  ))}
+                  {scriptLogs.length === 0 && (
+                    <div className="console-line">
+                      <span>script</span>
+                      <span>暂未执行脚本日志。</span>
+                    </div>
+                  )}
                 </div>
               )}
 
