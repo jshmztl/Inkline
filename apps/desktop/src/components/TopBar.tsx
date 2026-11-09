@@ -1,18 +1,21 @@
 import { useEffect, useState } from 'react';
 import {
   AuditOutlined,
+  CloudDownloadOutlined,
   ColumnHeightOutlined,
   DeleteOutlined,
   LogoutOutlined,
   MoonOutlined,
   SearchOutlined,
   SunOutlined,
+  SyncOutlined,
 } from '@ant-design/icons';
-import { App, Button, Drawer, Dropdown, Segmented, Select, Tooltip } from 'antd';
+import { App, Button, Drawer, Dropdown, Modal, Segmented, Select, Tooltip } from 'antd';
 import type { Density, ThemeMode } from '@api-workbench/ui';
 import { environments, networkModes, type NetworkMode } from '../data/mock';
 import { clearAudit, listAudit, type AuditEntry, type AuditType } from '../lib/audit';
 import type { Session } from '../lib/session';
+import { checkUpdate, type UpdateInfo } from '../lib/update';
 
 interface TopBarProps {
   mode: ThemeMode;
@@ -76,6 +79,9 @@ export function TopBar({
   const [auditOpen, setAuditOpen] = useState(false);
   const [auditFilter, setAuditFilter] = useState<AuditFilter>('all');
   const [entries, setEntries] = useState<AuditEntry[]>([]);
+  const [updateOpen, setUpdateOpen] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [checking, setChecking] = useState(false);
 
   useEffect(() => {
     if (!auditOpen) return;
@@ -89,6 +95,26 @@ export function TopBar({
     clearAudit();
     setEntries([]);
     message.success('审计日志已清空');
+  }
+
+  async function handleCheckUpdate() {
+    setUpdateOpen(true);
+    setChecking(true);
+    try {
+      setUpdateInfo(await checkUpdate());
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  async function copyUpdateUrl() {
+    if (!updateInfo?.url) return;
+    try {
+      await navigator.clipboard.writeText(updateInfo.url);
+      message.success('下载链接已复制');
+    } catch {
+      message.warning('当前环境无法访问剪贴板');
+    }
   }
 
   return (
@@ -186,16 +212,24 @@ export function TopBar({
                 disabled: true,
               },
               { type: 'divider' },
+              { key: 'update', label: '检查更新', icon: <CloudDownloadOutlined /> },
               { key: 'signout', label: '退出登录', icon: <LogoutOutlined /> },
             ],
             onClick: ({ key }) => {
               if (key === 'signout') onSignOut();
+              if (key === 'update') handleCheckUpdate();
             },
           }}
         >
-          <div className="avatar" title={`${session.name} · ${session.workspace}`}>
+          <button
+            type="button"
+            className="avatar"
+            aria-label="账户菜单"
+            aria-haspopup="menu"
+            title={`${session.name} · ${session.workspace}`}
+          >
             {session.name.charAt(0)}
-          </div>
+          </button>
         </Dropdown>
       </div>
 
@@ -248,6 +282,50 @@ export function TopBar({
           </div>
         )}
       </Drawer>
+
+      <Modal
+        open={updateOpen}
+        title="检查更新"
+        width={420}
+        onCancel={() => setUpdateOpen(false)}
+        footer={[
+          <Button key="close" size="small" onClick={() => setUpdateOpen(false)}>
+            关闭
+          </Button>,
+          ...(updateInfo?.available && updateInfo.url
+            ? [
+                <Button key="download" type="primary" size="small" onClick={copyUpdateUrl}>
+                  复制下载链接
+                </Button>,
+              ]
+            : []),
+        ]}
+      >
+        {checking || !updateInfo ? (
+          <div className="update-checking">
+            <SyncOutlined spin /> 正在检查更新…
+          </div>
+        ) : (
+          <div className="update-body">
+            <div className="update-row">
+              <span>当前版本</span>
+              <code>v{updateInfo.current}</code>
+            </div>
+            <div className="update-row">
+              <span>最新版本</span>
+              <code>v{updateInfo.latest}</code>
+            </div>
+            <div className="update-row">
+              <span>状态</span>
+              <b className={updateInfo.available ? 'update-available' : ''}>
+                {updateInfo.available ? '发现新版本' : '已是最新'}
+              </b>
+            </div>
+            {updateInfo.notes && <p className="update-note">{updateInfo.notes}</p>}
+            {updateInfo.url && <code className="update-url">{updateInfo.url}</code>}
+          </div>
+        )}
+      </Modal>
     </header>
   );
 }

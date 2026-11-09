@@ -223,12 +223,13 @@ html[data-theme='dark'] .brand-glyph i:nth-child(3) {
   width: 26px;
   height: 26px;
   margin-left: 4px;
+  border: 0;
   border-radius: 50%;
   background: var(--aw-accent-soft);
   color: var(--aw-accent);
   font-size: 10.5px;
   font-weight: 700;
-  cursor: default;
+  cursor: pointer;
 }
 
 /* ---------- workspace ---------- */
@@ -2562,6 +2563,72 @@ html[data-theme='dark'] .sidebar {
   width: 1px;
   height: 10px;
   background: var(--aw-line);
+}
+
+/* ---------- update check ---------- */
+
+.update-checking {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 26px 0;
+  color: var(--aw-faint);
+  font-size: 10px;
+}
+
+.update-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.update-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border: 1px solid var(--aw-line);
+  border-radius: 5px;
+  background: var(--aw-surface-2);
+  color: var(--aw-ink-2);
+  font-size: 10px;
+}
+
+.update-row code {
+  color: var(--aw-ink);
+  font-family: var(--aw-font-code);
+  font-size: 10px;
+}
+
+.update-row b {
+  color: var(--aw-success);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.update-row b.update-available {
+  color: var(--aw-warning);
+}
+
+.update-note {
+  margin: 2px 0 0;
+  color: var(--aw-faint);
+  font-size: 9.5px;
+  line-height: 1.6;
+}
+
+.update-url {
+  display: block;
+  overflow: hidden;
+  padding: 6px 8px;
+  border-radius: 5px;
+  background: var(--aw-surface-3);
+  color: var(--aw-accent);
+  font-family: var(--aw-font-code);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ---------- accessibility ---------- */
