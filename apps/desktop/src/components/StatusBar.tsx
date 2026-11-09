@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
+  ApiOutlined,
   CloudServerOutlined,
   CloudSyncOutlined,
   DatabaseOutlined,
@@ -17,6 +18,7 @@ import {
   type QueuedTask,
 } from '../lib/queue';
 import { MethodTag } from './MethodTag';
+import { MockServerModal } from './MockServerModal';
 
 interface StatusBarProps {
   networkMode: NetworkMode;
@@ -34,6 +36,7 @@ export function StatusBar({
   const network = networkModes[networkMode];
   const { message } = App.useApp();
   const [open, setOpen] = useState(false);
+  const [mockOpen, setMockOpen] = useState(false);
   const [tasks, setTasks] = useState<QueuedTask[]>(listQueue);
   const [retrying, setRetrying] = useState<string | null>(null);
   const [retryingAll, setRetryingAll] = useState(false);
@@ -130,6 +133,17 @@ export function StatusBar({
         </>
       )}
 
+      <Button
+        type="text"
+        size="small"
+        className="status-queue"
+        icon={<ApiOutlined />}
+        onClick={() => setMockOpen(true)}
+      >
+        Mock Server
+      </Button>
+      <span className="status-sep" />
+
       <span className="status-item">
         <CloudSyncOutlined /> 同步正常 · 2 分钟前
       </span>
@@ -201,6 +215,7 @@ export function StatusBar({
           </div>
         )}
       </Modal>
+      <MockServerModal open={mockOpen} onClose={() => setMockOpen(false)} />
     </footer>
   );
 }

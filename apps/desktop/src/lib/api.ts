@@ -202,6 +202,31 @@ export async function cancelHttpRequest(id: string): Promise<void> {
   }
 }
 
+export interface MockRoutePayload {
+  method: string;
+  path: string;
+  status: number;
+  body: string;
+  contentType?: string;
+  delayMs?: number;
+}
+
+export async function startMockServer(
+  port: number,
+  routes: MockRoutePayload[],
+): Promise<number> {
+  if (isTauri) {
+    return invoke<number>('start_mock_server', { port, routes });
+  }
+  throw new Error('Mock Server 仅在桌面应用中可用');
+}
+
+export async function stopMockServer(): Promise<void> {
+  if (isTauri) {
+    await invoke('stop_mock_server');
+  }
+}
+
 export async function recordHistory(entry: HistoryEntry): Promise<HistoryEntry> {
   if (isTauri) {
     return invoke<HistoryEntry>('record_history', { entry });

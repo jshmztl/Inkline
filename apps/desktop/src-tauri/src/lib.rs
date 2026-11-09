@@ -1,5 +1,6 @@
 mod db;
 mod http;
+mod mock;
 mod model;
 
 use std::sync::Mutex;
@@ -13,6 +14,7 @@ pub fn run() {
             let connection = db::open(app.handle())?;
             app.manage(db::DbState(Mutex::new(connection)));
             app.manage(http::CancelState::default());
+            app.manage(mock::MockState::default());
 
             #[cfg(desktop)]
             {
@@ -26,6 +28,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             http::send_http_request,
             http::cancel_http_request,
+            mock::start_mock_server,
+            mock::stop_mock_server,
             db::save_request,
             db::list_requests,
             db::delete_request,

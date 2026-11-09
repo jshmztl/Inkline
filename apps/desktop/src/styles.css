@@ -3473,3 +3473,145 @@ html[data-theme='dark'] .sidebar {
 .console-panel .console-line {
   padding: 4px 12px;
 }
+
+/* ---------- mock server ---------- */
+
+.mock-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--aw-line);
+}
+
+.mock-label {
+  color: var(--aw-muted);
+  font-size: 12.5px;
+}
+
+.mock-hint {
+  color: var(--aw-faint);
+  font-size: 12px;
+}
+
+.mock-status {
+  font-size: 12px;
+}
+
+.mock-status.ok {
+  color: var(--aw-success);
+}
+
+.mock-status.bad {
+  color: var(--aw-error);
+}
+
+.mock-body {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 12px;
+  margin-top: 12px;
+  min-height: 340px;
+}
+
+.mock-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.mock-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.mock-item:hover {
+  background: var(--aw-surface-2);
+}
+
+.mock-item.active {
+  border-color: var(--aw-accent);
+  background: var(--aw-surface-2);
+}
+
+.mock-path {
+  overflow: hidden;
+  color: var(--aw-ink);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mock-name {
+  margin-left: auto;
+  color: var(--aw-faint);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.mock-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.mock-editor-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.mock-editor-head strong {
+  color: var(--aw-ink);
+  font-size: 13px;
+}
+
+.mock-editor-head span {
+  color: var(--aw-faint);
+  font-size: 12px;
+}
+
+.mock-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.mock-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--aw-muted);
+  font-size: 12px;
+}
+
+.mock-field-wide {
+  flex: 1;
+  min-width: 200px;
+}
+
+.mock-body-input {
+  width: 100%;
+  min-height: 200px;
+  flex: 1;
+  border: 1px solid var(--aw-line);
+  border-radius: 6px;
+  resize: vertical;
+}
+
+.mock-empty {
+  padding: 18px;
+  color: var(--aw-faint);
+  font-size: 12.5px;
+  text-align: center;
+}
