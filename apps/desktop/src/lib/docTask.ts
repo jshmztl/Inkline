@@ -48,6 +48,17 @@ export interface GlossaryHit {
   entry: GlossaryEntry;
 }
 
+export interface FieldReview {
+  key: string;
+  name: string;
+  path: string;
+  type: string;
+  source: '请求' | '响应';
+  confidence: number;
+  note: string;
+  term?: string;
+}
+
 export interface DocTask {
   id: string;
   createdAt: string;
@@ -190,4 +201,39 @@ export function buildDocTask(
       sources: 1 + (context.response ? 1 : 0) + (hits.length > 0 ? 1 : 0),
     },
   };
+}
+
+export function buildFieldReview(
+  task: DocTask,
+  entries: GlossaryEntry[] = glossary,
+): FieldReview[] {
+  const collect = (fields: JsonField[], source: FieldReview['source']) =>
+    fields.map((field): FieldReview => {
+      const entry = entries.find((item) => item.term === field.name);
+      const base = 62;
+      const confidence = Math.min(
+        98,
+        base +
+          (entry ? 28 : 0) +
+          (field.sample ? 4 : 0) +
+          (field.type === 'object' || field.type === 'array' ? 2 : 0),
+      );
+      return {
+        key: `${source}:${field.path}`,
+        name: field.name,
+        path: field.path,
+        type: field.type,
+        source,
+        confidence,
+        note: entry
+          ? `${entry.label}：${entry.description}`
+          : '未命中团队术语表，需人工补充说明',
+        term: entry?.term,
+      };
+    });
+
+  return [
+    ...collect(task.request.fields, '请求'),
+    ...collect(task.response?.fields ?? [], '响应'),
+  ].sort((a, b) => a.confidence - b.confidence);
 }

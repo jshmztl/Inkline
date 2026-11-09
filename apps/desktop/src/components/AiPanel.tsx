@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   CheckCircleFilled,
   FileTextOutlined,
@@ -12,8 +12,8 @@ import {
 import { App, Button, Checkbox, Tag, Tooltip } from 'antd';
 import { Bubble, Prompts, Sender, ThoughtChain } from '@ant-design/x';
 import type { ApiRequest, NetworkMode } from '../data/mock';
-import { networkModes, reviewFields, thoughtSteps } from '../data/mock';
-import { buildDocTask, type RequestContext } from '../lib/docTask';
+import { networkModes, thoughtSteps } from '../data/mock';
+import { buildDocTask, buildFieldReview, type RequestContext } from '../lib/docTask';
 import { MethodTag } from './MethodTag';
 
 interface AiPanelProps {
@@ -56,12 +56,18 @@ export function AiPanel({ networkMode, activeRequest, context }: AiPanelProps) {
   const network = networkModes[networkMode];
   const [composer, setComposer] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>(seedMessages);
-  const [accepted, setAccepted] = useState<Record<string, boolean>>(
-    Object.fromEntries(reviewFields.map((field) => [field.name, true])),
-  );
+  const [accepted, setAccepted] = useState<Record<string, boolean>>({});
   const [applied, setApplied] = useState(false);
 
   const task = useMemo(() => (context ? buildDocTask(context) : null), [context]);
+  const review = useMemo(() => (task ? buildFieldReview(task) : []), [task]);
+  const pending = review.filter((item) => item.confidence < 90).length;
+  const visibleReview = review.slice(0, 5);
+
+  useEffect(() => {
+    setAccepted({});
+    setApplied(false);
+  }, [task?.id]);
 
   function runTask() {
     if (!task) return;
@@ -175,39 +181,56 @@ export function AiPanel({ networkMode, activeRequest, context }: AiPanelProps) {
         <div className="review-card">
           <div className="review-head">
             <strong>字段审阅</strong>
-            <span>3 项待确认</span>
+            <span>
+              {task ? `${pending} 项待确认 · 共 ${review.length} 字段` : '等待文档任务'}
+            </span>
             {applied && <Tag className="applied-tag">已应用</Tag>}
           </div>
 
-          {reviewFields.map((field) => (
-            <label className="review-row" key={field.name}>
+          {visibleReview.map((field) => (
+            <label className="review-row" key={field.key}>
               <Checkbox
-                checked={accepted[field.name]}
+                checked={accepted[field.key] ?? true}
                 onChange={(event) =>
                   setAccepted((current) => ({
                     ...current,
-                    [field.name]: event.target.checked,
+                    [field.key]: event.target.checked,
                   }))
                 }
               />
               <div className="review-field">
                 <div>
-                  <code>{field.name}</code>
+                  <code>{field.path}</code>
                   <em>{field.type}</em>
+                  <b className={`review-source${field.source === '请求' ? ' req' : ' res'}`}>
+                    {field.source}
+                  </b>
                 </div>
                 <span>{field.note}</span>
               </div>
               <div className="confidence">
                 <div className="confidence-bar">
-                  <i style={{ width: `${field.confidence}%` }} />
+                  <i
+                    className={field.confidence < 90 ? 'low' : undefined}
+                    style={{ width: `${field.confidence}%` }}
+                  />
                 </div>
                 <span>{field.confidence}%</span>
               </div>
             </label>
           ))}
 
+          {visibleReview.length === 0 && (
+            <div className="review-empty">等待请求上下文后生成字段审阅。</div>
+          )}
+
           <div className="review-actions">
-            <Button type="primary" size="small" onClick={applyDraft} disabled={applied}>
+            <Button
+              type="primary"
+              size="small"
+              onClick={applyDraft}
+              disabled={applied || review.length === 0}
+            >
               {applied ? '已应用' : '应用到文档'}
             </Button>
             <Button size="small" onClick={() => message.info('Diff 视图将在下一步接入')}>

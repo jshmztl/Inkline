@@ -146,19 +146,6 @@ export const requestBody = `{
   }
 }`;
 
-export interface ReviewField {
-  name: string;
-  type: string;
-  confidence: number;
-  note: string;
-}
-
-export const reviewFields: ReviewField[] = [
-  { name: 'amount', type: 'integer', confidence: 96, note: '最小货币单位（分）' },
-  { name: 'idempotencyKey', type: 'string', confidence: 92, note: '创建订单幂等键' },
-  { name: 'status', type: 'enum', confidence: 88, note: 'pending / paid / closed' },
-];
-
 export const thoughtSteps = [
   { label: '读取请求与响应示例', detail: '3 个字段 · 2 条响应', state: 'done' as const },
   { label: '匹配团队字段术语表', detail: '命中 12 条术语', state: 'done' as const },
