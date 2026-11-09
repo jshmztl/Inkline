@@ -14,7 +14,7 @@ import {
   SendOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
-import { App, Button, Checkbox, Input, Select, Tag, Tooltip } from 'antd';
+import { App, Button, Checkbox, Input, Segmented, Select, Tag, Tooltip } from 'antd';
 import type { ApiRequest, HttpMethod, KvRow } from '../data/mock';
 import {
   environmentVariables,
@@ -53,6 +53,86 @@ interface RequestPanelProps {
 
 type RequestTabKey = 'params' | 'headers' | 'body' | 'auth' | 'scripts';
 type ResponseTabKey = 'body' | 'headers' | 'cookies' | 'console';
+type BodyMode = 'json' | 'text' | 'form';
+type AuthType = 'none' | 'bearer' | 'basic' | 'apikey';
+
+interface RequestMeta {
+  bodyMode: BodyMode;
+  authType: AuthType;
+  authToken: string;
+  authUser: string;
+  authPass: string;
+  apiKeyName: string;
+  apiKeyValue: string;
+  timeoutMs: number;
+  formRows: KvRow[];
+  params: KvRow[];
+}
+
+const defaultMeta: RequestMeta = {
+  bodyMode: 'json',
+  authType: 'bearer',
+  authToken: '{{PAYMENT_TOKEN}}',
+  authUser: '',
+  authPass: '',
+  apiKeyName: 'X-Api-Key',
+  apiKeyValue: '',
+  timeoutMs: 30_000,
+  formRows: [
+    { id: 'form-1', key: 'amount', value: '12800', description: '', enabled: true },
+    { id: 'form-2', key: 'currency', value: 'CNY', description: '', enabled: true },
+  ],
+  params: [],
+};
+
+function readRequestMeta(id: string): RequestMeta {
+  try {
+    const raw = localStorage.getItem(`aw-request-meta:${id}`);
+    if (!raw) return { ...defaultMeta, params: initialParams };
+    const parsed = JSON.parse(raw) as Partial<RequestMeta>;
+    return {
+      ...defaultMeta,
+      ...parsed,
+      formRows: parsed.formRows ?? defaultMeta.formRows,
+      params: parsed.params ?? initialParams,
+    };
+  } catch {
+    return { ...defaultMeta, params: initialParams };
+  }
+}
+
+function writeRequestMeta(id: string, meta: RequestMeta) {
+  try {
+    localStorage.setItem(`aw-request-meta:${id}`, JSON.stringify(meta));
+  } catch {
+    // 存储不可用时仅保留在内存中。
+  }
+}
+
+function encodeBasic(user: string, password: string) {
+  const bytes = new TextEncoder().encode(`${user}:${password}`);
+  let binary = '';
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary);
+}
+
+function mergeQuery(base: string, pairs: { key: string; value: string }[]) {
+  if (pairs.length === 0) return base;
+  const hashIndex = base.indexOf('#');
+  const head = hashIndex >= 0 ? base.slice(0, hashIndex) : base;
+  const hash = hashIndex >= 0 ? base.slice(hashIndex) : '';
+  const query = pairs
+    .map((pair) => `${encodeURIComponent(pair.key)}=${encodeURIComponent(pair.value)}`)
+    .join('&');
+  const separator = head.includes('?')
+    ? head.endsWith('&') || head.endsWith('?')
+      ? ''
+      : '&'
+    : '?';
+  return `${head}${separator}${query}${hash}`;
+}
 
 const methods: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 
@@ -84,6 +164,14 @@ function formatBytes(bytes: number) {
   return `${(bytes / 1024).toFixed(1)} KB`;
 }
 
+function formatJsonBody(body: string) {
+  try {
+    return JSON.stringify(JSON.parse(body), null, 2);
+  } catch {
+    return body;
+  }
+}
+
 export function RequestPanel({
   activeRequest,
   openTabs,
@@ -106,6 +194,16 @@ export function RequestPanel({
   const [params, setParams] = useState<KvRow[]>(initialParams);
   const [headers, setHeaders] = useState<KvRow[]>(initialHeaders);
   const [body, setBody] = useState(requestBody);
+  const [bodyMode, setBodyMode] = useState<BodyMode>(defaultMeta.bodyMode);
+  const [formRows, setFormRows] = useState<KvRow[]>(defaultMeta.formRows);
+  const [authType, setAuthType] = useState<AuthType>(defaultMeta.authType);
+  const [authToken, setAuthToken] = useState(defaultMeta.authToken);
+  const [authUser, setAuthUser] = useState(defaultMeta.authUser);
+  const [authPass, setAuthPass] = useState(defaultMeta.authPass);
+  const [apiKeyName, setApiKeyName] = useState(defaultMeta.apiKeyName);
+  const [apiKeyValue, setApiKeyValue] = useState(defaultMeta.apiKeyValue);
+  const [timeoutMs, setTimeoutMs] = useState(defaultMeta.timeoutMs);
+  const [metaFor, setMetaFor] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [response, setResponse] = useState<SendResponse>(demoResponse);
   const [error, setError] = useState<string | null>(null);
@@ -132,6 +230,50 @@ export function RequestPanel({
         : initialHeaders,
     );
   }, [activeRequest, saved]);
+
+  useEffect(() => {
+    const meta = readRequestMeta(activeRequest.id);
+    setBodyMode(meta.bodyMode);
+    setAuthType(meta.authType);
+    setAuthToken(meta.authToken);
+    setAuthUser(meta.authUser);
+    setAuthPass(meta.authPass);
+    setApiKeyName(meta.apiKeyName);
+    setApiKeyValue(meta.apiKeyValue);
+    setTimeoutMs(meta.timeoutMs);
+    setFormRows(meta.formRows);
+    setParams(meta.params);
+    setMetaFor(activeRequest.id);
+  }, [activeRequest.id]);
+
+  useEffect(() => {
+    if (metaFor !== activeRequest.id) return;
+    writeRequestMeta(activeRequest.id, {
+      bodyMode,
+      authType,
+      authToken,
+      authUser,
+      authPass,
+      apiKeyName,
+      apiKeyValue,
+      timeoutMs,
+      formRows,
+      params,
+    });
+  }, [
+    metaFor,
+    activeRequest.id,
+    bodyMode,
+    authType,
+    authToken,
+    authUser,
+    authPass,
+    apiKeyName,
+    apiKeyValue,
+    timeoutMs,
+    formRows,
+    params,
+  ]);
 
   useEffect(() => {
     if (!replay) return;
@@ -179,14 +321,138 @@ export function RequestPanel({
     }
   }
 
+  function addRow() {
+    const blank: KvRow = {
+      id: `row-${Date.now().toString(36)}`,
+      key: '',
+      value: '',
+      description: '',
+      enabled: true,
+    };
+    if (requestTab === 'headers') {
+      setHeaders((rows) => [...rows, blank]);
+    } else {
+      setParams((rows) => [...rows, blank]);
+    }
+  }
+
+  function removeRow(id: string) {
+    if (requestTab === 'headers') {
+      setHeaders((rows) => rows.filter((row) => row.id !== id));
+    } else {
+      setParams((rows) => rows.filter((row) => row.id !== id));
+    }
+  }
+
+  function updateFormRow(id: string, patch: Partial<KvRow>) {
+    setFormRows((rows) => rows.map((row) => (row.id === id ? { ...row, ...patch } : row)));
+  }
+
+  function addFormRow() {
+    setFormRows((rows) => [
+      ...rows,
+      {
+        id: `form-${Date.now().toString(36)}`,
+        key: '',
+        value: '',
+        description: '',
+        enabled: true,
+      },
+    ]);
+  }
+
   async function handleSend() {
-    const rawHeaders = headers
+    const paramPairs = params
+      .filter((row) => row.enabled && row.key.trim())
+      .map((row) => ({
+        key: resolveTemplate(row.key, variables),
+        value: resolveTemplate(row.value, variables),
+      }));
+    const finalUrl = mergeQuery(
+      resolvedUrl.value,
+      paramPairs.map((pair) => ({ key: pair.key.value, value: pair.value.value })),
+    );
+
+    let authHeader: { name: string; value: string } | null = null;
+    const authMissing: string[] = [];
+
+    if (authType === 'bearer') {
+      const token = resolveTemplate(authToken, variables);
+      authMissing.push(...token.missing);
+      if (token.value.trim()) {
+        authHeader = { name: 'Authorization', value: `Bearer ${token.value.trim()}` };
+      }
+    } else if (authType === 'basic') {
+      const user = resolveTemplate(authUser, variables);
+      const pass = resolveTemplate(authPass, variables);
+      authMissing.push(...user.missing, ...pass.missing);
+      if (user.value || pass.value) {
+        authHeader = {
+          name: 'Authorization',
+          value: `Basic ${encodeBasic(user.value, pass.value)}`,
+        };
+      }
+    } else if (authType === 'apikey') {
+      const name = resolveTemplate(apiKeyName, variables);
+      const value = resolveTemplate(apiKeyValue, variables);
+      authMissing.push(...name.missing, ...value.missing);
+      if (name.value.trim() && value.value) {
+        authHeader = { name: name.value.trim(), value: value.value };
+      }
+    }
+
+    const baseHeaders = headers
       .filter((row) => row.enabled && row.key.trim())
       .map((row) => ({ name: row.key.trim(), value: row.value }));
-    const resolvedHeaders = resolveHeaders(rawHeaders, variables);
-    const resolvedBody = resolveTemplate(body, variables);
+    const withoutAuth = authHeader
+      ? baseHeaders.filter(
+          (header) => header.name.toLowerCase() !== authHeader.name.toLowerCase(),
+        )
+      : baseHeaders;
+    const resolvedHeaders = resolveHeaders(
+      authHeader ? [...withoutAuth, authHeader] : withoutAuth,
+      variables,
+    );
+
+    let bodyText = '';
+    const bodyMissing: string[] = [];
+
+    if (bodyMode === 'form') {
+      const pairs = formRows
+        .filter((row) => row.enabled && row.key.trim())
+        .map((row) => ({
+          key: resolveTemplate(row.key, variables),
+          value: resolveTemplate(row.value, variables),
+        }));
+      pairs.forEach((pair) => {
+        bodyMissing.push(...pair.key.missing, ...pair.value.missing);
+      });
+      bodyText = pairs
+        .map(
+          (pair) =>
+            `${encodeURIComponent(pair.key.value)}=${encodeURIComponent(pair.value.value)}`,
+        )
+        .join('&');
+      if (!resolvedHeaders.headers.some((header) => header.name.toLowerCase() === 'content-type')) {
+        resolvedHeaders.headers.push({
+          name: 'Content-Type',
+          value: 'application/x-www-form-urlencoded',
+        });
+      }
+    } else {
+      const resolvedBody = resolveTemplate(body, variables);
+      bodyMissing.push(...resolvedBody.missing);
+      bodyText = resolvedBody.value;
+    }
+
     const missing = [
-      ...new Set([...resolvedUrl.missing, ...resolvedHeaders.missing, ...resolvedBody.missing]),
+      ...new Set([
+        ...resolvedUrl.missing,
+        ...paramPairs.flatMap((pair) => [...pair.key.missing, ...pair.value.missing]),
+        ...resolvedHeaders.missing,
+        ...bodyMissing,
+        ...authMissing,
+      ]),
     ];
 
     if (missing.length > 0) {
@@ -204,10 +470,10 @@ export function RequestPanel({
     try {
       const result = await sendHttpRequest({
         method,
-        url: resolvedUrl.value,
+        url: finalUrl,
         headers: resolvedHeaders.headers,
-        body: method === 'GET' || method === 'DELETE' ? undefined : resolvedBody.value,
-        timeoutMs: 30_000,
+        body: method === 'GET' || method === 'DELETE' ? undefined : bodyText,
+        timeoutMs,
       });
 
       setResponse(result);
@@ -215,7 +481,7 @@ export function RequestPanel({
 
       recordAudit({
         type: 'request',
-        action: `${method} ${resolvedUrl.value}`,
+        action: `${method} ${finalUrl}`,
         detail: `${result.status} ${result.statusText} · ${result.durationMs}ms · ${formatBytes(result.sizeBytes)}`,
         actor,
         level: activeRequest.dataLevel,
@@ -224,7 +490,7 @@ export function RequestPanel({
       try {
         await recordHistory({
           method,
-          url: resolvedUrl.value,
+          url: finalUrl,
           status: result.status,
           durationMs: result.durationMs,
           sizeBytes: result.sizeBytes,
@@ -247,16 +513,16 @@ export function RequestPanel({
         requestId: activeRequest.id,
         name: activeRequest.name,
         method,
-        url: resolvedUrl.value,
+        url: finalUrl,
         headers: resolvedHeaders.headers,
-        body: method === 'GET' || method === 'DELETE' ? null : resolvedBody.value,
+        body: method === 'GET' || method === 'DELETE' ? null : bodyText,
         dataLevel: activeRequest.dataLevel,
       });
       onQueued();
 
       recordAudit({
         type: 'request',
-        action: `${method} ${resolvedUrl.value}`,
+        action: `${method} ${finalUrl}`,
         detail: `失败 · ${text}`,
         actor,
         level: activeRequest.dataLevel,
@@ -265,7 +531,7 @@ export function RequestPanel({
       try {
         await recordHistory({
           method,
-          url: resolvedUrl.value,
+          url: finalUrl,
           error: text,
           durationMs: Math.round(performance.now() - started),
         });
@@ -278,6 +544,20 @@ export function RequestPanel({
       window.setTimeout(() => setFeedback(null), 3000);
     }
   }
+
+  const sendRef = useRef(handleSend);
+  sendRef.current = handleSend;
+
+  useEffect(() => {
+    function handleHotkey(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+        event.preventDefault();
+        sendRef.current();
+      }
+    }
+    window.addEventListener('keydown', handleHotkey);
+    return () => window.removeEventListener('keydown', handleHotkey);
+  }, []);
 
   async function handleSave() {
     try {
@@ -393,6 +673,20 @@ export function RequestPanel({
             保存
           </Button>
         </Tooltip>
+        <Select
+          size="small"
+          value={timeoutMs}
+          onChange={(value) => setTimeoutMs(value)}
+          options={[
+            { value: 5_000, label: '5s' },
+            { value: 10_000, label: '10s' },
+            { value: 30_000, label: '30s' },
+            { value: 60_000, label: '60s' },
+          ]}
+          className="timeout-select"
+          popupMatchSelectWidth={false}
+          aria-label="请求超时"
+        />
       </div>
 
       <div className="request-subtabs" role="tablist" aria-label="请求配置">
@@ -464,11 +758,12 @@ export function RequestPanel({
                     size="small"
                     icon={<DeleteOutlined />}
                     aria-label="删除该行"
+                    onClick={() => removeRow(row.id)}
                   />
                 </Tooltip>
               </div>
             ))}
-            <button type="button" className="kv-add">
+            <button type="button" className="kv-add" onClick={addRow}>
               <PlusOutlined /> 添加一行
             </button>
           </div>
@@ -477,33 +772,175 @@ export function RequestPanel({
         {requestTab === 'body' && (
           <div className="body-editor">
             <div className="editor-toolbar">
-              <Tag className="format-tag">JSON</Tag>
-              <span className="editor-note">application/json · 自动格式化</span>
+              <Segmented
+                size="small"
+                value={bodyMode}
+                onChange={(value) => setBodyMode(value as BodyMode)}
+                options={[
+                  { label: 'JSON', value: 'json' },
+                  { label: '文本', value: 'text' },
+                  { label: '表单', value: 'form' },
+                ]}
+              />
+              <span className="editor-note">
+                {bodyMode === 'json'
+                  ? 'application/json · 自动格式化'
+                  : bodyMode === 'text'
+                    ? 'text/plain'
+                    : 'application/x-www-form-urlencoded'}
+              </span>
               <div className="editor-toolbar-spacer" />
-              <Button type="text" size="small" icon={<FormatPainterOutlined />}>
-                格式化
-              </Button>
+              {bodyMode === 'json' && (
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<FormatPainterOutlined />}
+                  onClick={() => setBody((current) => formatJsonBody(current))}
+                >
+                  格式化
+                </Button>
+              )}
               <Button type="text" size="small" icon={<CodeOutlined />}>
                 生成代码
               </Button>
             </div>
-            <textarea
-              className="code-block body-input"
-              value={body}
-              onChange={(event) => setBody(event.target.value)}
-              spellCheck={false}
-              aria-label="请求体"
-            />
+            {bodyMode === 'form' ? (
+              <div className="kv-editor">
+                <div className="kv-head">
+                  <span />
+                  <span>KEY</span>
+                  <span>VALUE</span>
+                  <span>说明</span>
+                  <span />
+                </div>
+                {formRows.map((row) => (
+                  <div className={`kv-row${row.enabled ? '' : ' disabled'}`} key={row.id}>
+                    <Checkbox
+                      checked={row.enabled}
+                      onChange={(event) =>
+                        updateFormRow(row.id, { enabled: event.target.checked })
+                      }
+                    />
+                    <input
+                      className="kv-input mono"
+                      value={row.key}
+                      onChange={(event) => updateFormRow(row.id, { key: event.target.value })}
+                      aria-label="表单字段名"
+                    />
+                    <input
+                      className="kv-input mono"
+                      value={row.value}
+                      onChange={(event) => updateFormRow(row.id, { value: event.target.value })}
+                      aria-label="表单字段值"
+                    />
+                    <input
+                      className="kv-input"
+                      value={row.description}
+                      onChange={(event) =>
+                        updateFormRow(row.id, { description: event.target.value })
+                      }
+                      aria-label="表单字段说明"
+                    />
+                    <Tooltip title="删除">
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<DeleteOutlined />}
+                        aria-label="删除表单字段"
+                        onClick={() =>
+                          setFormRows((rows) => rows.filter((item) => item.id !== row.id))
+                        }
+                      />
+                    </Tooltip>
+                  </div>
+                ))}
+                <button type="button" className="kv-add" onClick={addFormRow}>
+                  <PlusOutlined /> 添加字段
+                </button>
+              </div>
+            ) : (
+              <textarea
+                className="code-block body-input"
+                value={body}
+                onChange={(event) => setBody(event.target.value)}
+                spellCheck={false}
+                aria-label="请求体"
+              />
+            )}
           </div>
         )}
 
         {requestTab === 'auth' && (
           <div className="auth-panel">
             <div className="auth-card">
-              <span className="panel-eyebrow">BEARER TOKEN</span>
-              <Input.Password value={variables.PAYMENT_TOKEN ?? ''} readOnly />
+              <Segmented
+                size="small"
+                value={authType}
+                onChange={(value) => setAuthType(value as AuthType)}
+                options={[
+                  { label: '无', value: 'none' },
+                  { label: 'Bearer', value: 'bearer' },
+                  { label: 'Basic', value: 'basic' },
+                  { label: 'API Key', value: 'apikey' },
+                ]}
+              />
+
+              {authType === 'bearer' && (
+                <label className="auth-field">
+                  <span>Token</span>
+                  <Input.Password
+                    value={authToken}
+                    onChange={(event) => setAuthToken(event.target.value)}
+                    placeholder="{{PAYMENT_TOKEN}}"
+                    aria-label="Bearer Token"
+                  />
+                </label>
+              )}
+
+              {authType === 'basic' && (
+                <>
+                  <label className="auth-field">
+                    <span>用户名</span>
+                    <Input
+                      value={authUser}
+                      onChange={(event) => setAuthUser(event.target.value)}
+                      aria-label="Basic 用户名"
+                    />
+                  </label>
+                  <label className="auth-field">
+                    <span>口令</span>
+                    <Input.Password
+                      value={authPass}
+                      onChange={(event) => setAuthPass(event.target.value)}
+                      aria-label="Basic 口令"
+                    />
+                  </label>
+                </>
+              )}
+
+              {authType === 'apikey' && (
+                <>
+                  <label className="auth-field">
+                    <span>Header 名</span>
+                    <Input
+                      value={apiKeyName}
+                      onChange={(event) => setApiKeyName(event.target.value)}
+                      aria-label="API Key 名称"
+                    />
+                  </label>
+                  <label className="auth-field">
+                    <span>值</span>
+                    <Input.Password
+                      value={apiKeyValue}
+                      onChange={(event) => setApiKeyValue(event.target.value)}
+                      aria-label="API Key 值"
+                    />
+                  </label>
+                </>
+              )}
+
               <p>
-                从环境变量 <code>PAYMENT_TOKEN</code> 读取，不写入工作区文件。当前值仅在本机内存中解密。
+                支持 <code>{'{{变量}}'}</code> 引用环境变量。鉴权信息在发送时写入请求头，不额外落盘。
               </p>
             </div>
           </div>

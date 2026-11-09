@@ -1173,6 +1173,26 @@ html[data-theme='dark'] .sidebar {
   background: var(--aw-surface);
 }
 
+.auth-card .ant-segmented {
+  margin-bottom: 12px;
+}
+
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 10px;
+}
+
+.auth-field > span {
+  color: var(--aw-muted);
+  font-size: 12.5px;
+}
+
+.timeout-select {
+  width: 74px;
+}
+
 .panel-eyebrow {
   display: block;
   margin-bottom: 7px;
