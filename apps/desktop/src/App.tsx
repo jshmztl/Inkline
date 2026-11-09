@@ -14,6 +14,7 @@ import {
   type TeamSnapshot,
 } from './lib/team';
 import { AiPanel } from './components/AiPanel';
+import { CommandPalette } from './components/CommandPalette';
 import { LoginScreen } from './components/LoginScreen';
 import { RequestPanel } from './components/RequestPanel';
 import { Sidebar } from './components/Sidebar';
@@ -47,6 +48,7 @@ export function App() {
   const [teamSnapshot, setTeamSnapshot] = useState<TeamSnapshot | null>(readTeamSnapshot);
   const [syncNonce, setSyncNonce] = useState(0);
   const [queueNonce, setQueueNonce] = useState(0);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [replay, setReplay] = useState<{
     method: HttpMethod;
     url: string;
@@ -72,6 +74,17 @@ export function App() {
     return () => {
       alive = false;
     };
+  }, []);
+
+  useEffect(() => {
+    function handleHotkey(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setPaletteOpen((current) => !current);
+      }
+    }
+    window.addEventListener('keydown', handleHotkey);
+    return () => window.removeEventListener('keydown', handleHotkey);
   }, []);
 
   const activeRequest =
@@ -198,6 +211,7 @@ export function App() {
             onNetworkModeChange={setNetworkMode}
             onEnvironmentChange={setEnvironment}
             onSignOut={handleSignOut}
+            onOpenPalette={() => setPaletteOpen(true)}
           />
 
           <div className="workspace">
@@ -244,6 +258,15 @@ export function App() {
             actor={session.account}
             queueNonce={queueNonce}
             onQueueChange={() => setQueueNonce((current) => current + 1)}
+          />
+
+          <CommandPalette
+            open={paletteOpen}
+            requests={allRequests}
+            onClose={() => setPaletteOpen(false)}
+            onSelectRequest={selectRequest}
+            onEnvironmentChange={setEnvironment}
+            onNetworkModeChange={setNetworkMode}
           />
         </div>
       </AntApp>

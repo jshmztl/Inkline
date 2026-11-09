@@ -2293,6 +2293,118 @@ html[data-theme='dark'] .sidebar {
   font-size: 8.5px;
 }
 
+/* ---------- command palette ---------- */
+
+.command-modal .ant-modal-content {
+  overflow: hidden;
+  padding: 0;
+}
+
+.command-palette {
+  display: flex;
+  flex-direction: column;
+}
+
+.command-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--aw-line);
+  color: var(--aw-faint);
+}
+
+.command-search .ant-input {
+  font-size: 12px;
+}
+
+.command-search kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--aw-line);
+  border-radius: 4px;
+  color: var(--aw-faint);
+  font-family: var(--aw-font-code);
+  font-size: 8.5px;
+}
+
+.command-list {
+  overflow-y: auto;
+  max-height: 360px;
+  padding: 6px;
+}
+
+.command-group {
+  padding: 6px 8px 4px;
+  color: var(--aw-faint);
+  font-size: 8.5px;
+  letter-spacing: 0.08em;
+}
+
+.command-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--aw-ink-2);
+  text-align: left;
+  cursor: pointer;
+}
+
+.command-item.active {
+  background: var(--aw-accent-soft);
+  color: var(--aw-ink);
+}
+
+.command-icon {
+  display: flex;
+  justify-content: center;
+  width: 34px;
+  color: var(--aw-accent);
+  font-size: 11px;
+}
+
+.command-title {
+  flex: 1;
+  font-size: 10.5px;
+}
+
+.command-hint {
+  overflow: hidden;
+  max-width: 170px;
+  color: var(--aw-faint);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-empty {
+  padding: 24px;
+  color: var(--aw-faint);
+  font-size: 10px;
+  text-align: center;
+}
+
+.command-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 14px;
+  border-top: 1px solid var(--aw-line);
+  background: var(--aw-surface-2);
+  color: var(--aw-faint);
+  font-size: 8.5px;
+}
+
+.command-foot em {
+  margin-left: auto;
+  font-family: var(--aw-font-code);
+  font-style: normal;
+}
+
 /* ---------- offline queue ---------- */
 
 .status-queue.ant-btn {

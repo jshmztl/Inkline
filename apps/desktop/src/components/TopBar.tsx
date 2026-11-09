@@ -25,6 +25,7 @@ interface TopBarProps {
   onNetworkModeChange: (mode: NetworkMode) => void;
   onEnvironmentChange: (environment: string) => void;
   onSignOut: () => void;
+  onOpenPalette: () => void;
 }
 
 const densityItems = [
@@ -68,6 +69,7 @@ export function TopBar({
   onNetworkModeChange,
   onEnvironmentChange,
   onSignOut,
+  onOpenPalette,
 }: TopBarProps) {
   const { message } = App.useApp();
   const network = networkModes[networkMode];
@@ -146,7 +148,13 @@ export function TopBar({
           />
         </Tooltip>
         <Tooltip title="命令面板 · ⌘K">
-          <Button type="text" size="small" icon={<SearchOutlined />} />
+          <Button
+            type="text"
+            size="small"
+            icon={<SearchOutlined />}
+            aria-label="命令面板"
+            onClick={onOpenPalette}
+          />
         </Tooltip>
         <Tooltip title={mode === 'light' ? '切换到暗色' : '切换到亮色'}>
           <Button
