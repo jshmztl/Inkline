@@ -725,14 +725,14 @@ html[data-theme='dark'] .sidebar {
 }
 
 .sidebar-foot-btn.ghost {
-  border-color: var(--side-line);
-  background: transparent;
-  color: var(--side-muted);
+  border-color: color-mix(in srgb, var(--aw-info) 38%, transparent);
+  background: var(--aw-info-soft);
+  color: var(--aw-info);
 }
 
 .sidebar-foot-btn.ghost:hover {
-  border-color: var(--side-accent);
-  color: var(--side-strong);
+  border-color: var(--aw-info);
+  color: var(--aw-info);
 }
 
 /* ---------- method & level tags ---------- */
@@ -4142,4 +4142,10 @@ html[data-theme='dark'] .ai-panel .ai-bubble-end .ant-bubble-content {
   margin: 0;
   color: var(--aw-faint);
   font-size: 12.5px;
+}
+
+.workspace-empty-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }

@@ -398,7 +398,8 @@ export function AiPanel({
 
           <div className="review-actions">
             <Button
-              type="primary"
+              color="green"
+              variant="solid"
               size="small"
               onClick={applyDraft}
               disabled={applied || review.length === 0}

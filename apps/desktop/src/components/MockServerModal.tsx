@@ -197,7 +197,8 @@ export function MockServerModal({ open, onClose }: MockServerModalProps) {
           </Button>
         ) : (
           <Button
-            type="primary"
+            color="green"
+            variant="solid"
             icon={<PlayCircleOutlined />}
             loading={busy}
             onClick={handleStart}

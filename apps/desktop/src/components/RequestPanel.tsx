@@ -65,6 +65,7 @@ interface RequestPanelProps {
   collectionId: string;
   onSelectTab: (requestId: string) => void;
   onCloseTab: (requestId: string) => void;
+  onCreateRequest: () => void;
   onHistoryRecorded: () => void;
   onSaved: () => void;
   onQueued: () => void;
@@ -214,6 +215,7 @@ export function RequestPanel({
   collectionId,
   onSelectTab,
   onCloseTab,
+  onCreateRequest,
   onHistoryRecorded,
   onSaved,
   onQueued,
@@ -1051,42 +1053,45 @@ export function RequestPanel({
   return (
     <section className="request-pane">
       <div className="request-tabs" role="tablist" aria-label="打开的请求">
-        {openTabs.map((request) => (
-          <button
-            key={request.id}
-            type="button"
-            role="tab"
-            aria-selected={request.id === activeRequest.id}
-            className={`request-tab${request.id === activeRequest.id ? ' active' : ''}`}
-            onClick={() => onSelectTab(request.id)}
-          >
-            <MethodTag method={request.method} />
-            <span>{request.path}</span>
-            {openTabs.length > 1 && (
-              <span
-                className="tab-close"
-                role="button"
-                tabIndex={0}
-                aria-label={`关闭 ${request.path}`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onCloseTab(request.id);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
+            {openTabs.map((request) => (
+              <button
+                key={request.id}
+                type="button"
+                role="tab"
+                aria-selected={request.id === activeRequest.id}
+                className={`request-tab${request.id === activeRequest.id ? ' active' : ''}`}
+                onClick={() => onSelectTab(request.id)}
+              >
+                <MethodTag method={request.method} />
+                <span>{request.name || request.path || request.id}</span>
+                <span
+                  className="tab-close"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`关闭 ${request.name || request.path}`}
+                  onClick={(event) => {
                     event.stopPropagation();
                     onCloseTab(request.id);
-                  }
-                }}
-              >
-                <CloseOutlined />
-              </span>
-            )}
-          </button>
-        ))}
-        <button type="button" className="tab-add" aria-label="新建请求">
-          <PlusOutlined />
-        </button>
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.stopPropagation();
+                      onCloseTab(request.id);
+                    }
+                  }}
+                >
+                  <CloseOutlined />
+                </span>
+              </button>
+            ))}
+            <button
+              type="button"
+              className="tab-add"
+              aria-label="新建请求"
+              onClick={onCreateRequest}
+            >
+              <PlusOutlined />
+            </button>
         <div className="request-tabs-spacer" />
         <Tag className={`level-tag level-${activeRequest.dataLevel.toLowerCase()}`}>
           {activeRequest.dataLevel}
@@ -1182,6 +1187,8 @@ export function RequestPanel({
           <Button
             icon={<SaveOutlined />}
             className="save-button"
+            color="green"
+            variant="filled"
             onClick={handleSave}
           >
             保存
@@ -1203,6 +1210,8 @@ export function RequestPanel({
         <Tooltip title="代理与客户端证书">
           <Button
             icon={<GlobalOutlined />}
+            color="cyan"
+            variant="filled"
             onClick={() => setNetworkOpen(true)}
             aria-label="网络设置"
           />
@@ -1352,15 +1361,16 @@ export function RequestPanel({
               <div className="editor-toolbar-spacer" />
               {(bodyMode === 'json' || bodyMode === 'xml') && (
                 <Button
-                  type="text"
+                  variant="text"
                   size="small"
                   icon={<FormatPainterOutlined />}
+                  color="cyan"
                   onClick={formatRequestBody}
                 >
                   格式化
                 </Button>
               )}
-              <Button type="text" size="small" icon={<CodeOutlined />}>
+              <Button variant="text" size="small" icon={<CodeOutlined />} color="geekblue">
                 生成代码
               </Button>
             </div>

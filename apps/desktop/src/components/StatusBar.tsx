@@ -121,8 +121,9 @@ export function StatusBar({
       {tasks.length > 0 && (
         <>
           <Button
-            type="text"
+            variant="text"
             size="small"
+            color="orange"
             className="status-queue"
             icon={<CloudServerOutlined />}
             onClick={() => setOpen(true)}
@@ -134,8 +135,9 @@ export function StatusBar({
       )}
 
       <Button
-        type="text"
+        variant="text"
         size="small"
+        color="cyan"
         className="status-queue"
         icon={<ApiOutlined />}
         onClick={() => setMockOpen(true)}

@@ -771,8 +771,9 @@ export function Sidebar({
         <div className="sidebar-sync-actions">
           <Tooltip title="推送到本地快照">
             <Button
-              type="text"
+              variant="text"
               size="small"
+              color="green"
               icon={<CloudUploadOutlined />}
               loading={syncing === 'push'}
               disabled={syncing === 'pull'}
@@ -782,8 +783,9 @@ export function Sidebar({
           </Tooltip>
           <Tooltip title="从本地快照拉取">
             <Button
-              type="text"
+              variant="text"
               size="small"
+              color="cyan"
               icon={<CloudDownloadOutlined />}
               loading={syncing === 'pull'}
               disabled={syncing === 'push' || teamRevision == null}

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { App as AntApp, Button, Input, Modal } from 'antd';
 import { AntProvider, type Density, type ThemeMode } from '@api-workbench/ui';
 import type { ApiFolder, ApiRequest, DataLevel, HttpMethod, NetworkMode } from './data/types';
@@ -79,6 +79,7 @@ export function App() {
   const [workspaceEnvs, setWorkspaceEnvs] = useState(listEnvironments);
   const [activeRequestId, setActiveRequestId] = useState('');
   const [openTabIds, setOpenTabIds] = useState<string[]>([]);
+  const autoOpenRef = useRef(true);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [savedRequests, setSavedRequests] = useState<SavedRequest[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
@@ -190,9 +191,7 @@ export function App() {
   };
 
   const activeRequest =
-    allRequests.find((request) => request.id === activeRequestId) ??
-    allRequests[0] ??
-    emptyRequest;
+    allRequests.find((request) => request.id === activeRequestId) ?? emptyRequest;
   const activeSaved =
     savedRequests.find((request) => request.id === activeRequest.id) ?? null;
 
@@ -204,6 +203,14 @@ export function App() {
     if (allRequests.length === 0) {
       setActiveRequestId('');
       setOpenTabIds([]);
+      autoOpenRef.current = true;
+      return;
+    }
+    if (!activeRequestId) {
+      if (!autoOpenRef.current) return;
+      const first = allRequests[0].id;
+      setActiveRequestId(first);
+      setOpenTabIds([first]);
       return;
     }
     if (!allRequests.some((request) => request.id === activeRequestId)) {
@@ -225,6 +232,7 @@ export function App() {
   }
 
   function selectRequest(request: ApiRequest) {
+    autoOpenRef.current = true;
     setActiveRequestId(request.id);
     setOpenTabIds((current) =>
       current.includes(request.id) ? current : [...current, request.id],
@@ -236,11 +244,11 @@ export function App() {
   }
 
   function closeTab(requestId: string) {
-    if (openTabIds.length <= 1) return;
     const next = openTabIds.filter((id) => id !== requestId);
     setOpenTabIds(next);
+    if (next.length === 0) autoOpenRef.current = false;
     if (requestId === activeRequestId) {
-      setActiveRequestId(next[next.length - 1]);
+      setActiveRequestId(next[next.length - 1] ?? '');
     }
   }
 
@@ -315,6 +323,7 @@ export function App() {
       updatedAt: null,
     });
     await refreshWorkspace();
+    autoOpenRef.current = true;
     setActiveRequestId(created.id);
     setOpenTabIds((current) =>
       current.includes(created.id) ? current : [...current, created.id],
@@ -462,6 +471,12 @@ export function App() {
     }
   }
 
+  function createRequestHere() {
+    const target =
+      activeRequest.collectionId ?? allRequests[0]?.collectionId ?? folders[0]?.id;
+    if (target) void handleCreateRequest(target);
+  }
+
   if (!session) {
     return (
       <AntProvider mode={mode} density={density}>
@@ -530,6 +545,19 @@ export function App() {
                   新建集合与请求
                 </Button>
               </section>
+            ) : openTabs.length === 0 ? (
+              <section className="workspace-empty">
+                <strong>未打开请求</strong>
+                <p>从左侧集合中选择一个请求，或直接新建一条请求。</p>
+                <div className="workspace-empty-actions">
+                  <Button onClick={() => selectRequest(allRequests[0])}>
+                    打开第一个请求
+                  </Button>
+                  <Button type="primary" onClick={createRequestHere}>
+                    新建请求
+                  </Button>
+                </div>
+              </section>
             ) : (
               <RequestPanel
                 activeRequest={activeRequest}
@@ -541,6 +569,7 @@ export function App() {
                 collectionId={activeRequest.collectionId ?? ''}
                 onSelectTab={selectTab}
                 onCloseTab={closeTab}
+                onCreateRequest={createRequestHere}
                 onHistoryRecorded={refreshHistory}
                 onSaved={refreshSaved}
                 onQueued={() => setQueueNonce((current) => current + 1)}
