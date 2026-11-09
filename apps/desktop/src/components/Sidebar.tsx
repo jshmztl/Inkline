@@ -1,16 +1,20 @@
 import { useMemo, useState } from 'react';
 import {
   CheckCircleFilled,
+  CloudDownloadOutlined,
   CloudSyncOutlined,
+  CloudUploadOutlined,
   DownOutlined,
   FolderOpenOutlined,
   PlusOutlined,
   SearchOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
-import { Button, Tooltip } from 'antd';
+import { App, Button, Tooltip } from 'antd';
 import { environmentVariables, environments, folders, type ApiRequest } from '../data/mock';
 import type { HistoryEntry, SavedRequest } from '../lib/api';
+import type { Session } from '../lib/session';
+import { collectLocalDocuments, type TeamSnapshot } from '../lib/team';
 import { MethodTag } from './MethodTag';
 
 interface SidebarProps {
@@ -18,9 +22,14 @@ interface SidebarProps {
   history: HistoryEntry[];
   savedRequests: SavedRequest[];
   environment: string;
+  session: Session;
+  teamRevision: number | null;
+  teamUpdatedAt: string | null;
   onSelectRequest: (request: ApiRequest) => void;
   onReplayHistory: (entry: HistoryEntry) => void;
   onEnvironmentChange: (environment: string) => void;
+  onPush: () => TeamSnapshot;
+  onPull: () => Promise<{ snapshot: TeamSnapshot; pulled: number } | null>;
 }
 
 function shortUrl(url: string) {
@@ -45,12 +54,54 @@ export function Sidebar({
   history,
   savedRequests,
   environment,
+  session,
+  teamRevision,
+  teamUpdatedAt,
   onSelectRequest,
   onReplayHistory,
   onEnvironmentChange,
+  onPush,
+  onPull,
 }: SidebarProps) {
+  const { message } = App.useApp();
   const [query, setQuery] = useState('');
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [syncing, setSyncing] = useState<'push' | 'pull' | null>(null);
+  const [docCount, setDocCount] = useState(() => Object.keys(collectLocalDocuments()).length);
+  const [lastSync, setLastSync] = useState<string | null>(null);
+
+  async function handlePush() {
+    setSyncing('push');
+    try {
+      const snapshot = onPush();
+      setDocCount(Object.keys(snapshot.documents).length);
+      setLastSync(`已推送 rev ${snapshot.revision}`);
+      message.success(`已推送 rev ${snapshot.revision} · ${snapshot.requests.length} 个请求`);
+    } catch {
+      message.error('推送失败，请稍后重试');
+    } finally {
+      setSyncing(null);
+    }
+  }
+
+  async function handlePull() {
+    setSyncing('pull');
+    try {
+      const result = await onPull();
+      if (!result) {
+        setLastSync('团队仓为空');
+        message.info('团队仓为空，请先推送一次');
+        return;
+      }
+      setDocCount(Object.keys(result.snapshot.documents).length);
+      setLastSync(`已拉取 rev ${result.snapshot.revision}`);
+      message.success(`已拉取 rev ${result.snapshot.revision} · ${result.pulled} 个请求`);
+    } catch {
+      message.error('拉取失败，请稍后重试');
+    } finally {
+      setSyncing(null);
+    }
+  }
 
   const savedMap = useMemo(
     () => new Map(savedRequests.map((request) => [request.id, request])),
@@ -212,11 +263,42 @@ export function Sidebar({
 
       <div className="sidebar-spacer" />
 
-      <div className="sidebar-sync">
+      <div
+        className="sidebar-sync"
+        title={`${session.workspace} · ${
+          teamUpdatedAt ? `更新于 ${formatSavedAt(teamUpdatedAt)}` : '尚未推送'
+        }`}
+      >
         <CloudSyncOutlined />
-        <div>
-          <strong>已同步 · 2 分钟前</strong>
-          <span>本地 SQLite · 待推送 3 条</span>
+        <div className="sidebar-sync-body">
+          <strong>{teamRevision != null ? `团队仓 rev ${teamRevision}` : '团队仓尚未建立'}</strong>
+          <span>
+            {lastSync ?? `${savedRequests.length} 个请求 · ${docCount} 份文档草稿`}
+          </span>
+        </div>
+        <div className="sidebar-sync-actions">
+          <Tooltip title="推送到团队仓">
+            <Button
+              type="text"
+              size="small"
+              icon={<CloudUploadOutlined />}
+              loading={syncing === 'push'}
+              disabled={syncing === 'pull'}
+              onClick={handlePush}
+              aria-label="推送到团队仓"
+            />
+          </Tooltip>
+          <Tooltip title="从团队仓拉取">
+            <Button
+              type="text"
+              size="small"
+              icon={<CloudDownloadOutlined />}
+              loading={syncing === 'pull'}
+              disabled={syncing === 'push' || teamRevision == null}
+              onClick={handlePull}
+              aria-label="从团队仓拉取"
+            />
+          </Tooltip>
         </div>
       </div>
 

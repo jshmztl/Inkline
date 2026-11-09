@@ -3,8 +3,16 @@ import { App as AntApp } from 'antd';
 import { AntProvider, type Density, type ThemeMode } from '@api-workbench/ui';
 import type { ApiRequest, HttpMethod, NetworkMode } from './data/mock';
 import { allRequests } from './data/mock';
-import { listHistory, listRequests, type HistoryEntry, type SavedRequest } from './lib/api';
+import { listHistory, listRequests, saveRequest, type HistoryEntry, type SavedRequest } from './lib/api';
 import type { RequestContext } from './lib/docTask';
+import {
+  collectLocalDocuments,
+  pullTeamSnapshot,
+  pushTeamSnapshot,
+  readTeamSnapshot,
+  writeRemoteDocuments,
+  type TeamSnapshot,
+} from './lib/team';
 import { AiPanel } from './components/AiPanel';
 import { LoginScreen } from './components/LoginScreen';
 import { RequestPanel } from './components/RequestPanel';
@@ -36,6 +44,8 @@ export function App() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [savedRequests, setSavedRequests] = useState<SavedRequest[]>([]);
   const [requestContext, setRequestContext] = useState<RequestContext | null>(null);
+  const [teamSnapshot, setTeamSnapshot] = useState<TeamSnapshot | null>(readTeamSnapshot);
+  const [syncNonce, setSyncNonce] = useState(0);
   const [replay, setReplay] = useState<{
     method: HttpMethod;
     url: string;
@@ -132,6 +142,31 @@ export function App() {
     setSession(null);
   }
 
+  function handlePush() {
+    const snapshot = pushTeamSnapshot(
+      session?.account ?? 'local',
+      savedRequests,
+      collectLocalDocuments(),
+    );
+    setTeamSnapshot(snapshot);
+    return snapshot;
+  }
+
+  async function handlePull() {
+    const snapshot = await pullTeamSnapshot();
+    if (!snapshot) return null;
+
+    for (const request of snapshot.requests) {
+      await saveRequest(request);
+    }
+    writeRemoteDocuments(snapshot.documents);
+    refreshSaved();
+    setTeamSnapshot(snapshot);
+    setSyncNonce((current) => current + 1);
+
+    return { snapshot, pulled: snapshot.requests.length };
+  }
+
   if (!session) {
     return (
       <AntProvider mode={mode} density={density}>
@@ -165,9 +200,14 @@ export function App() {
               history={history}
               savedRequests={savedRequests}
               environment={environment}
+              session={session}
+              teamRevision={teamSnapshot?.revision ?? null}
+              teamUpdatedAt={teamSnapshot?.updatedAt ?? null}
               onSelectRequest={selectRequest}
               onReplayHistory={replayHistory}
               onEnvironmentChange={setEnvironment}
+              onPush={handlePush}
+              onPull={handlePull}
             />
             <RequestPanel
               activeRequest={activeRequest}
@@ -185,6 +225,7 @@ export function App() {
               networkMode={networkMode}
               activeRequest={activeRequest}
               context={requestContext}
+              syncNonce={syncNonce}
             />
           </div>
 

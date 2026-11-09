@@ -29,6 +29,7 @@ interface AiPanelProps {
   networkMode: NetworkMode;
   activeRequest: ApiRequest;
   context: RequestContext | null;
+  syncNonce: number;
 }
 
 interface ChatMessage {
@@ -60,7 +61,7 @@ const thoughtItems = thoughtSteps.map((step, index) => ({
   icon: step.state === 'done' ? <CheckCircleFilled /> : <LoadingOutlined spin />,
 }));
 
-export function AiPanel({ networkMode, activeRequest, context }: AiPanelProps) {
+export function AiPanel({ networkMode, activeRequest, context, syncNonce }: AiPanelProps) {
   const { message } = App.useApp();
   const network = networkModes[networkMode];
   const [composer, setComposer] = useState('');
@@ -103,7 +104,7 @@ export function AiPanel({ networkMode, activeRequest, context }: AiPanelProps) {
     } catch {
       setDraft([]);
     }
-  }, [requestId]);
+  }, [requestId, syncNonce]);
 
   function startTask() {
     if (!task) return;
