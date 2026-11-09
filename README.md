@@ -82,9 +82,8 @@ pnpm release
 
 - 启动后约 2.5 秒自动检查一次，发现新版本时在右下角提示；失败静默，不打扰使用
 - 也可随时在「账户菜单 → 检查更新」手动检查
-- 清单地址（按顺序尝试，非 2xx 时回退下一个）：
-  1. `https://github.com/LeonAmour/api-workbench/releases/latest/download/latest.json`
-  2. `https://gitee.com/LeonAmour/api-workbench/releases/download/latest/latest.json`
+- 清单地址：`https://github.com/LeonAmour/api-workbench/releases/latest/download/latest.json`
+- 更新源只使用 GitHub Releases：Gitee 的下载接口会拦截非浏览器 TLS 指纹的请求（返回 404），Tauri 客户端无法直接拉取
 - 公钥：写在 `apps/desktop/src-tauri/tauri.conf.json` 的 `plugins.updater.pubkey`
 - 私钥：默认 `%USERPROFILE%\.tauri\api-workbench.key`，不进入仓库
 
@@ -110,7 +109,7 @@ git push origin v0.1.1
 
 流水线会校验标签与 `tauri.conf.json` 版本一致，再构建、签名并发布。
 
-### 手动发布（Gitee 备用源）
+### 手动发布
 
 1. 提升版本号：同步修改 `apps/desktop/src-tauri/tauri.conf.json` 与 `apps/desktop/package.json`。
 2. 构建并签名：
@@ -121,12 +120,12 @@ pnpm release
 
 脚本会输出 MSI、`<msi>.sig` 与 `latest.json`，均位于 `apps/desktop/src-tauri/target/release/bundle/`。
 
-3. 在 Gitee 创建（或更新）标签为 `latest` 的发行版，上传 MSI 与 `latest.json`。
+3. 把 MSI 重命名为 `api-workbench_x64.msi`，连同 `latest.json` 一起上传到 GitHub Releases，并将该发布设为 latest。
 4. 客户端在「账户菜单 → 检查更新」中检查、下载并安装。
 
 注意事项：
 
-- 发行版仓库需公开，否则客户端匿名拉取清单会返回 403。
+- 仓库需为公开仓库，否则客户端无法匿名拉取清单与安装包。
 - 私钥丢失后，已安装的客户端将无法再接收更新，请离线备份。
 - 浏览器预览不支持安装更新，仅桌面端可用。
 
