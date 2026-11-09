@@ -80,6 +80,8 @@ pnpm release
 
 桌面端使用 Tauri Updater 检查 Gitee 发行版上的静态清单，更新包经 minisign 签名校验后以 MSI passive 模式安装。
 
+- 启动后约 2.5 秒自动检查一次，发现新版本时在右下角提示；失败静默，不打扰使用
+- 也可随时在「账户菜单 → 检查更新」手动检查
 - 清单地址：`https://gitee.com/LeonAmour/api-workbench/releases/download/latest/latest.json`
 - 公钥：写在 `apps/desktop/src-tauri/tauri.conf.json` 的 `plugins.updater.pubkey`
 - 私钥：默认 `%USERPROFILE%\.tauri\api-workbench.key`，不进入仓库

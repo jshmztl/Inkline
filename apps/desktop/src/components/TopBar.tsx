@@ -74,7 +74,7 @@ export function TopBar({
   onSignOut,
   onOpenPalette,
 }: TopBarProps) {
-  const { message } = App.useApp();
+  const { message, notification } = App.useApp();
   const network = networkModes[networkMode];
   const [auditOpen, setAuditOpen] = useState(false);
   const [auditFilter, setAuditFilter] = useState<AuditFilter>('all');
@@ -90,6 +90,43 @@ export function TopBar({
     if (!auditOpen) return;
     setEntries(listAudit(200));
   }, [auditOpen]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const info = await checkUpdate();
+        if (cancelled || !info.available) return;
+        setUpdateInfo(info);
+        notification.open({
+          key: 'update-available',
+          message: `发现新版本 v${info.latest}`,
+          description: info.notes || '可在账户菜单中查看并安装。',
+          placement: 'bottomRight',
+          duration: 0,
+          btn: (
+            <Button
+              size="small"
+              type="primary"
+              onClick={() => {
+                notification.destroy('update-available');
+                setUpdateOpen(true);
+              }}
+            >
+              查看更新
+            </Button>
+          ),
+        });
+      } catch {
+        // 启动检查静默失败，手动检查时再展示错误。
+      }
+    }, 2500);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [notification]);
 
   const visibleEntries =
     auditFilter === 'all' ? entries : entries.filter((entry) => entry.type === auditFilter);
