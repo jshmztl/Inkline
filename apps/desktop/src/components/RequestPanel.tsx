@@ -22,6 +22,7 @@ import {
   queryParams as initialParams,
   requestBody,
 } from '../data/mock';
+import { recordAudit } from '../lib/audit';
 import {
   recordHistory,
   saveRequest,
@@ -39,6 +40,7 @@ interface RequestPanelProps {
   replay: { method: HttpMethod; url: string; nonce: number } | null;
   saved: SavedRequest | null;
   environment: string;
+  actor: string;
   onSelectTab: (requestId: string) => void;
   onCloseTab: (requestId: string) => void;
   onHistoryRecorded: () => void;
@@ -117,6 +119,7 @@ export function RequestPanel({
   replay,
   saved,
   environment,
+  actor,
   onSelectTab,
   onCloseTab,
   onHistoryRecorded,
@@ -238,6 +241,14 @@ export function RequestPanel({
       setResponse(result);
       setFeedback(`请求完成 · ${result.status} ${result.statusText}`);
 
+      recordAudit({
+        type: 'request',
+        action: `${method} ${resolvedUrl.value}`,
+        detail: `${result.status} ${result.statusText} · ${result.durationMs}ms · ${formatBytes(result.sizeBytes)}`,
+        actor,
+        level: activeRequest.dataLevel,
+      });
+
       try {
         await recordHistory({
           method,
@@ -259,6 +270,14 @@ export function RequestPanel({
       setError(text);
       setFeedback('请求失败');
       message.error({ content: '请求失败，请检查 URL 或网络', duration: 2.2 });
+
+      recordAudit({
+        type: 'request',
+        action: `${method} ${resolvedUrl.value}`,
+        detail: `失败 · ${text}`,
+        actor,
+        level: activeRequest.dataLevel,
+      });
 
       try {
         await recordHistory({

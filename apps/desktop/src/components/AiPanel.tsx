@@ -23,6 +23,7 @@ import {
 } from '../lib/docTask';
 import { MethodTag } from './MethodTag';
 import { preflightEgress } from '../lib/egress';
+import { recordAudit } from '../lib/audit';
 import { resolveModelRoute } from '../lib/modelRoute';
 
 interface AiPanelProps {
@@ -30,6 +31,7 @@ interface AiPanelProps {
   activeRequest: ApiRequest;
   context: RequestContext | null;
   syncNonce: number;
+  actor: string;
 }
 
 interface ChatMessage {
@@ -61,7 +63,13 @@ const thoughtItems = thoughtSteps.map((step, index) => ({
   icon: step.state === 'done' ? <CheckCircleFilled /> : <LoadingOutlined spin />,
 }));
 
-export function AiPanel({ networkMode, activeRequest, context, syncNonce }: AiPanelProps) {
+export function AiPanel({
+  networkMode,
+  activeRequest,
+  context,
+  syncNonce,
+  actor,
+}: AiPanelProps) {
   const { message } = App.useApp();
   const network = networkModes[networkMode];
   const [composer, setComposer] = useState('');
@@ -117,6 +125,13 @@ export function AiPanel({ networkMode, activeRequest, context, syncNonce }: AiPa
         text: `已建立文档任务（${route.model}）：请求 ${task.stats.requestFields} 个字段，响应示例 ${task.stats.responseFields} 个字段，命中术语 ${task.stats.glossaryHits} 条${masked}。可进入字段审阅。`,
       },
     ]);
+    recordAudit({
+      type: 'ai-task',
+      action: `文档任务 · ${task.request.method} ${task.request.url}`,
+      detail: `${route.model} · ${task.stats.requestFields} 请求字段 / ${task.stats.responseFields} 响应字段 / ${task.stats.glossaryHits} 术语`,
+      actor,
+      level: task.request.dataLevel,
+    });
     message.success(route.egress ? '已审批并建立文档任务' : '文档任务已建立');
   }
 
@@ -403,6 +418,13 @@ export function AiPanel({ networkMode, activeRequest, context, syncNonce }: AiPa
             size="small"
             onClick={() => {
               setPreflightOpen(false);
+              recordAudit({
+                type: 'egress',
+                action: `出网审批 · ${activeRequest.method} ${activeRequest.path}`,
+                detail: `${route.endpoint} · 脱敏 ${preflight?.masks.length ?? 0} 项 · 人工审批通过`,
+                actor,
+                level: activeRequest.dataLevel,
+              });
               startTask();
             }}
           >

@@ -221,6 +221,7 @@ export function App() {
               replay={replay}
               saved={activeSaved}
               environment={environment}
+              actor={session.account}
               onSelectTab={selectTab}
               onCloseTab={closeTab}
               onHistoryRecorded={refreshHistory}
@@ -232,6 +233,7 @@ export function App() {
               activeRequest={activeRequest}
               context={requestContext}
               syncNonce={syncNonce}
+              actor={session.account}
             />
           </div>
 

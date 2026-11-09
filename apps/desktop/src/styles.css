@@ -2181,6 +2181,118 @@ html[data-theme='dark'] .sidebar {
   font-size: 9px;
 }
 
+/* ---------- audit log ---------- */
+
+.audit-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.audit-count {
+  color: var(--aw-faint);
+  font-family: var(--aw-font-code);
+  font-size: 9px;
+}
+
+.audit-empty {
+  padding: 26px 16px;
+  border: 1px dashed var(--aw-line);
+  border-radius: 6px;
+  color: var(--aw-faint);
+  font-size: 10px;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.audit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.audit-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--aw-line);
+  border-radius: 6px;
+  background: var(--aw-surface-2);
+}
+
+.audit-row-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.audit-row-head code {
+  overflow: hidden;
+  flex: 1;
+  color: var(--aw-ink);
+  font-size: 9.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audit-type {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 8.5px;
+  line-height: 1.5;
+}
+
+.audit-type.type-request {
+  color: var(--aw-accent);
+  background: var(--aw-accent-soft);
+}
+
+.audit-type.type-ai-task {
+  color: var(--aw-purple);
+  background: var(--aw-purple-soft);
+}
+
+.audit-type.type-egress {
+  color: var(--aw-warning);
+  background: var(--aw-warning-soft);
+}
+
+.audit-type.type-sync {
+  color: var(--aw-success);
+  background: var(--aw-success-soft);
+}
+
+.audit-level {
+  flex: 0 0 auto;
+  color: var(--aw-faint);
+  font-size: 8.5px;
+  font-style: normal;
+}
+
+.audit-time {
+  flex: 0 0 auto;
+  color: var(--aw-faint);
+  font-family: var(--aw-font-code);
+  font-size: 8.5px;
+}
+
+.audit-row-body {
+  color: var(--aw-ink-2);
+  font-size: 9.5px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.audit-row-foot {
+  color: var(--aw-faint);
+  font-family: var(--aw-font-code);
+  font-size: 8.5px;
+}
+
 /* ---------- status bar ---------- */
 
 .statusbar {

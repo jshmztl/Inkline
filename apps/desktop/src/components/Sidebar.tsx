@@ -14,6 +14,7 @@ import {
 import { App, Button, Modal, Segmented, Tooltip } from 'antd';
 import { environmentVariables, environments, folders, type ApiRequest } from '../data/mock';
 import { saveRequest, type HistoryEntry, type SavedRequest } from '../lib/api';
+import { recordAudit } from '../lib/audit';
 import { planThreeWayMerge } from '../lib/merge';
 import type { Session } from '../lib/session';
 import {
@@ -108,6 +109,12 @@ export function Sidebar({
       }
       const remote = readTeamSnapshot();
       if (remote) writeTeamBase(remote);
+      recordAudit({
+        type: 'sync',
+        action: '三方合并',
+        detail: `拉取 ${plan.remoteChanges.length} 条 · 冲突 ${plan.conflicts.length} 条`,
+        actor: session.account,
+      });
       onMerged();
       setMergeOpen(false);
       message.success(
@@ -124,6 +131,12 @@ export function Sidebar({
       const snapshot = onPush();
       setDocCount(Object.keys(snapshot.documents).length);
       setLastSync(`已推送 rev ${snapshot.revision}`);
+      recordAudit({
+        type: 'sync',
+        action: `推送团队仓 rev ${snapshot.revision}`,
+        detail: `${snapshot.requests.length} 个请求 · ${Object.keys(snapshot.documents).length} 份文档`,
+        actor: session.account,
+      });
       message.success(`已推送 rev ${snapshot.revision} · ${snapshot.requests.length} 个请求`);
     } catch {
       message.error('推送失败，请稍后重试');
@@ -143,6 +156,12 @@ export function Sidebar({
       }
       setDocCount(Object.keys(result.snapshot.documents).length);
       setLastSync(`已拉取 rev ${result.snapshot.revision}`);
+      recordAudit({
+        type: 'sync',
+        action: `拉取团队仓 rev ${result.snapshot.revision}`,
+        detail: `${result.pulled} 个请求 · ${Object.keys(result.snapshot.documents).length} 份文档`,
+        actor: session.account,
+      });
       message.success(`已拉取 rev ${result.snapshot.revision} · ${result.pulled} 个请求`);
     } catch {
       message.error('拉取失败，请稍后重试');
