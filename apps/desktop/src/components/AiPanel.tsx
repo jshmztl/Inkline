@@ -22,6 +22,7 @@ import {
   type RequestContext,
 } from '../lib/docTask';
 import { MethodTag } from './MethodTag';
+import { preflightEgress } from '../lib/egress';
 import { resolveModelRoute } from '../lib/modelRoute';
 
 interface AiPanelProps {
@@ -68,6 +69,7 @@ export function AiPanel({ networkMode, activeRequest, context }: AiPanelProps) {
   const [applied, setApplied] = useState(false);
   const [draft, setDraft] = useState<DraftField[]>([]);
   const [diffOpen, setDiffOpen] = useState(false);
+  const [preflightOpen, setPreflightOpen] = useState(false);
 
   const task = useMemo(() => (context ? buildDocTask(context) : null), [context]);
   const review = useMemo(() => (task ? buildFieldReview(task) : []), [task]);
@@ -75,6 +77,7 @@ export function AiPanel({ networkMode, activeRequest, context }: AiPanelProps) {
     () => resolveModelRoute(networkMode, activeRequest.dataLevel),
     [networkMode, activeRequest.dataLevel],
   );
+  const preflight = useMemo(() => (context ? preflightEgress(context) : null), [context]);
   const pending = review.filter((item) => item.confidence < 90).length;
   const visibleReview = review.slice(0, 5);
   const requestId = task?.request.id ?? null;
@@ -102,21 +105,31 @@ export function AiPanel({ networkMode, activeRequest, context }: AiPanelProps) {
     }
   }, [requestId]);
 
+  function startTask() {
+    if (!task) return;
+    const masked = route.egress ? `；出网前脱敏 ${preflight?.masks.length ?? 0} 项` : '';
+    setMessages((current) => [
+      ...current,
+      {
+        key: `${task.id}-${current.length}`,
+        placement: 'start',
+        text: `已建立文档任务（${route.model}）：请求 ${task.stats.requestFields} 个字段，响应示例 ${task.stats.responseFields} 个字段，命中术语 ${task.stats.glossaryHits} 条${masked}。可进入字段审阅。`,
+      },
+    ]);
+    message.success(route.egress ? '已审批并建立文档任务' : '文档任务已建立');
+  }
+
   function runTask() {
     if (!task) return;
     if (!route.allowed) {
       message.error(route.reason);
       return;
     }
-    setMessages((current) => [
-      ...current,
-      {
-        key: `${task.id}-${current.length}`,
-        placement: 'start',
-        text: `已建立文档任务（${route.model}）：请求 ${task.stats.requestFields} 个字段，响应示例 ${task.stats.responseFields} 个字段，命中术语 ${task.stats.glossaryHits} 条。可进入字段审阅。`,
-      },
-    ]);
-    message.success('文档任务已建立');
+    if (route.egress) {
+      setPreflightOpen(true);
+      return;
+    }
+    startTask();
   }
 
   function applyDraft() {
@@ -196,6 +209,7 @@ export function AiPanel({ networkMode, activeRequest, context }: AiPanelProps) {
             <code>{route.endpoint}</code>
             <span>{route.egress ? '出网' : '不出网'}</span>
             {route.approval && <span>需审批</span>}
+            {route.egress && <span>脱敏 {preflight?.masks.length ?? 0} 项</span>}
           </div>
           {!route.allowed && <div className="ai-route-warn">{route.reason}</div>}
           <div className="ai-task-actions">
@@ -370,6 +384,64 @@ export function AiPanel({ networkMode, activeRequest, context }: AiPanelProps) {
         <div className="diff-summary">
           新增 {diff.filter((row) => row.kind === 'add').length} · 修改{' '}
           {diff.filter((row) => row.kind === 'update').length}
+        </div>
+      </Modal>
+
+      <Modal
+        open={preflightOpen}
+        title="出网预检"
+        width={460}
+        onCancel={() => setPreflightOpen(false)}
+        footer={[
+          <Button key="cancel" size="small" onClick={() => setPreflightOpen(false)}>
+            取消
+          </Button>,
+          <Button
+            key="approve"
+            type="primary"
+            size="small"
+            onClick={() => {
+              setPreflightOpen(false);
+              startTask();
+            }}
+          >
+            确认出网并生成
+          </Button>,
+        ]}
+      >
+        <div className="preflight">
+          <div className="preflight-row">
+            <span>数据分级</span>
+            <b>{activeRequest.dataLevel}</b>
+          </div>
+          <div className="preflight-row">
+            <span>出网目标</span>
+            <code>{route.endpoint}</code>
+          </div>
+          <div className="preflight-row">
+            <span>审批状态</span>
+            <b className="warn">待人工审批</b>
+          </div>
+          <div className="preflight-row">
+            <span>脱敏项</span>
+            <b>{preflight?.masks.length ?? 0} 项</b>
+          </div>
+          <div className="preflight-masks">
+            {preflight?.masks.map((mask) => (
+              <div className="preflight-mask" key={`${mask.location}:${mask.path}`}>
+                <code>{mask.path}</code>
+                <span>{mask.before}</span>
+                <i>→</i>
+                <span>{mask.after}</span>
+              </div>
+            ))}
+            {preflight?.masks.length === 0 && (
+              <div className="preflight-none">未发现敏感字段。</div>
+            )}
+          </div>
+          <p className="preflight-note">
+            确认后将按脱敏结果发送到外部模型，操作会记入审计日志。
+          </p>
         </div>
       </Modal>
     </aside>

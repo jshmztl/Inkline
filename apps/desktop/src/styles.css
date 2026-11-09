@@ -1955,6 +1955,97 @@ html[data-theme='dark'] .sidebar {
   text-align: right;
 }
 
+/* ---------- egress preflight ---------- */
+
+.preflight {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.preflight-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 10px;
+}
+
+.preflight-row > span {
+  color: var(--aw-muted);
+}
+
+.preflight-row > b {
+  color: var(--aw-ink-2);
+  font-weight: 600;
+}
+
+.preflight-row > b.warn {
+  color: var(--aw-warning);
+}
+
+.preflight-row > code {
+  overflow: hidden;
+  max-width: 70%;
+  color: var(--aw-accent);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preflight-masks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 7px 8px;
+  border: 1px solid var(--aw-line);
+  border-radius: 6px;
+  background: var(--aw-surface-2);
+}
+
+.preflight-mask {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 9px;
+}
+
+.preflight-mask code {
+  flex: 0 0 auto;
+  color: var(--aw-ink-2);
+  font-size: 9px;
+}
+
+.preflight-mask span {
+  overflow: hidden;
+  color: var(--aw-faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preflight-mask span:last-child {
+  color: var(--aw-success);
+}
+
+.preflight-mask i {
+  flex: 0 0 auto;
+  color: var(--aw-faint);
+  font-style: normal;
+}
+
+.preflight-none {
+  color: var(--aw-faint);
+  font-size: 9px;
+}
+
+.preflight-note {
+  margin: 0;
+  color: var(--aw-faint);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
 /* ---------- status bar ---------- */
 
 .statusbar {
