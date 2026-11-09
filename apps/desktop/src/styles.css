@@ -2267,6 +2267,36 @@ html[data-theme='dark'] .sidebar {
   justify-self: start;
 }
 
+/* ---------- import ---------- */
+
+.import-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.import-hint {
+  margin: 0;
+  color: var(--aw-muted);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.import-file {
+  align-self: flex-start;
+  color: var(--aw-accent);
+  cursor: pointer;
+  font-size: 12.5px;
+}
+
+.import-file input {
+  display: none;
+}
+
+.import-file span {
+  border-bottom: 1px dashed currentColor;
+}
+
 /* ---------- audit log ---------- */
 
 .audit-toolbar {

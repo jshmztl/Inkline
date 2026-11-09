@@ -16,6 +16,7 @@ import {
 } from './lib/api';
 import type { RequestContext } from './lib/docTask';
 import { listEnvironments, saveEnvironmentVariables } from './lib/envStore';
+import { parseImport } from './lib/importer';
 import {
   collectLocalDocuments,
   pullTeamSnapshot,
@@ -297,6 +298,31 @@ export function App() {
     await refreshWorkspace();
   }
 
+  async function handleImport(raw: string) {
+    const payload = parseImport(raw);
+    const collectionId = `collection-${Date.now().toString(36)}`;
+    await apiSaveCollection({
+      id: collectionId,
+      name: payload.name,
+      sort: collections.length,
+    });
+    for (const [index, request] of payload.requests.entries()) {
+      await saveRequest({
+        id: `${collectionId}-${index}`,
+        name: request.name,
+        method: request.method,
+        url: request.url,
+        headers: request.headers,
+        body: request.body,
+        dataLevel: 'L1',
+        collectionId,
+        updatedAt: null,
+      });
+    }
+    await refreshWorkspace();
+    return { name: payload.name, count: payload.requests.length };
+  }
+
   function handleSignOut() {
     signOut();
     setSession(null);
@@ -391,6 +417,7 @@ export function App() {
               onCreateRequest={handleCreateRequest}
               onRenameRequest={handleRenameRequest}
               onDeleteRequest={handleDeleteRequest}
+              onImport={handleImport}
             />
             <RequestPanel
               activeRequest={activeRequest}

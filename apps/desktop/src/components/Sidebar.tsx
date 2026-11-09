@@ -4,8 +4,10 @@ import {
   CloudDownloadOutlined,
   CloudSyncOutlined,
   CloudUploadOutlined,
+  CopyOutlined,
   DownOutlined,
   FolderOpenOutlined,
+  ImportOutlined,
   MergeCellsOutlined,
   PlusOutlined,
   SearchOutlined,
@@ -20,6 +22,7 @@ import {
 import { saveRequest, type HistoryEntry, type SavedRequest } from '../lib/api';
 import type { WorkspaceEnvironment } from '../lib/envStore';
 import { recordAudit } from '../lib/audit';
+import { exportCollection, type ExportFormat } from '../lib/importer';
 import { planThreeWayMerge } from '../lib/merge';
 import type { Session } from '../lib/session';
 import {
@@ -54,6 +57,7 @@ interface SidebarProps {
   onCreateRequest: (collectionId: string) => Promise<void>;
   onRenameRequest: (id: string, name: string) => Promise<void>;
   onDeleteRequest: (id: string) => Promise<void>;
+  onImport: (raw: string) => Promise<{ name: string; count: number }>;
 }
 
 function shortUrl(url: string) {
@@ -96,6 +100,7 @@ export function Sidebar({
   onCreateRequest,
   onRenameRequest,
   onDeleteRequest,
+  onImport,
 }: SidebarProps) {
   const { message, modal } = App.useApp();
   const [query, setQuery] = useState('');
@@ -115,6 +120,43 @@ export function Sidebar({
     label: string;
     rows: { id: string; key: string; value: string }[];
   } | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [exportState, setExportState] = useState<{
+    name: string;
+    requests: SavedRequest[];
+    format: ExportFormat;
+  } | null>(null);
+
+  async function copyExport() {
+    if (!exportState) return;
+    const text = exportCollection(exportState.name, exportState.requests, exportState.format);
+    try {
+      await navigator.clipboard.writeText(text);
+      message.success('已复制到剪贴板');
+    } catch {
+      message.error('复制失败，请手动选择文本');
+    }
+  }
+
+  async function submitImport() {
+    if (!importText.trim()) {
+      message.warning('请粘贴或选择要导入的内容');
+      return;
+    }
+    setImporting(true);
+    try {
+      const result = await onImport(importText);
+      message.success(`已导入「${result.name}」· ${result.count} 个请求`);
+      setImportOpen(false);
+      setImportText('');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '导入失败，请检查内容格式');
+    } finally {
+      setImporting(false);
+    }
+  }
 
   function openEnvEditor(value: string) {
     const target = workspaceEnvironments.find((item) => item.value === value);
@@ -290,6 +332,25 @@ export function Sidebar({
     [savedRequests],
   );
 
+  function openExport(folder: ApiFolder) {
+    const requests = folder.requests
+      .map((request) => savedMap.get(request.id))
+      .filter((request): request is SavedRequest => Boolean(request));
+    if (requests.length === 0) {
+      message.info('集合中没有可导出的已保存请求');
+      return;
+    }
+    setExportState({ name: folder.name, requests, format: 'json' });
+  }
+
+  const exportText = useMemo(
+    () =>
+      exportState
+        ? exportCollection(exportState.name, exportState.requests, exportState.format)
+        : '',
+    [exportState],
+  );
+
   const filtered = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     if (!keyword) return folders;
@@ -313,6 +374,16 @@ export function Sidebar({
           <span className="sidebar-eyebrow">WORKSPACE</span>
           <strong>支付中台</strong>
         </div>
+        <Tooltip title="导入（curl / Postman / OpenAPI）">
+          <Button
+            type="text"
+            size="small"
+            icon={<ImportOutlined />}
+            className="sidebar-icon-btn"
+            aria-label="导入"
+            onClick={() => setImportOpen(true)}
+          />
+        </Tooltip>
         <Tooltip title="新建集合">
           <Button
             type="text"
@@ -352,6 +423,7 @@ export function Sidebar({
                   items: [
                     { key: 'new', label: '新建请求', icon: <PlusOutlined /> },
                     { key: 'rename', label: '重命名集合' },
+                    { key: 'export', label: '导出集合' },
                     { type: 'divider' },
                     { key: 'delete', label: '删除集合', danger: true },
                   ],
@@ -365,6 +437,7 @@ export function Sidebar({
                         value: folder.name,
                       });
                     }
+                    if (key === 'export') openExport(folder);
                     if (key === 'delete') confirmDeleteCollection(folder);
                   },
                 }}
@@ -778,6 +851,87 @@ export function Sidebar({
           >
             新增变量
           </Button>
+        </div>
+      </Modal>
+
+      <Modal
+        open={importOpen}
+        title="导入请求"
+        width={560}
+        okText="导入"
+        cancelText="取消"
+        confirmLoading={importing}
+        onCancel={() => setImportOpen(false)}
+        onOk={submitImport}
+      >
+        <div className="import-body">
+          <p className="import-hint">
+            支持 curl 命令、Postman 集合 JSON（v2.1）、OpenAPI / Swagger JSON。
+            导入后会自动创建一个新集合。
+          </p>
+          <Input.TextArea
+            value={importText}
+            onChange={(event) => setImportText(event.target.value)}
+            placeholder={`curl -X POST 'https://api.example.com/v1/orders' \\\n  -H 'Content-Type: application/json' \\\n  -d '{"amount": 12800}'`}
+            autoSize={{ minRows: 8, maxRows: 14 }}
+            spellCheck={false}
+          />
+          <label className="import-file">
+            <input
+              type="file"
+              accept=".json,.txt,.yaml,.yml"
+              onChange={async (event) => {
+                const file = event.target.files?.[0];
+                if (file) setImportText(await file.text());
+                event.target.value = '';
+              }}
+            />
+            <span>从文件读取</span>
+          </label>
+        </div>
+      </Modal>
+
+      <Modal
+        open={exportState !== null}
+        title={`导出集合 · ${exportState?.name ?? ''}`}
+        width={560}
+        onCancel={() => setExportState(null)}
+        footer={[
+          <Button key="close" size="small" onClick={() => setExportState(null)}>
+            关闭
+          </Button>,
+          <Button
+            key="copy"
+            type="primary"
+            size="small"
+            icon={<CopyOutlined />}
+            onClick={copyExport}
+          >
+            复制
+          </Button>,
+        ]}
+      >
+        <div className="import-body">
+          <Segmented
+            size="small"
+            value={exportState?.format ?? 'json'}
+            onChange={(value) =>
+              setExportState((current) =>
+                current ? { ...current, format: value as ExportFormat } : current,
+              )
+            }
+            options={[
+              { label: '集合 JSON', value: 'json' },
+              { label: 'curl', value: 'curl' },
+              { label: 'fetch', value: 'fetch' },
+            ]}
+          />
+          <Input.TextArea
+            value={exportText}
+            readOnly
+            autoSize={{ minRows: 10, maxRows: 16 }}
+            spellCheck={false}
+          />
         </div>
       </Modal>
     </aside>
