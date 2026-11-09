@@ -6,15 +6,23 @@ import {
   CloudUploadOutlined,
   DownOutlined,
   FolderOpenOutlined,
+  MergeCellsOutlined,
   PlusOutlined,
   SearchOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
-import { App, Button, Tooltip } from 'antd';
+import { App, Button, Modal, Segmented, Tooltip } from 'antd';
 import { environmentVariables, environments, folders, type ApiRequest } from '../data/mock';
-import type { HistoryEntry, SavedRequest } from '../lib/api';
+import { saveRequest, type HistoryEntry, type SavedRequest } from '../lib/api';
+import { planThreeWayMerge } from '../lib/merge';
 import type { Session } from '../lib/session';
-import { collectLocalDocuments, type TeamSnapshot } from '../lib/team';
+import {
+  collectLocalDocuments,
+  readTeamBase,
+  readTeamSnapshot,
+  writeTeamBase,
+  type TeamSnapshot,
+} from '../lib/team';
 import { MethodTag } from './MethodTag';
 
 interface SidebarProps {
@@ -30,6 +38,7 @@ interface SidebarProps {
   onEnvironmentChange: (environment: string) => void;
   onPush: () => TeamSnapshot;
   onPull: () => Promise<{ snapshot: TeamSnapshot; pulled: number } | null>;
+  onMerged: () => void;
 }
 
 function shortUrl(url: string) {
@@ -62,6 +71,7 @@ export function Sidebar({
   onEnvironmentChange,
   onPush,
   onPull,
+  onMerged,
 }: SidebarProps) {
   const { message } = App.useApp();
   const [query, setQuery] = useState('');
@@ -69,6 +79,44 @@ export function Sidebar({
   const [syncing, setSyncing] = useState<'push' | 'pull' | null>(null);
   const [docCount, setDocCount] = useState(() => Object.keys(collectLocalDocuments()).length);
   const [lastSync, setLastSync] = useState<string | null>(null);
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [decisions, setDecisions] = useState<Record<string, 'local' | 'remote'>>({});
+
+  const plan = useMemo(() => {
+    if (!mergeOpen) return null;
+    const remote = readTeamSnapshot();
+    if (!remote) return null;
+    const base = readTeamBase();
+    return planThreeWayMerge(base?.requests ?? [], savedRequests, remote.requests);
+  }, [mergeOpen, savedRequests]);
+
+  function openMerge() {
+    setDecisions({});
+    setMergeOpen(true);
+  }
+
+  async function applyMerge() {
+    if (!plan) return;
+    try {
+      for (const request of plan.remoteChanges) {
+        await saveRequest(request);
+      }
+      for (const conflict of plan.conflicts) {
+        if ((decisions[conflict.id] ?? 'local') === 'remote') {
+          await saveRequest(conflict.remote);
+        }
+      }
+      const remote = readTeamSnapshot();
+      if (remote) writeTeamBase(remote);
+      onMerged();
+      setMergeOpen(false);
+      message.success(
+        `合并完成 · 拉取 ${plan.remoteChanges.length} 条 · 冲突 ${plan.conflicts.length} 条`,
+      );
+    } catch {
+      message.error('合并失败，请稍后重试');
+    }
+  }
 
   async function handlePush() {
     setSyncing('push');
@@ -299,6 +347,16 @@ export function Sidebar({
               aria-label="从团队仓拉取"
             />
           </Tooltip>
+          <Tooltip title="三方合并">
+            <Button
+              type="text"
+              size="small"
+              icon={<MergeCellsOutlined />}
+              disabled={teamRevision == null}
+              onClick={openMerge}
+              aria-label="三方合并"
+            />
+          </Tooltip>
         </div>
       </div>
 
@@ -311,6 +369,102 @@ export function Sidebar({
           <Button type="text" size="small" icon={<SettingOutlined />} className="sidebar-icon-btn" />
         </Tooltip>
       </div>
+
+      <Modal
+        open={mergeOpen}
+        title="三方合并"
+        width={520}
+        onCancel={() => setMergeOpen(false)}
+        footer={[
+          <Button key="cancel" size="small" onClick={() => setMergeOpen(false)}>
+            取消
+          </Button>,
+          <Button
+            key="apply"
+            type="primary"
+            size="small"
+            onClick={applyMerge}
+            disabled={!plan || (plan.remoteChanges.length === 0 && plan.conflicts.length === 0)}
+          >
+            应用合并
+          </Button>,
+        ]}
+      >
+        {!plan ? (
+          <div className="merge-empty">团队仓为空，请先推送一次。</div>
+        ) : (
+          <div className="merge-body">
+            <div className="merge-summary">
+              <span>
+                本地变更 <b>{plan.localChanges.length}</b>
+              </span>
+              <span>
+                远端变更 <b>{plan.remoteChanges.length}</b>
+              </span>
+              <span>
+                冲突 <b className={plan.conflicts.length > 0 ? 'warn' : ''}>{plan.conflicts.length}</b>
+              </span>
+              <span>
+                一致 <b>{plan.identical}</b>
+              </span>
+            </div>
+
+            {plan.conflicts.length === 0 && (
+              <div className="merge-empty">没有冲突，可直接应用远端变更。</div>
+            )}
+
+            {plan.conflicts.map((conflict) => (
+              <div className="merge-conflict" key={conflict.id}>
+                <div className="merge-conflict-head">
+                  <code>{conflict.name}</code>
+                  <span>{conflict.fields.map((field) => field.label).join(' / ')}</span>
+                </div>
+
+                {conflict.fields.map((field) => (
+                  <div className="merge-field" key={field.field}>
+                    <span className="merge-field-name">{field.label}</span>
+                    <div className="merge-sides">
+                      <div
+                        className={`merge-side${
+                          (decisions[conflict.id] ?? 'local') === 'local' ? ' active' : ''
+                        }`}
+                      >
+                        <em>本地</em>
+                        <code>{field.local || '（空）'}</code>
+                      </div>
+                      <div
+                        className={`merge-side${
+                          decisions[conflict.id] === 'remote' ? ' active' : ''
+                        }`}
+                      >
+                        <em>远端</em>
+                        <code>{field.remote || '（空）'}</code>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                <Segmented
+                  size="small"
+                  value={decisions[conflict.id] ?? 'local'}
+                  onChange={(value) =>
+                    setDecisions((current) => ({
+                      ...current,
+                      [conflict.id]: value as 'local' | 'remote',
+                    }))
+                  }
+                  options={[
+                    { label: '保留本地', value: 'local' },
+                    { label: '采用远端', value: 'remote' },
+                  ]}
+                />
+              </div>
+            ))}
+
+            <p className="merge-note">本地变更会保留，可在合并后再次推送。</p>
+          </div>
+        )}
+      </Modal>
     </aside>
   );
 }

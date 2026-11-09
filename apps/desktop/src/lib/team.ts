@@ -2,6 +2,7 @@ import type { SavedRequest } from './api';
 import type { DraftField } from './docTask';
 
 const REMOTE_KEY = 'aw-team-remote';
+const BASE_KEY = 'aw-team-base';
 const DOC_PREFIX = 'aw-doc-draft:';
 
 export interface TeamSnapshot {
@@ -22,6 +23,26 @@ export function readTeamSnapshot(): TeamSnapshot | null {
     return parsed;
   } catch {
     return null;
+  }
+}
+
+export function readTeamBase(): TeamSnapshot | null {
+  try {
+    const raw = localStorage.getItem(BASE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as TeamSnapshot;
+    if (!parsed?.revision || !Array.isArray(parsed.requests)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function writeTeamBase(snapshot: TeamSnapshot) {
+  try {
+    localStorage.setItem(BASE_KEY, JSON.stringify(snapshot));
+  } catch {
+    // 基准快照写入失败时下次按双端比较处理。
   }
 }
 
@@ -67,12 +88,15 @@ export function pushTeamSnapshot(
     // 存储不可用时仍返回快照供界面展示。
   }
 
+  writeTeamBase(snapshot);
   return snapshot;
 }
 
 export async function pullTeamSnapshot(): Promise<TeamSnapshot | null> {
   await new Promise((resolve) => window.setTimeout(resolve, 320));
-  return readTeamSnapshot();
+  const snapshot = readTeamSnapshot();
+  if (snapshot) writeTeamBase(snapshot);
+  return snapshot;
 }
 
 export function writeRemoteDocuments(documents: Record<string, DraftField[]>) {

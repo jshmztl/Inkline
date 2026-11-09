@@ -2066,6 +2066,121 @@ html[data-theme='dark'] .sidebar {
   line-height: 1.5;
 }
 
+/* ---------- three-way merge ---------- */
+
+.merge-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.merge-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 7px 9px;
+  border: 1px solid var(--aw-line);
+  border-radius: 6px;
+  background: var(--aw-surface-2);
+  color: var(--aw-faint);
+  font-size: 9px;
+}
+
+.merge-summary b {
+  color: var(--aw-ink-2);
+  font-family: var(--aw-font-code);
+  font-size: 10px;
+}
+
+.merge-summary b.warn {
+  color: var(--aw-warning);
+}
+
+.merge-empty {
+  padding: 14px;
+  color: var(--aw-faint);
+  font-size: 10px;
+  text-align: center;
+}
+
+.merge-conflict {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 8px 9px;
+  border: 1px solid color-mix(in srgb, var(--aw-warning) 35%, transparent);
+  border-radius: 6px;
+}
+
+.merge-conflict-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.merge-conflict-head code {
+  color: var(--aw-ink);
+  font-size: 10px;
+}
+
+.merge-conflict-head span {
+  color: var(--aw-faint);
+  font-size: 8.5px;
+}
+
+.merge-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.merge-field-name {
+  color: var(--aw-muted);
+  font-size: 8.5px;
+}
+
+.merge-sides {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.merge-side {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 7px;
+  border: 1px solid var(--aw-line);
+  border-radius: 5px;
+  background: var(--aw-surface-2);
+}
+
+.merge-side.active {
+  border-color: var(--aw-accent);
+  background: var(--aw-accent-soft);
+}
+
+.merge-side em {
+  color: var(--aw-faint);
+  font-size: 8px;
+  font-style: normal;
+}
+
+.merge-side code {
+  overflow: hidden;
+  color: var(--aw-ink-2);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.merge-note {
+  margin: 0;
+  color: var(--aw-faint);
+  font-size: 9px;
+}
+
 /* ---------- status bar ---------- */
 
 .statusbar {

@@ -167,6 +167,11 @@ export function App() {
     return { snapshot, pulled: snapshot.requests.length };
   }
 
+  function handleMerged() {
+    refreshSaved();
+    setSyncNonce((current) => current + 1);
+  }
+
   if (!session) {
     return (
       <AntProvider mode={mode} density={density}>
@@ -208,6 +213,7 @@ export function App() {
               onEnvironmentChange={setEnvironment}
               onPush={handlePush}
               onPull={handlePull}
+              onMerged={handleMerged}
             />
             <RequestPanel
               activeRequest={activeRequest}
