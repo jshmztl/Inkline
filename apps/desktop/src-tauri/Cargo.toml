@@ -1,6 +1,6 @@
 [package]
 name = "api-workbench"
-version = "0.1.0"
+version = "0.1.5"
 description = "Offline-first API workbench"
 authors = ["API Workbench"]
 edition = "2021"
