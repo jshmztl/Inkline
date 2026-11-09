@@ -75,7 +75,6 @@ export function AiPanel({
   );
   const preflight = useMemo(() => (context ? preflightEgress(context) : null), [context]);
   const pending = review.filter((item) => item.confidence < 90).length;
-  const visibleReview = review.slice(0, 5);
   const requestId = task?.request.id ?? null;
   const diff = useMemo(
     () => (task ? buildDraftDiff(draft, review, accepted) : []),
@@ -386,7 +385,7 @@ export function AiPanel({
             {applied && <Tag className="applied-tag">已应用</Tag>}
           </div>
 
-          {visibleReview.map((field) => (
+          {review.map((field) => (
             <label className="review-row" key={field.key}>
               <Checkbox
                 checked={accepted[field.key] ?? true}
@@ -419,7 +418,7 @@ export function AiPanel({
             </label>
           ))}
 
-          {visibleReview.length === 0 && (
+          {review.length === 0 && (
             <div className="review-empty">等待请求上下文后生成字段审阅。</div>
           )}
 

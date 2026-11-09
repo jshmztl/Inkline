@@ -2049,6 +2049,10 @@ html[data-theme='dark'] .ai-spark {
   overflow: auto;
 }
 
+.ai-scroll > * {
+  flex-shrink: 0;
+}
+
 .ai-welcome {
   display: flex;
   flex-direction: column;
