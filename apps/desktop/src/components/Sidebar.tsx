@@ -9,14 +9,31 @@ import {
 } from '@ant-design/icons';
 import { Button, Tooltip } from 'antd';
 import { folders, type ApiRequest } from '../data/mock';
+import type { HistoryEntry } from '../lib/api';
 import { MethodTag } from './MethodTag';
 
 interface SidebarProps {
   activeRequestId: string;
+  history: HistoryEntry[];
   onSelectRequest: (request: ApiRequest) => void;
+  onReplayHistory: (entry: HistoryEntry) => void;
 }
 
-export function Sidebar({ activeRequestId, onSelectRequest }: SidebarProps) {
+function shortUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.pathname}${parsed.search}`;
+  } catch {
+    return url;
+  }
+}
+
+export function Sidebar({
+  activeRequestId,
+  history,
+  onSelectRequest,
+  onReplayHistory,
+}: SidebarProps) {
   const [query, setQuery] = useState('');
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
@@ -127,6 +144,36 @@ export function Sidebar({ activeRequestId, onSelectRequest }: SidebarProps) {
           <span>开发环境</span>
           <em>team-api</em>
         </div>
+      </div>
+
+      <div className="sidebar-section">
+        <div className="sidebar-section-head">
+          <span>最近请求</span>
+          <span className="sidebar-count">{history.length}</span>
+        </div>
+        {history.length === 0 ? (
+          <p className="sidebar-empty">发送一次请求后，这里会出现历史。</p>
+        ) : (
+          history.map((entry, index) => {
+            const failed = Boolean(entry.error) || (entry.status ?? 0) >= 400;
+            return (
+              <button
+                key={entry.id ?? `${entry.method}-${entry.url}-${index}`}
+                type="button"
+                className="history-row"
+                title={entry.url}
+                onClick={() => onReplayHistory(entry)}
+              >
+                <span className={`history-dot ${failed ? 'bad' : 'ok'}`} />
+                <span className="history-method">{entry.method}</span>
+                <span className="history-path">{shortUrl(entry.url)}</span>
+                <span className="history-time">
+                  {entry.durationMs != null ? `${entry.durationMs}ms` : '—'}
+                </span>
+              </button>
+            );
+          })
+        )}
       </div>
 
       <div className="sidebar-spacer" />

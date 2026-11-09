@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   CheckCircleFilled,
+  CloseCircleOutlined,
   CloseOutlined,
   CodeOutlined,
   CopyOutlined,
@@ -20,13 +21,20 @@ import {
   queryParams as initialParams,
   requestBody,
 } from '../data/mock';
+import {
+  recordHistory,
+  sendHttpRequest,
+  type SendResponse,
+} from '../lib/api';
 import { MethodTag } from './MethodTag';
 
 interface RequestPanelProps {
   activeRequest: ApiRequest;
   openTabs: ApiRequest[];
+  replay: { method: HttpMethod; url: string; nonce: number } | null;
   onSelectTab: (requestId: string) => void;
   onCloseTab: (requestId: string) => void;
+  onHistoryRecorded: () => void;
 }
 
 type RequestTabKey = 'params' | 'headers' | 'body' | 'auth' | 'scripts';
@@ -34,11 +42,73 @@ type ResponseTabKey = 'body' | 'headers' | 'cookies' | 'console';
 
 const methods: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 
+const demoResponse: SendResponse = {
+  status: 200,
+  statusText: 'OK',
+  headers: [
+    { name: 'content-type', value: 'application/json; charset=utf-8' },
+    { name: 'x-request-id', value: 'req_7f3a9c21' },
+    { name: 'x-ratelimit-remaining', value: '998' },
+    { name: 'server-timing', value: 'db;dur=18, app;dur=42' },
+  ],
+  body: `{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "id": "ord_9f2c8b41e7",
+    "status": "paid",
+    "amount": 12800,
+    "paidAt": "2026-11-09T10:24:18Z"
+  }
+}`,
+  durationMs: 128,
+  sizeBytes: 1229,
+};
+
+const JSON_TOKEN =
+  /("(?:\\.|[^"\\])*"\s*:|"(?:\\.|[^"\\])*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|\btrue\b|\bfalse\b|\bnull\b)/g;
+
+function formatBody(body: string) {
+  try {
+    return JSON.stringify(JSON.parse(body), null, 2);
+  } catch {
+    return body;
+  }
+}
+
+function highlightJson(text: string) {
+  return text.split(JSON_TOKEN).map((part, index) => {
+    if (!part) return null;
+    let className = 'tok-punc';
+    if (/^".*":\s*$/.test(part)) {
+      className = 'tok-key';
+    } else if (/^"/.test(part)) {
+      className = 'tok-str';
+    } else if (/^-?\d/.test(part)) {
+      className = 'tok-num';
+    } else if (/^(true|false|null)$/.test(part)) {
+      className = 'tok-bool';
+    }
+    return (
+      <span className={className} key={index}>
+        {part}
+      </span>
+    );
+  });
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  return `${(bytes / 1024).toFixed(1)} KB`;
+}
+
 export function RequestPanel({
   activeRequest,
   openTabs,
+  replay,
   onSelectTab,
   onCloseTab,
+  onHistoryRecorded,
 }: RequestPanelProps) {
   const { message } = App.useApp();
   const [method, setMethod] = useState<HttpMethod>(activeRequest.method);
@@ -48,13 +118,21 @@ export function RequestPanel({
   const [params, setParams] = useState<KvRow[]>(initialParams);
   const [headers, setHeaders] = useState<KvRow[]>(initialHeaders);
   const [sending, setSending] = useState(false);
-  const [responseTime, setResponseTime] = useState(128);
+  const [response, setResponse] = useState<SendResponse>(demoResponse);
+  const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
 
   useEffect(() => {
     setMethod(activeRequest.method);
     setUrl(`https://api.internal${activeRequest.path}`);
   }, [activeRequest]);
+
+  useEffect(() => {
+    if (!replay) return;
+    setMethod(replay.method);
+    setUrl(replay.url);
+    setError(null);
+  }, [replay]);
 
   const activeRows = useMemo(
     () => (requestTab === 'headers' ? headers : params),
@@ -73,20 +151,69 @@ export function RequestPanel({
     }
   }
 
-  function handleSend() {
+  async function handleSend() {
     setSending(true);
-    window.setTimeout(() => {
+    setError(null);
+
+    const requestHeaders = headers
+      .filter((row) => row.enabled && row.key.trim())
+      .map((row) => ({ name: row.key.trim(), value: row.value }));
+    const started = performance.now();
+
+    try {
+      const result = await sendHttpRequest({
+        method,
+        url,
+        headers: requestHeaders,
+        body: method === 'GET' || method === 'DELETE' ? undefined : requestBody,
+        timeoutMs: 30_000,
+      });
+
+      setResponse(result);
+      setFeedback(`请求完成 · ${result.status} ${result.statusText}`);
+
+      try {
+        await recordHistory({
+          method,
+          url,
+          status: result.status,
+          durationMs: result.durationMs,
+          sizeBytes: result.sizeBytes,
+        });
+      } catch {
+        // 历史写入失败不影响请求结果。
+      }
+
+      message.success({
+        content: `请求完成 · ${result.status} ${result.statusText}`,
+        duration: 2.2,
+      });
+    } catch (caught) {
+      const text = caught instanceof Error ? caught.message : String(caught);
+      setError(text);
+      setFeedback('请求失败');
+      message.error({ content: '请求失败，请检查 URL 或网络', duration: 2.2 });
+
+      try {
+        await recordHistory({
+          method,
+          url,
+          error: text,
+          durationMs: Math.round(performance.now() - started),
+        });
+      } catch {
+        // 历史写入失败不影响错误提示。
+      }
+    } finally {
       setSending(false);
-      setResponseTime(118 + Math.round(Math.random() * 32));
-      setFeedback('请求完成 · 200 OK');
-      message.success({ content: '请求完成 · 200 OK', duration: 2.2 });
-      window.setTimeout(() => setFeedback(null), 2600);
-    }, 680);
+      onHistoryRecorded();
+      window.setTimeout(() => setFeedback(null), 3000);
+    }
   }
 
   async function copyResponse() {
     try {
-      await navigator.clipboard.writeText('{"code":0,"message":"ok"}');
+      await navigator.clipboard.writeText(response.body);
       message.success('已复制响应');
     } catch {
       message.warning('当前环境无法访问剪贴板');
@@ -167,7 +294,7 @@ export function RequestPanel({
           <Button
             icon={<SaveOutlined />}
             className="save-button"
-            onClick={() => message.success('已保存到当前集合')}
+            onClick={() => message.info('保存请求将在 M1.3 接入')}
           >
             保存
           </Button>
@@ -330,14 +457,25 @@ export function RequestPanel({
       <div className="response-panel">
         <div className="response-head">
           <strong>响应</strong>
-          <span className="status-pill ok">200 OK</span>
-          <span className="response-meta">{responseTime} ms</span>
-          <span className="response-meta">1.2 KB</span>
+          <span
+            className={`status-pill ${
+              response.status >= 200 && response.status < 300
+                ? 'ok'
+                : response.status >= 500
+                  ? 'bad'
+                  : 'warn'
+            }`}
+          >
+            {response.status} {response.statusText}
+          </span>
+          <span className="response-meta">{response.durationMs} ms</span>
+          <span className="response-meta">{formatBytes(response.sizeBytes)}</span>
           {feedback && (
             <span className="send-feedback">
               <CheckCircleFilled /> {feedback}
             </span>
           )}
+          {error && <span className="response-error">{error}</span>}
           <div className="response-spacer" />
           <Tooltip title="复制响应">
             <Button type="text" size="small" icon={<CopyOutlined />} onClick={copyResponse} />
@@ -368,68 +506,34 @@ export function RequestPanel({
         </div>
 
         <div className="response-body">
-          {responseTab === 'body' && (
-            <pre className="code-block response-code">
-              <span className="tok-punc">{'{'}</span>
-              {'\n  '}
-              <span className="tok-key">"code"</span>
-              <span className="tok-punc">: </span>
-              <span className="tok-num">0</span>
-              <span className="tok-punc">,</span>
-              {'\n  '}
-              <span className="tok-key">"message"</span>
-              <span className="tok-punc">: </span>
-              <span className="tok-str">"ok"</span>
-              <span className="tok-punc">,</span>
-              {'\n  '}
-              <span className="tok-key">"data"</span>
-              <span className="tok-punc">: {'{'}</span>
-              {'\n    '}
-              <span className="tok-key">"id"</span>
-              <span className="tok-punc">: </span>
-              <span className="tok-str">"ord_9f2c8b41e7"</span>
-              <span className="tok-punc">,</span>
-              {'\n    '}
-              <span className="tok-key">"status"</span>
-              <span className="tok-punc">: </span>
-              <span className="tok-str">"paid"</span>
-              <span className="tok-punc">,</span>
-              {'\n    '}
-              <span className="tok-key">"amount"</span>
-              <span className="tok-punc">: </span>
-              <span className="tok-num">12800</span>
-              <span className="tok-punc">,</span>
-              {'\n    '}
-              <span className="tok-key">"paidAt"</span>
-              <span className="tok-punc">: </span>
-              <span className="tok-str">"2026-11-09T10:24:18Z"</span>
-              {'\n  '}
-              <span className="tok-punc">{'}'}</span>
-              {'\n'}
-              <span className="tok-punc">{'}'}</span>
-            </pre>
-          )}
+          {responseTab === 'body' &&
+            (error ? (
+              <div className="response-error-panel">
+                <CloseCircleOutlined />
+                <div>
+                  <strong>请求未完成</strong>
+                  <p>{error}</p>
+                </div>
+              </div>
+            ) : (
+              <pre className="code-block response-code">
+                {highlightJson(formatBody(response.body))}
+              </pre>
+            ))}
 
-          {responseTab === 'headers' && (
-            <div className="response-kv">
-              <div>
-                <span>content-type</span>
-                <code>application/json; charset=utf-8</code>
+          {responseTab === 'headers' &&
+            (response.headers.length > 0 ? (
+              <div className="response-kv">
+                {response.headers.map((header) => (
+                  <div key={`${header.name}-${header.value}`}>
+                    <span>{header.name}</span>
+                    <code>{header.value}</code>
+                  </div>
+                ))}
               </div>
-              <div>
-                <span>x-request-id</span>
-                <code>req_7f3a9c21</code>
-              </div>
-              <div>
-                <span>x-ratelimit-remaining</span>
-                <code>998</code>
-              </div>
-              <div>
-                <span>server-timing</span>
-                <code>db;dur=18, app;dur=42</code>
-              </div>
-            </div>
-          )}
+            ) : (
+              <div className="response-empty">该响应没有可显示的响应头。</div>
+            ))}
 
           {responseTab === 'cookies' && (
             <div className="response-empty">该响应没有 Set-Cookie。</div>
@@ -437,9 +541,15 @@ export function RequestPanel({
 
           {responseTab === 'console' && (
             <div className="console-line">
-              <span>10:24:18.204</span>
-              <span className="console-ok">→ POST /v1/orders</span>
-              <span>{responseTime}ms · 200 OK</span>
+              <span>{new Date().toLocaleTimeString()}</span>
+              <span className={error ? 'console-bad' : 'console-ok'}>
+                {error ? '×' : '→'} {method} {url}
+              </span>
+              <span>
+                {error
+                  ? '请求失败'
+                  : `${response.durationMs}ms · ${response.status} ${response.statusText}`}
+              </span>
             </div>
           )}
         </div>

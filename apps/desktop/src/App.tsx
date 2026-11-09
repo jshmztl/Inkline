@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { App as AntApp } from 'antd';
 import { AntProvider, type Density, type ThemeMode } from '@api-workbench/ui';
-import type { ApiRequest, NetworkMode } from './data/mock';
+import type { ApiRequest, HttpMethod, NetworkMode } from './data/mock';
 import { allRequests } from './data/mock';
+import { listHistory, type HistoryEntry } from './lib/api';
 import { AiPanel } from './components/AiPanel';
 import { RequestPanel } from './components/RequestPanel';
 import { Sidebar } from './components/Sidebar';
@@ -28,6 +29,26 @@ export function App() {
   const [environment, setEnvironment] = useState('local');
   const [activeRequestId, setActiveRequestId] = useState('orders-create');
   const [openTabIds, setOpenTabIds] = useState<string[]>(initialOpenTabs);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [replay, setReplay] = useState<{
+    method: HttpMethod;
+    url: string;
+    nonce: number;
+  } | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    listHistory(6)
+      .then((entries) => {
+        if (alive) setHistory(entries);
+      })
+      .catch(() => {
+        // 历史加载失败不阻断主流程。
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const activeRequest =
     allRequests.find((request) => request.id === activeRequestId) ?? allRequests[0];
@@ -67,6 +88,22 @@ export function App() {
     }
   }
 
+  function refreshHistory() {
+    listHistory(6)
+      .then(setHistory)
+      .catch(() => {
+        // 忽略历史刷新失败。
+      });
+  }
+
+  function replayHistory(entry: HistoryEntry) {
+    setReplay({
+      method: entry.method as HttpMethod,
+      url: entry.url,
+      nonce: Date.now(),
+    });
+  }
+
   return (
     <AntProvider mode={mode} density={density}>
       <AntApp className="ant-app-root">
@@ -83,12 +120,19 @@ export function App() {
           />
 
           <div className="workspace">
-            <Sidebar activeRequestId={activeRequestId} onSelectRequest={selectRequest} />
+            <Sidebar
+              activeRequestId={activeRequestId}
+              history={history}
+              onSelectRequest={selectRequest}
+              onReplayHistory={replayHistory}
+            />
             <RequestPanel
               activeRequest={activeRequest}
               openTabs={openTabs}
+              replay={replay}
               onSelectTab={selectTab}
               onCloseTab={closeTab}
+              onHistoryRecorded={refreshHistory}
             />
             <AiPanel networkMode={networkMode} activeRequest={activeRequest} />
           </div>

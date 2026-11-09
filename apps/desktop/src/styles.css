@@ -256,6 +256,8 @@ html[data-theme='dark'] .brand-glyph i:nth-child(3) {
   background: var(--side-bg);
   color: var(--side-ink);
   border-right: 1px solid var(--side-line);
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 html[data-theme='dark'] .sidebar {
@@ -486,6 +488,71 @@ html[data-theme='dark'] .sidebar {
   font-family: var(--aw-font-code);
   font-size: 8.5px;
   font-style: normal;
+}
+
+.sidebar-empty {
+  margin: 2px 6px 4px;
+  color: var(--side-faint);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.history-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--side-muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+.history-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--side-ink);
+}
+
+.history-dot {
+  width: 5px;
+  height: 5px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--side-faint);
+}
+
+.history-dot.ok {
+  background: #6abe39;
+}
+
+.history-dot.bad {
+  background: #e84749;
+}
+
+.history-method {
+  min-width: 27px;
+  color: #8fa9ff;
+  font-family: var(--aw-font-code);
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.history-path {
+  flex: 1;
+  overflow: hidden;
+  font-family: var(--aw-font-code);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-time {
+  color: var(--side-faint);
+  font-family: var(--aw-font-code);
+  font-size: 8px;
 }
 
 .sidebar-spacer {
@@ -1130,6 +1197,16 @@ html[data-theme='dark'] .sidebar {
   color: var(--aw-success);
 }
 
+.status-pill.warn {
+  background: var(--aw-warning-soft);
+  color: var(--aw-warning);
+}
+
+.status-pill.bad {
+  background: var(--aw-error-soft);
+  color: var(--aw-error);
+}
+
 .response-meta {
   color: var(--aw-faint);
   font-family: var(--aw-font-code);
@@ -1143,6 +1220,44 @@ html[data-theme='dark'] .sidebar {
   color: var(--aw-success);
   font-size: 9px;
   animation: feedback-in 160ms ease;
+}
+
+.response-error {
+  max-width: 220px;
+  overflow: hidden;
+  color: var(--aw-error);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.response-error-panel {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 14px;
+  padding: 13px 14px;
+  border: 1px solid var(--aw-error);
+  border-radius: 8px;
+  background: var(--aw-error-soft);
+  color: var(--aw-error);
+}
+
+.response-error-panel > .anticon {
+  margin-top: 1px;
+  font-size: 15px;
+}
+
+.response-error-panel strong {
+  display: block;
+  font-size: 11.5px;
+}
+
+.response-error-panel p {
+  margin: 3px 0 0;
+  color: var(--aw-error);
+  font-size: 10.5px;
+  line-height: 1.55;
 }
 
 @keyframes feedback-in {
@@ -1208,6 +1323,10 @@ html[data-theme='dark'] .sidebar {
 
 .console-ok {
   color: var(--aw-success);
+}
+
+.console-bad {
+  color: var(--aw-error);
 }
 
 /* ---------- AI panel ---------- */
