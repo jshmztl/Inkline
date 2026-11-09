@@ -13,7 +13,7 @@
 | Tauri 三栏工作台骨架 | 已完成 |
 | Git 仓库与首个提交 | 已完成 |
 | M1 请求闭环 | 已完成 |
-| 下一项 | M2.1 AI 面板接入 Ant Design X |
+| 下一项 | M2.2 文档生成任务模型 |
 
 ## 里程碑
 
@@ -76,7 +76,7 @@
 
 ## M2 AI 文档流
 
-- [ ] AI 面板内部替换为 `@ant-design/x` 的 `Bubble` / `Prompts` / `Sender` / `ThoughtChain`
+- [x] AI 面板内部替换为 `@ant-design/x` 的 `Bubble` / `Prompts` / `Sender` / `ThoughtChain`
 - [ ] 文档生成任务模型：输入请求 + 响应示例 + 术语表
 - [ ] 结构化字段审阅与置信度
 - [ ] 文档 diff 与「应用到草稿」

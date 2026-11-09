@@ -1494,104 +1494,68 @@ html[data-theme='dark'] .sidebar {
   overflow: auto;
 }
 
-.ai-prompts {
-  display: flex;
-  flex-wrap: wrap;
+/* Ant Design X：紧凑对话区样式 */
+
+.ai-panel .ai-prompts .ant-prompts-list {
   gap: 5px;
 }
 
-.prompt-chip {
+.ai-panel .ai-prompts .ant-prompts-item {
   padding: 3px 8px;
   border: 1px solid var(--aw-line);
   border-radius: 999px;
   background: var(--aw-surface);
   color: var(--aw-muted);
-  font-size: 9.5px;
-  cursor: pointer;
 }
 
-.prompt-chip:hover {
+.ai-panel .ai-prompts .ant-prompts-item:hover {
   border-color: var(--aw-accent);
-  color: var(--aw-accent);
   background: var(--aw-accent-soft);
+  color: var(--aw-accent);
 }
 
-.bubble {
+.ai-panel .ai-prompts .ant-prompts-label {
+  font-size: 9.5px;
+  line-height: 1.5;
+}
+
+.ai-panel .ai-bubble {
   max-width: 94%;
+}
+
+.ai-panel .ai-bubble .ant-bubble-content {
+  min-height: 0;
   padding: 8px 10px;
   border-radius: 8px;
   font-size: 10.5px;
   line-height: 1.65;
 }
 
-.bubble.user {
-  align-self: flex-end;
+.ai-panel .ai-bubble-end .ant-bubble-content {
   border-bottom-right-radius: 3px;
   background: var(--aw-accent-soft);
   color: var(--aw-ink);
 }
 
-.bubble.ai {
-  align-self: flex-start;
+.ai-panel .ai-bubble-start .ant-bubble-content {
   border: 1px solid var(--aw-line-strong);
   border-bottom-left-radius: 3px;
   background: var(--aw-surface-2);
   color: var(--aw-ink-2);
 }
 
-.thought-chain {
+.ai-panel .ai-thought {
   padding: 2px 2px 0;
 }
 
-.thought-step {
-  position: relative;
-  display: flex;
-  gap: 8px;
-  padding-bottom: 11px;
-}
-
-.thought-step:last-child {
-  padding-bottom: 0;
-}
-
-.thought-icon {
-  display: grid;
-  place-items: center;
-  width: 14px;
-  height: 14px;
-  flex: 0 0 auto;
-  color: var(--aw-success);
-  font-size: 11px;
-  background: var(--aw-surface);
-  z-index: 1;
-}
-
-.thought-step.running .thought-icon {
-  color: var(--aw-warning);
-}
-
-.thought-step strong {
-  display: block;
-  color: var(--aw-ink-2);
+.ai-panel .ai-thought .ant-thought-chain-item-title {
   font-size: 10px;
-  font-weight: 600;
-  line-height: 1.4;
 }
 
-.thought-step > div span {
+.ai-panel .ai-thought .ant-thought-chain-item-desc {
   display: block;
-  color: var(--aw-faint);
   font-size: 8.5px;
   line-height: 1.4;
-}
-
-.thought-line {
-  position: absolute;
-  top: 14px;
-  bottom: 2px;
-  left: 6px;
-  width: 1px;
-  background: var(--aw-line);
 }
 
 .review-card {
@@ -1725,37 +1689,44 @@ html[data-theme='dark'] .sidebar {
   background: var(--aw-surface);
 }
 
-.composer textarea {
-  width: 100%;
-  padding: 7px 8px;
+.ai-panel .composer .ant-sender {
   border: 1px solid var(--aw-line-strong);
   border-radius: 6px;
   background: var(--aw-surface-2);
-  color: var(--aw-ink);
-  font-size: 10.5px;
-  line-height: 1.6;
-  outline: none;
-  resize: none;
+  box-shadow: none;
 }
 
-.composer textarea::placeholder {
-  color: var(--aw-faint);
-}
-
-.composer textarea:focus {
+.ai-panel .composer .ant-sender:focus-within {
   border-color: var(--aw-accent);
   box-shadow: 0 0 0 3px var(--aw-accent-soft);
 }
 
-.composer-actions {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding-top: 5px;
+.ai-panel .composer .ant-sender-content {
+  padding: 8px 8px 4px 10px;
+  gap: 4px;
+}
+
+.ai-panel .composer .ant-sender-input {
+  color: var(--aw-ink);
+  font-size: 10.5px;
+  line-height: 1.6;
+  resize: none;
+}
+
+.ai-panel .composer .ant-sender-input::placeholder {
+  color: var(--aw-faint);
+}
+
+.ai-panel .composer .ant-sender-actions-list {
+  gap: 4px;
+}
+
+.ai-panel .composer .ant-sender-footer {
+  padding: 0 10px 6px;
+  text-align: right;
 }
 
 .composer-hint {
-  margin-left: auto;
   color: var(--aw-faint);
   font-family: var(--aw-font-code);
   font-size: 8px;

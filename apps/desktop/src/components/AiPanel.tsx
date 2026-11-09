@@ -9,6 +9,7 @@ import {
   SendOutlined,
 } from '@ant-design/icons';
 import { App, Button, Checkbox, Tag, Tooltip } from 'antd';
+import { Bubble, Prompts, Sender, ThoughtChain } from '@ant-design/x';
 import type { ApiRequest, NetworkMode } from '../data/mock';
 import { networkModes, reviewFields, thoughtSteps } from '../data/mock';
 import { MethodTag } from './MethodTag';
@@ -19,6 +20,27 @@ interface AiPanelProps {
 }
 
 const prompts = ['生成接口文档', '补全字段说明', '生成测试用例', '解释错误'];
+
+const seedMessages = [
+  {
+    key: 'seed-user',
+    placement: 'end' as const,
+    text: '根据这个请求生成支付订单接口文档，字段说明要包含幂等性和金额单位。',
+  },
+  {
+    key: 'seed-ai',
+    placement: 'start' as const,
+    text: '已读取请求与 3 条响应示例。发现 2 个字段缺少说明，1 个字段命名不一致；下面是我整理的字段审阅结果。',
+  },
+];
+
+const thoughtItems = thoughtSteps.map((step, index) => ({
+  key: `step-${index}`,
+  title: step.label,
+  description: step.detail,
+  status: step.state === 'done' ? ('success' as const) : ('pending' as const),
+  icon: step.state === 'done' ? <CheckCircleFilled /> : <LoadingOutlined spin />,
+}));
 
 export function AiPanel({ networkMode, activeRequest }: AiPanelProps) {
   const { message } = App.useApp();
@@ -35,6 +57,7 @@ export function AiPanel({ networkMode, activeRequest }: AiPanelProps) {
   }
 
   function submit() {
+    if (!composer.trim()) return;
     message.success('已发送到本地模型（演示）');
     setComposer('');
   }
@@ -68,41 +91,24 @@ export function AiPanel({ networkMode, activeRequest }: AiPanelProps) {
       </div>
 
       <div className="ai-scroll">
-        <div className="ai-prompts">
-          {prompts.map((prompt) => (
-            <button
-              key={prompt}
-              type="button"
-              className="prompt-chip"
-              onClick={() => setComposer(prompt)}
-            >
-              {prompt}
-            </button>
-          ))}
-        </div>
+        <Prompts
+          className="ai-prompts"
+          items={prompts.map((label) => ({ key: label, label }))}
+          wrap
+          onItemClick={({ data }) => setComposer(String(data.label ?? ''))}
+        />
 
-        <div className="bubble user">
-          根据这个请求生成支付订单接口文档，字段说明要包含幂等性和金额单位。
-        </div>
+        {seedMessages.map((item) => (
+          <Bubble
+            key={item.key}
+            className={`ai-bubble ai-bubble-${item.placement}`}
+            placement={item.placement}
+            variant={item.placement === 'end' ? 'filled' : 'outlined'}
+            content={item.text}
+          />
+        ))}
 
-        <div className="bubble ai">
-          已读取请求与 3 条响应示例。发现 2 个字段缺少说明，1 个字段命名不一致；下面是我整理的字段审阅结果。
-        </div>
-
-        <div className="thought-chain">
-          {thoughtSteps.map((step, index) => (
-            <div className={`thought-step ${step.state}`} key={step.label}>
-              <span className="thought-icon">
-                {step.state === 'done' ? <CheckCircleFilled /> : <LoadingOutlined spin />}
-              </span>
-              <div>
-                <strong>{step.label}</strong>
-                <span>{step.detail}</span>
-              </div>
-              {index < thoughtSteps.length - 1 && <i className="thought-line" />}
-            </div>
-          ))}
-        </div>
+        <ThoughtChain className="ai-thought" items={thoughtItems} size="small" />
 
         <div className="review-card">
           <div className="review-head">
@@ -157,27 +163,31 @@ export function AiPanel({ networkMode, activeRequest }: AiPanelProps) {
       </div>
 
       <div className="composer">
-        <textarea
+        <Sender
+          className="ai-sender"
           value={composer}
-          onChange={(event) => setComposer(event.target.value)}
+          onChange={(value) => setComposer(value)}
+          onSubmit={submit}
           placeholder="描述目标，或粘贴接口规范…"
-          rows={3}
+          autoSize={{ minRows: 3, maxRows: 6 }}
+          footer={<span className="composer-hint">⌘↵ 发送</span>}
+          actions={
+            <>
+              <Tooltip title="添加附件">
+                <Button type="text" size="small" icon={<PaperClipOutlined />} />
+              </Tooltip>
+              <Button
+                type="primary"
+                size="small"
+                icon={<SendOutlined />}
+                onClick={submit}
+                disabled={!composer.trim()}
+              >
+                发送
+              </Button>
+            </>
+          }
         />
-        <div className="composer-actions">
-          <Tooltip title="添加附件">
-            <Button type="text" size="small" icon={<PaperClipOutlined />} />
-          </Tooltip>
-          <span className="composer-hint">⌘↵ 发送</span>
-          <Button
-            type="primary"
-            size="small"
-            icon={<SendOutlined />}
-            onClick={submit}
-            disabled={!composer.trim()}
-          >
-            发送
-          </Button>
-        </div>
       </div>
     </aside>
   );
