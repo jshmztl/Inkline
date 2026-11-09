@@ -59,6 +59,7 @@ interface SidebarProps {
   onRenameRequest: (id: string, name: string) => Promise<void>;
   onDeleteRequest: (id: string) => Promise<void>;
   onImport: (raw: string) => Promise<{ name: string; count: number }>;
+  onRunTests: (folder: ApiFolder) => void;
   onDeleteHistory: (id: number) => Promise<void>;
   onClearHistory: () => Promise<void>;
 }
@@ -104,6 +105,7 @@ export function Sidebar({
   onRenameRequest,
   onDeleteRequest,
   onImport,
+  onRunTests,
   onDeleteHistory,
   onClearHistory,
 }: SidebarProps) {
@@ -450,6 +452,7 @@ export function Sidebar({
                   items: [
                     { key: 'new', label: '新建请求', icon: <PlusOutlined /> },
                     { key: 'rename', label: '重命名集合' },
+                    { key: 'test', label: '运行测试集' },
                     { key: 'export', label: '导出集合' },
                     { type: 'divider' },
                     { key: 'delete', label: '删除集合', danger: true },
@@ -465,6 +468,7 @@ export function Sidebar({
                       });
                     }
                     if (key === 'export') openExport(folder);
+                    if (key === 'test') onRunTests(folder);
                     if (key === 'delete') confirmDeleteCollection(folder);
                   },
                 }}

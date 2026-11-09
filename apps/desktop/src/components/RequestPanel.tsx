@@ -38,6 +38,14 @@ import {
   type WebSocketHandle,
 } from '../lib/protocol';
 import { resolveHeaders, resolveTemplate } from '../lib/variables';
+import {
+  assertionOperators,
+  evaluateAssertions,
+  operatorLabel,
+  type AssertionOperator,
+  type AssertionResult,
+  type AssertionRow,
+} from '../lib/assertions';
 import { MethodTag } from './MethodTag';
 import { ResponseCode } from './ResponseCode';
 
@@ -57,8 +65,8 @@ interface RequestPanelProps {
   onContextChange: (context: RequestContext) => void;
 }
 
-type RequestTabKey = 'params' | 'headers' | 'body' | 'auth' | 'scripts';
-type ResponseTabKey = 'body' | 'headers' | 'cookies' | 'console';
+type RequestTabKey = 'params' | 'headers' | 'body' | 'auth' | 'assertions' | 'scripts';
+type ResponseTabKey = 'body' | 'headers' | 'cookies' | 'console' | 'assertions';
 type BodyMode = 'json' | 'text' | 'form' | 'multipart';
 type AuthType = 'none' | 'bearer' | 'basic' | 'apikey';
 
@@ -83,6 +91,7 @@ interface RequestMeta {
   formRows: KvRow[];
   params: KvRow[];
   fileRows: FileRow[];
+  assertionRows: AssertionRow[];
   protocol: ProtocolKind;
   gqlQuery: string;
   gqlVariables: string;
@@ -103,6 +112,10 @@ const defaultMeta: RequestMeta = {
   ],
   params: [],
   fileRows: [],
+  assertionRows: [
+    { id: 'assert-1', path: 'status', operator: 'equals', expected: '200', enabled: true },
+    { id: 'assert-2', path: 'data.id', operator: 'exists', expected: '', enabled: true },
+  ],
   protocol: 'http',
   gqlQuery: `query Orders {\n  orders(first: 10) {\n    id\n    status\n    amount\n  }\n}`,
   gqlVariables: '{}',
@@ -119,6 +132,7 @@ function readRequestMeta(id: string): RequestMeta {
       formRows: parsed.formRows ?? defaultMeta.formRows,
       params: parsed.params ?? initialParams,
       fileRows: parsed.fileRows ?? defaultMeta.fileRows,
+      assertionRows: parsed.assertionRows ?? defaultMeta.assertionRows,
     };
   } catch {
     return { ...defaultMeta, params: initialParams };
@@ -236,6 +250,10 @@ export function RequestPanel({
   const [bodyMode, setBodyMode] = useState<BodyMode>(defaultMeta.bodyMode);
   const [formRows, setFormRows] = useState<KvRow[]>(defaultMeta.formRows);
   const [fileRows, setFileRows] = useState<FileRow[]>(defaultMeta.fileRows);
+  const [assertionRows, setAssertionRows] = useState<AssertionRow[]>(
+    defaultMeta.assertionRows,
+  );
+  const [assertionResults, setAssertionResults] = useState<AssertionResult[]>([]);
   const [authType, setAuthType] = useState<AuthType>(defaultMeta.authType);
   const [authToken, setAuthToken] = useState(defaultMeta.authToken);
   const [authUser, setAuthUser] = useState(defaultMeta.authUser);
@@ -293,6 +311,8 @@ export function RequestPanel({
     setTimeoutMs(meta.timeoutMs);
     setFormRows(meta.formRows);
     setFileRows(meta.fileRows);
+    setAssertionRows(meta.assertionRows);
+    setAssertionResults([]);
     setParams(meta.params);
     setProtocol(meta.protocol);
     setGqlQuery(meta.gqlQuery);
@@ -314,6 +334,7 @@ export function RequestPanel({
       formRows,
       params,
       fileRows,
+      assertionRows,
       protocol,
       gqlQuery,
       gqlVariables,
@@ -332,6 +353,7 @@ export function RequestPanel({
     formRows,
     params,
     fileRows,
+    assertionRows,
     protocol,
     gqlQuery,
     gqlVariables,
@@ -441,6 +463,25 @@ export function RequestPanel({
         key: '',
         value: '',
         description: '',
+        enabled: true,
+      },
+    ]);
+  }
+
+  function updateAssertionRow(id: string, patch: Partial<AssertionRow>) {
+    setAssertionRows((rows) =>
+      rows.map((row) => (row.id === id ? { ...row, ...patch } : row)),
+    );
+  }
+
+  function addAssertionRow() {
+    setAssertionRows((rows) => [
+      ...rows,
+      {
+        id: `assert-${Date.now().toString(36)}`,
+        path: '',
+        operator: 'equals',
+        expected: '',
         enabled: true,
       },
     ]);
@@ -738,7 +779,17 @@ export function RequestPanel({
       }
 
       setResponse(result);
-      setFeedback(`请求完成 · ${result.status} ${result.statusText}`);
+      const results = evaluateAssertions(assertionRows, result);
+      setAssertionResults(results);
+      const failedCount = results.filter((row) => !row.passed).length;
+      if (failedCount > 0) {
+        setResponseTab('assertions');
+      }
+      setFeedback(
+        failedCount > 0
+          ? `请求完成 · ${result.status} ${result.statusText} · ${failedCount} 条断言失败`
+          : `请求完成 · ${result.status} ${result.statusText}`,
+      );
 
       recordAudit({
         type: 'request',
@@ -1024,6 +1075,7 @@ export function RequestPanel({
             ['headers', 'Headers', headers.filter((row) => row.enabled).length],
             ['body', 'Body', null],
             ['auth', 'Auth', null],
+            ['assertions', '断言', assertionRows.filter((row) => row.enabled).length],
             ['scripts', 'Scripts', null],
           ] as const
         ).map(([key, label, count]) => (
@@ -1380,6 +1432,84 @@ export function RequestPanel({
           </div>
         )}
 
+        {requestTab === 'assertions' && (
+          <div className="kv-editor assertion-editor">
+            <div className="kv-head assertion-head">
+              <span />
+              <span>PATH</span>
+              <span>运算符</span>
+              <span>期望值</span>
+              <span />
+            </div>
+            {assertionRows.map((row) => {
+              const noValue = row.operator === 'exists' || row.operator === 'notExists';
+              return (
+                <div
+                  className={`kv-row assertion-row${row.enabled ? '' : ' disabled'}`}
+                  key={row.id}
+                >
+                  <Checkbox
+                    checked={row.enabled}
+                    onChange={(event) =>
+                      updateAssertionRow(row.id, { enabled: event.target.checked })
+                    }
+                  />
+                  <input
+                    className="kv-input mono"
+                    value={row.path}
+                    placeholder="status / data.id / headers.content-type"
+                    onChange={(event) =>
+                      updateAssertionRow(row.id, { path: event.target.value })
+                    }
+                    aria-label="断言路径"
+                  />
+                  <Select
+                    size="small"
+                    value={row.operator}
+                    options={assertionOperators}
+                    onChange={(value) =>
+                      updateAssertionRow(row.id, { operator: value as AssertionOperator })
+                    }
+                    className="assertion-op"
+                    popupMatchSelectWidth={false}
+                    aria-label="断言运算符"
+                  />
+                  <input
+                    className="kv-input mono"
+                    value={row.expected}
+                    placeholder={noValue ? '无需填写' : '期望值'}
+                    disabled={noValue}
+                    onChange={(event) =>
+                      updateAssertionRow(row.id, { expected: event.target.value })
+                    }
+                    aria-label="断言期望值"
+                  />
+                  <Tooltip title="删除">
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<DeleteOutlined />}
+                      aria-label="删除断言"
+                      onClick={() =>
+                        setAssertionRows((rows) =>
+                          rows.filter((item) => item.id !== row.id),
+                        )
+                      }
+                    />
+                  </Tooltip>
+                </div>
+              );
+            })}
+            <button type="button" className="kv-add" onClick={addAssertionRow}>
+              <PlusOutlined /> 添加断言
+            </button>
+            <p className="assertion-tip">
+              路径支持 <code>status</code>、<code>headers.名称</code> 与响应 JSON 路径（如{' '}
+              <code>data.items.0.id</code>），请求成功后自动校验。
+            </p>
+          </div>
+        )}
+
         {requestTab === 'scripts' && (
           <div className="empty-panel">
             <CodeOutlined />
@@ -1420,6 +1550,16 @@ export function RequestPanel({
             </span>
           )}
           {error && <span className="response-error">{error}</span>}
+          {!streamMode && assertionResults.length > 0 && (
+            <span
+              className={`assertion-pill ${
+                assertionResults.some((row) => !row.passed) ? 'bad' : 'ok'
+              }`}
+            >
+              {assertionResults.filter((row) => row.passed).length}/{assertionResults.length}{' '}
+              断言通过
+            </span>
+          )}
           <div className="response-spacer" />
           {streamMode ? (
             <Tooltip title="清空消息">
@@ -1467,12 +1607,17 @@ export function RequestPanel({
           <div className="response-subtabs" role="tablist" aria-label="响应内容">
             {(
               [
-                ['body', 'Body'],
-                ['headers', 'Headers'],
-                ['cookies', 'Cookies'],
-                ['console', 'Console'],
+                ['body', 'Body', null],
+                ['headers', 'Headers', null],
+                ['cookies', 'Cookies', null],
+                ['console', 'Console', null],
+                [
+                  'assertions',
+                  '断言',
+                  assertionResults.filter((row) => !row.passed).length,
+                ],
               ] as const
-            ).map(([key, label]) => (
+            ).map(([key, label, count]) => (
               <button
                 key={key}
                 type="button"
@@ -1482,6 +1627,7 @@ export function RequestPanel({
                 onClick={() => setResponseTab(key)}
               >
                 {label}
+                {count ? <em className="bad">{count}</em> : null}
               </button>
             ))}
           </div>
@@ -1584,6 +1730,36 @@ export function RequestPanel({
                   </span>
                 </div>
               )}
+
+              {responseTab === 'assertions' &&
+                (assertionResults.length === 0 ? (
+                  <div className="response-empty">
+                    发送请求后在此查看断言结果。可在请求区的「断言」页配置。
+                  </div>
+                ) : (
+                  <div className="assertion-results">
+                    {assertionResults.map((row) => (
+                      <div
+                        className={`assertion-result${row.passed ? ' ok' : ' bad'}`}
+                        key={row.id}
+                      >
+                        <span className="assertion-state">
+                          {row.passed ? <CheckCircleFilled /> : <CloseCircleOutlined />}
+                        </span>
+                        <span className="assertion-path mono">{row.path}</span>
+                        <span className="assertion-op-label">{operatorLabel(row.operator)}</span>
+                        <span className="assertion-expected mono">
+                          {row.operator === 'exists' || row.operator === 'notExists'
+                            ? '—'
+                            : row.expected}
+                        </span>
+                        <span className="assertion-actual mono" title={row.actual}>
+                          实际：{row.actual}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
             </>
           )}
         </div>

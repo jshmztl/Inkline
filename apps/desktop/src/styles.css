@@ -3164,3 +3164,252 @@ html[data-theme='dark'] .sidebar {
     display: none;
   }
 }
+
+/* ---------- assertions ---------- */
+
+.assertion-head,
+.assertion-row {
+  grid-template-columns: 24px minmax(120px, 1.3fr) minmax(84px, 0.5fr) minmax(110px, 0.9fr) 26px;
+}
+
+.assertion-op {
+  width: 100%;
+}
+
+.assertion-tip {
+  margin: 10px 0 0;
+  color: var(--aw-faint);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.assertion-tip code {
+  color: var(--aw-muted);
+  font-size: 12px;
+}
+
+.assertion-pill {
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.assertion-pill.ok {
+  color: var(--aw-success);
+  background: var(--aw-success-soft);
+}
+
+.assertion-pill.bad {
+  color: var(--aw-error);
+  background: var(--aw-error-soft);
+}
+
+.subtab em.bad {
+  color: var(--aw-error);
+  background: var(--aw-error-soft);
+}
+
+.assertion-results {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+}
+
+.assertion-result {
+  display: grid;
+  grid-template-columns: 18px minmax(110px, 1.1fr) 70px minmax(90px, 0.8fr) minmax(120px, 1.4fr);
+  align-items: center;
+  gap: 8px;
+  padding: 6px 9px;
+  border: 1px solid var(--aw-line);
+  border-left-width: 3px;
+  border-radius: 5px;
+  background: var(--aw-surface-2);
+  font-size: 12.5px;
+}
+
+.assertion-result.ok {
+  border-left-color: var(--aw-success);
+}
+
+.assertion-result.bad {
+  border-left-color: var(--aw-error);
+}
+
+.assertion-state {
+  display: flex;
+  font-size: 14px;
+}
+
+.assertion-result.ok .assertion-state {
+  color: var(--aw-success);
+}
+
+.assertion-result.bad .assertion-state {
+  color: var(--aw-error);
+}
+
+.assertion-path {
+  overflow: hidden;
+  color: var(--aw-ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assertion-op-label {
+  color: var(--aw-muted);
+}
+
+.assertion-expected,
+.assertion-actual {
+  overflow: hidden;
+  color: var(--aw-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assertion-result.bad .assertion-actual {
+  color: var(--aw-error);
+}
+
+/* ---------- test runner ---------- */
+
+.testrun-running {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 28px 0;
+  color: var(--aw-muted);
+  font-size: 13px;
+}
+
+.testrun-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.testrun-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12.5px;
+}
+
+.testrun-summary.ok {
+  color: var(--aw-success);
+  background: var(--aw-success-soft);
+}
+
+.testrun-summary.bad {
+  color: var(--aw-error);
+  background: var(--aw-error-soft);
+}
+
+.testrun-summary span {
+  color: var(--aw-muted);
+}
+
+.testrun-empty {
+  padding: 24px;
+  border: 1px dashed var(--aw-line);
+  border-radius: 6px;
+  color: var(--aw-faint);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.testrun-case {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 10px;
+  border: 1px solid var(--aw-line);
+  border-left-width: 3px;
+  border-radius: 6px;
+  background: var(--aw-surface-2);
+}
+
+.testrun-case.ok {
+  border-left-color: var(--aw-success);
+}
+
+.testrun-case.bad {
+  border-left-color: var(--aw-error);
+}
+
+.testrun-case-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+.testrun-state {
+  display: flex;
+  font-size: 14px;
+}
+
+.testrun-case.ok .testrun-state {
+  color: var(--aw-success);
+}
+
+.testrun-case.bad .testrun-state {
+  color: var(--aw-error);
+}
+
+.testrun-method {
+  color: var(--aw-accent);
+  font-family: var(--aw-font-code);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.testrun-name {
+  color: var(--aw-ink);
+  font-weight: 600;
+}
+
+.testrun-url {
+  overflow: hidden;
+  flex: 1;
+  color: var(--aw-faint);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.testrun-meta {
+  flex: 0 0 auto;
+  color: var(--aw-muted);
+  font-family: var(--aw-font-code);
+  font-size: 12px;
+}
+
+.testrun-meta.bad {
+  color: var(--aw-error);
+}
+
+.testrun-error {
+  padding: 5px 8px;
+  border-radius: 4px;
+  background: var(--aw-error-soft);
+  color: var(--aw-error);
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.testrun-case .assertion-result {
+  background: var(--aw-surface);
+  font-size: 12px;
+}

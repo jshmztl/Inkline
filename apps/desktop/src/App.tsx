@@ -31,8 +31,10 @@ import { LoginScreen } from './components/LoginScreen';
 import { RequestPanel } from './components/RequestPanel';
 import { Sidebar } from './components/Sidebar';
 import { StatusBar } from './components/StatusBar';
+import { TestRunModal } from './components/TestRunModal';
 import { TopBar } from './components/TopBar';
 import { readSession, signOut, type Session } from './lib/session';
+import { runCollectionTests, type TestCaseResult } from './lib/testRunner';
 
 const AiPanel = lazy(() =>
   import('./components/AiPanel').then((module) => ({ default: module.AiPanel })),
@@ -87,6 +89,11 @@ export function App() {
   const [syncNonce, setSyncNonce] = useState(0);
   const [queueNonce, setQueueNonce] = useState(0);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [testRun, setTestRun] = useState<{
+    name: string;
+    running: boolean;
+    results: TestCaseResult[];
+  } | null>(null);
   const [replay, setReplay] = useState<{
     method: HttpMethod;
     url: string;
@@ -385,6 +392,16 @@ export function App() {
     setSyncNonce((current) => current + 1);
   }
 
+  async function handleRunTests(folder: ApiFolder) {
+    setTestRun({ name: folder.name, running: true, results: [] });
+    try {
+      const results = await runCollectionTests(folder.id, currentVariables);
+      setTestRun({ name: folder.name, running: false, results });
+    } catch {
+      setTestRun({ name: folder.name, running: false, results: [] });
+    }
+  }
+
   if (!session) {
     return (
       <AntProvider mode={mode} density={density}>
@@ -438,6 +455,7 @@ export function App() {
               onRenameRequest={handleRenameRequest}
               onDeleteRequest={handleDeleteRequest}
               onImport={handleImport}
+              onRunTests={handleRunTests}
               onDeleteHistory={handleDeleteHistory}
               onClearHistory={handleClearHistory}
             />
@@ -492,6 +510,14 @@ export function App() {
               />
             </Suspense>
           )}
+
+          <TestRunModal
+            open={testRun !== null}
+            name={testRun?.name ?? ''}
+            running={testRun?.running ?? false}
+            results={testRun?.results ?? []}
+            onClose={() => setTestRun(null)}
+          />
         </div>
       </AntApp>
     </AntProvider>
