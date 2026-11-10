@@ -23,7 +23,11 @@ import {
 import { saveRequest, type HistoryEntry, type SavedRequest } from '../lib/api';
 import type { WorkspaceEnvironment } from '../lib/envStore';
 import { recordAudit } from '../lib/audit';
-import { exportCollection, type ExportFormat } from '../lib/importer';
+import {
+  exportCollection,
+  parsePostmanEnvironment,
+  type ExportFormat,
+} from '../lib/importer';
 import { planThreeWayMerge } from '../lib/merge';
 import type { Session } from '../lib/session';
 import {
@@ -163,6 +167,18 @@ export function Sidebar({
     }
     setImporting(true);
     try {
+      const environment = parsePostmanEnvironment(importText);
+      if (environment) {
+        const value = onCreateEnvironment(environment.name, environment.variables);
+        onEnvironmentChange(value);
+        message.success(
+          `已导入环境「${environment.name}」· ${Object.keys(environment.variables).length} 个变量`,
+        );
+        setImportOpen(false);
+        setImportText('');
+        return;
+      }
+
       const result = await onImport(importText);
       message.success(`已导入「${result.name}」· ${result.count} 个请求`);
       setImportOpen(false);
@@ -445,7 +461,7 @@ export function Sidebar({
           <span className="sidebar-eyebrow">WORKSPACE</span>
           <strong>{session.workspace}</strong>
         </div>
-        <Tooltip title="导入（curl / Postman / OpenAPI）">
+        <Tooltip title="导入（curl / Postman / OpenAPI / Postman 环境）">
           <Button
             type="text"
             size="small"

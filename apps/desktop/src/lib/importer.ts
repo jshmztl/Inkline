@@ -358,6 +358,36 @@ export function parseImport(raw: string): ImportPayload {
   throw new Error('无法识别格式，支持 curl、Postman 集合 JSON、OpenAPI JSON');
 }
 
+export interface ImportedEnvironment {
+  name: string;
+  variables: Record<string, string>;
+}
+
+/** 解析 Postman 导出的环境文件（{"name": "...", "values": [...]}）。 */
+export function parsePostmanEnvironment(raw: string): ImportedEnvironment | null {
+  try {
+    const doc = JSON.parse(raw) as {
+      name?: string;
+      values?: { key?: string; value?: unknown; enabled?: boolean }[];
+    };
+    if (!Array.isArray(doc.values)) return null;
+
+    const variables: Record<string, string> = {};
+    for (const item of doc.values) {
+      if (!item?.key || item.enabled === false) continue;
+      variables[item.key] = String(item.value ?? '');
+    }
+
+    if (Object.keys(variables).length === 0) return null;
+    return {
+      name: doc.name?.trim() || 'Postman 环境',
+      variables,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function toCurl(request: ImportedRequest): string {
   const lines = [`curl -X ${request.method} '${request.url}'`];
   for (const header of request.headers) {
