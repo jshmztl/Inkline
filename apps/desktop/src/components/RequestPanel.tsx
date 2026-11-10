@@ -6,6 +6,7 @@ import {
   CodeOutlined,
   CopyOutlined,
   DeleteOutlined,
+  DownloadOutlined,
   EditOutlined,
   FormatPainterOutlined,
   GlobalOutlined,
@@ -18,7 +19,7 @@ import {
   StopOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
-import { App, Button, Checkbox, Input, Segmented, Select, Tag, Tooltip } from 'antd';
+import { App, Button, Checkbox, Dropdown, Input, Segmented, Select, Tag, Tooltip } from 'antd';
 import type { ApiRequest, HttpMethod, KvRow } from '../data/types';
 import { recordAudit } from '../lib/audit';
 import { enqueueTask } from '../lib/queue';
@@ -418,6 +419,7 @@ export function RequestPanel({
   const editablePath = usesHostTemplate ? url.slice(hostPrefix.length) : url;
   const resolvedHost = (variables.host ?? '').trim();
   const streamMode = protocol === 'websocket' || protocol === 'sse';
+  const hasResponseContent = streamMode ? streamEvents.length > 0 : response !== null;
 
   function updateUrlInput(next: string) {
     if (!usesHostTemplate || /^https?:\/\//i.test(next)) {
@@ -1082,6 +1084,33 @@ export function RequestPanel({
     } catch {
       message.warning('当前环境无法访问剪贴板');
     }
+  }
+
+  function downloadResponse() {
+    const text = streamMode
+      ? streamEvents.map((event) => `[${event.kind}] ${event.payload}`).join('\n')
+      : (response?.body ?? '');
+    if (!text) {
+      message.warning('当前没有可下载的响应');
+      return;
+    }
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${activeRequest.name || 'response'}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+    message.success('已下载响应');
+  }
+
+  function clearResponse() {
+    setResponse(null);
+    setError(null);
+    setAssertionResults([]);
+    setStreamEvents([]);
+    setFeedback(null);
+    message.success('已清空响应');
   }
 
   return (
@@ -1846,9 +1875,40 @@ export function RequestPanel({
               onClick={copyResponse}
             />
           </Tooltip>
-          <Tooltip title="更多">
+          <Dropdown
+            trigger={['click']}
+            menu={{
+              items: [
+                {
+                  key: 'copy',
+                  label: '复制响应',
+                  icon: <CopyOutlined />,
+                  disabled: !hasResponseContent,
+                },
+                {
+                  key: 'download',
+                  label: '下载响应体',
+                  icon: <DownloadOutlined />,
+                  disabled: !hasResponseContent,
+                },
+                { type: 'divider' },
+                {
+                  key: 'clear',
+                  label: '清空响应',
+                  icon: <DeleteOutlined />,
+                  danger: true,
+                  disabled: !hasResponseContent && !error,
+                },
+              ],
+              onClick: ({ key }) => {
+                if (key === 'copy') void copyResponse();
+                if (key === 'download') downloadResponse();
+                if (key === 'clear') clearResponse();
+              },
+            }}
+          >
             <Button type="text" size="small" icon={<MoreOutlined />} aria-label="响应操作" />
-          </Tooltip>
+          </Dropdown>
         </div>
 
         {!streamMode && (

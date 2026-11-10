@@ -574,9 +574,33 @@ export function AiPanel({
             onClick={() => setGatewayOpen(true)}
           />
         </Tooltip>
-        <Tooltip title="更多">
+        <Dropdown
+          trigger={['click']}
+          menu={{
+            items: [
+              { key: 'gateway', label: 'AI 网关设置', icon: <SettingOutlined /> },
+              { key: 'glossary', label: '字段术语表', icon: <BookOutlined /> },
+              { type: 'divider' },
+              {
+                key: 'clear',
+                label: '清空对话',
+                icon: <DeleteOutlined />,
+                danger: true,
+                disabled: messages.length === 0,
+              },
+            ],
+            onClick: ({ key }) => {
+              if (key === 'gateway') setGatewayOpen(true);
+              if (key === 'glossary') openGlossary();
+              if (key === 'clear') {
+                setMessages([]);
+                message.success('已清空对话');
+              }
+            },
+          }}
+        >
           <Button type="text" size="small" icon={<MoreOutlined />} aria-label="更多" />
-        </Tooltip>
+        </Dropdown>
       </div>
 
       <div className="ai-context">
