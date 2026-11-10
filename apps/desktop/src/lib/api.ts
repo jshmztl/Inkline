@@ -38,6 +38,8 @@ export interface SendResponse {
   headers: HeaderPair[];
   body: string;
   durationMs: number;
+  ttfbMs?: number;
+  downloadMs?: number;
   sizeBytes: number;
 }
 
@@ -190,7 +192,9 @@ async function browserSendRequest(
     body: requestBody,
     signal,
   });
+  const ttfbMs = Math.round(performance.now() - started);
   const body = await response.text();
+  const durationMs = Math.round(performance.now() - started);
 
   return {
     status: response.status,
@@ -200,7 +204,9 @@ async function browserSendRequest(
       value,
     })),
     body,
-    durationMs: Math.round(performance.now() - started),
+    durationMs,
+    ttfbMs,
+    downloadMs: Math.max(0, durationMs - ttfbMs),
     sizeBytes: new TextEncoder().encode(body).length,
   };
 }

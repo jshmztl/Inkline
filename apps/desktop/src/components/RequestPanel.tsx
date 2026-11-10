@@ -1842,6 +1842,16 @@ export function RequestPanel({
                 {response.status} {response.statusText}
               </span>
               <span className="response-meta">{response.durationMs} ms</span>
+              {response.ttfbMs != null && (
+                <span className="response-meta" title="从发起到收到响应头">
+                  首字节 {response.ttfbMs} ms
+                </span>
+              )}
+              {response.downloadMs != null && (
+                <span className="response-meta" title="接收响应体耗时">
+                  下载 {response.downloadMs} ms
+                </span>
+              )}
               <span className="response-meta">{formatBytes(response.sizeBytes)}</span>
             </>
           ) : (

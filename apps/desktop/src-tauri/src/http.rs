@@ -59,6 +59,8 @@ pub struct SendResponse {
     pub headers: Vec<HeaderPair>,
     pub body: String,
     pub duration_ms: u64,
+    pub ttfb_ms: u64,
+    pub download_ms: u64,
     pub size_bytes: usize,
 }
 
@@ -182,6 +184,7 @@ pub async fn send_http_request(
             .send()
             .await
             .map_err(|error| format!("请求失败：{error}"))?;
+        let ttfb_ms = started.elapsed().as_millis() as u64;
 
         let status = response.status();
         let headers = response
@@ -197,13 +200,16 @@ pub async fn send_http_request(
             .await
             .map_err(|error| format!("读取响应失败：{error}"))?;
         let size_bytes = body.len();
+        let duration_ms = started.elapsed().as_millis() as u64;
 
         Ok::<SendResponse, String>(SendResponse {
             status: status.as_u16(),
             status_text: status.canonical_reason().unwrap_or("").to_string(),
             headers,
             body,
-            duration_ms: started.elapsed().as_millis() as u64,
+            duration_ms,
+            ttfb_ms,
+            download_ms: duration_ms.saturating_sub(ttfb_ms),
             size_bytes,
         })
     };
