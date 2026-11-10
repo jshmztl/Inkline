@@ -183,7 +183,9 @@
 
 ### P2-3 GraphQL 仅当作 POST JSON
 
-- [ ] 支持 introspection、schema 提示与变量分校验
+- [x] 支持 introspection、类型浏览与变量格式校验
+
+**进展**：GraphQL 编辑区新增“获取 Schema”，可浏览类型、字段、参数类型与枚举值；Variables 必须是 JSON 对象。
 
 ### P2-4 Mock Server 只能本机访问
 

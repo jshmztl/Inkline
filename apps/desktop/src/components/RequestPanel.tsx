@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckCircleFilled,
   CloseCircleOutlined,
@@ -57,6 +57,13 @@ import { MethodTag } from './MethodTag';
 import { CodeEditor, formatJson, formatXml } from './CodeEditor';
 import { NetworkSettingsModal } from './NetworkSettingsModal';
 import { ResponseCode } from './ResponseCode';
+import { fetchGraphqlSchema, type GraphqlType } from '../lib/graphql';
+
+const GraphqlSchemaModal = lazy(() =>
+  import('./GraphqlSchemaModal').then((module) => ({
+    default: module.GraphqlSchemaModal,
+  })),
+);
 
 interface RequestPanelProps {
   activeRequest: ApiRequest;
@@ -254,6 +261,10 @@ export function RequestPanel({
   const [protocol, setProtocol] = useState<ProtocolKind>(defaultMeta.protocol);
   const [gqlQuery, setGqlQuery] = useState(defaultMeta.gqlQuery);
   const [gqlVariables, setGqlVariables] = useState(defaultMeta.gqlVariables);
+  const [schemaOpen, setSchemaOpen] = useState(false);
+  const [schemaLoading, setSchemaLoading] = useState(false);
+  const [schemaError, setSchemaError] = useState('');
+  const [schemaTypes, setSchemaTypes] = useState<GraphqlType[]>([]);
   const [preScript, setPreScript] = useState(defaultMeta.preScript);
   const [postScript, setPostScript] = useState(defaultMeta.postScript);
   const [scriptLogs, setScriptLogs] = useState<ScriptLog[]>([]);
@@ -654,6 +665,35 @@ export function RequestPanel({
     setBody(result.value);
   }
 
+  async function openSchema() {
+    setSchemaOpen(true);
+    setSchemaLoading(true);
+    setSchemaError('');
+
+    try {
+      const resolvedUrl = resolveTemplate(url, variables);
+      const paramPairs = params
+        .filter((row) => row.enabled && row.key.trim())
+        .map((row) => ({
+          key: resolveTemplate(row.key, variables).value,
+          value: resolveTemplate(row.value, variables).value,
+        }));
+      const finalUrl = mergeQuery(resolvedUrl.value, paramPairs);
+      const baseHeaders = headers
+        .filter((row) => row.enabled && row.key.trim())
+        .map((row) => ({
+          name: row.key.trim(),
+          value: resolveTemplate(row.value, variables).value,
+        }));
+
+      setSchemaTypes(await fetchGraphqlSchema(finalUrl, baseHeaders));
+    } catch (error) {
+      setSchemaError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSchemaLoading(false);
+    }
+  }
+
   async function handleSend() {
     if (sending) return;
     setScriptLogs([]);
@@ -817,6 +857,15 @@ export function RequestPanel({
           variablesValue = JSON.parse(gqlVariables);
         } catch {
           setError('GraphQL Variables 不是合法 JSON');
+          setFeedback(null);
+          return;
+        }
+        if (
+          variablesValue === null ||
+          typeof variablesValue !== 'object' ||
+          Array.isArray(variablesValue)
+        ) {
+          setError('GraphQL Variables 必须是 JSON 对象');
           setFeedback(null);
           return;
         }
@@ -1330,6 +1379,19 @@ export function RequestPanel({
         onClose={() => setNetworkOpen(false)}
       />
 
+      {schemaOpen && (
+        <Suspense fallback={null}>
+          <GraphqlSchemaModal
+            open={schemaOpen}
+            loading={schemaLoading}
+            error={schemaError}
+            types={schemaTypes}
+            onClose={() => setSchemaOpen(false)}
+            onRefresh={() => void openSchema()}
+          />
+        </Suspense>
+      )}
+
       <div className="request-subtabs" role="tablist" aria-label="请求配置">
         {(
           [
@@ -1415,6 +1477,16 @@ export function RequestPanel({
           <div className="body-editor gql-editor">
             <div className="editor-toolbar">
               <span className="editor-note">POST · application/json · GraphQL</span>
+              <div className="editor-toolbar-spacer" />
+              <Button
+                variant="text"
+                size="small"
+                icon={<GlobalOutlined />}
+                color="geekblue"
+                onClick={() => void openSchema()}
+              >
+                获取 Schema
+              </Button>
             </div>
             <label className="gql-field">
               <span>Query</span>
