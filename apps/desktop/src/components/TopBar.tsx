@@ -100,6 +100,7 @@ export function TopBar({
   }, [auditOpen]);
 
   useEffect(() => {
+    if (networkMode !== 'C') return;
     let cancelled = false;
     const timer = window.setTimeout(async () => {
       try {
@@ -134,7 +135,7 @@ export function TopBar({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [notification]);
+  }, [notification, networkMode]);
 
   const visibleEntries =
     auditFilter === 'all' ? entries : entries.filter((entry) => entry.type === auditFilter);
@@ -285,7 +286,12 @@ export function TopBar({
                 disabled: true,
               },
               { type: 'divider' },
-              { key: 'update', label: '检查更新', icon: <CloudDownloadOutlined /> },
+              {
+                key: 'update',
+                label: networkMode === 'C' ? '检查更新' : '检查更新（需外网）',
+                icon: <CloudDownloadOutlined />,
+                disabled: networkMode !== 'C',
+              },
               { key: 'signout', label: '退出登录', icon: <LogoutOutlined /> },
             ],
             onClick: ({ key }) => {
