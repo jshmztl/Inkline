@@ -105,7 +105,7 @@ export function App() {
 
   useEffect(() => {
     let alive = true;
-    listHistory(6)
+    listHistory(200)
       .then((entries) => {
         if (alive) setHistory(entries);
       })
@@ -254,7 +254,7 @@ export function App() {
   }
 
   function refreshHistory() {
-    listHistory(6)
+    listHistory(200)
       .then(setHistory)
       .catch(() => {
         // 忽略历史刷新失败。

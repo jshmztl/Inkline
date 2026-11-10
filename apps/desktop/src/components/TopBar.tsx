@@ -139,6 +139,23 @@ export function TopBar({
     message.success('审计日志已清空');
   }
 
+  function handleExport() {
+    if (entries.length === 0) {
+      message.info('暂无可导出的审计记录');
+      return;
+    }
+    const blob = new Blob([JSON.stringify(entries, null, 2)], {
+      type: 'application/json;charset=utf-8',
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `api-workbench-audit-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    message.success(`已导出 ${entries.length} 条审计记录`);
+  }
+
   async function handleCheckUpdate() {
     setUpdateOpen(true);
     setChecking(true);
@@ -289,16 +306,28 @@ export function TopBar({
         width={520}
         onClose={() => setAuditOpen(false)}
         extra={
-          <Tooltip title={entries.length === 0 ? '暂无记录' : '清空审计日志'}>
-            <Button
-              size="small"
-              icon={<DeleteOutlined />}
-              onClick={handleClear}
-              disabled={entries.length === 0}
-            >
-              清空
-            </Button>
-          </Tooltip>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Tooltip title={entries.length === 0 ? '暂无记录' : '导出审计日志'}>
+              <Button
+                size="small"
+                icon={<CloudDownloadOutlined />}
+                onClick={handleExport}
+                disabled={entries.length === 0}
+              >
+                导出
+              </Button>
+            </Tooltip>
+            <Tooltip title={entries.length === 0 ? '暂无记录' : '清空审计日志'}>
+              <Button
+                size="small"
+                icon={<DeleteOutlined />}
+                onClick={handleClear}
+                disabled={entries.length === 0}
+              >
+                清空
+              </Button>
+            </Tooltip>
+          </div>
         }
       >
         <div className="audit-toolbar">

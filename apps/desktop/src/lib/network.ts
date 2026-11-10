@@ -5,6 +5,7 @@ export interface NetworkOptions {
   clientCertPath: string;
   intranetCidrs: string;
   acceptInvalidCerts: boolean;
+  followRedirects: boolean;
 }
 
 const STORAGE_KEY = 'aw-network-options';
@@ -14,6 +15,7 @@ export const defaultNetworkOptions: NetworkOptions = {
   clientCertPath: '',
   intranetCidrs: '',
   acceptInvalidCerts: false,
+  followRedirects: true,
 };
 
 export function readNetworkOptions(): NetworkOptions {

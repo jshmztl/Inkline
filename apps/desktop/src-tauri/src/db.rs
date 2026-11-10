@@ -394,7 +394,7 @@ pub fn list_history(
     limit: Option<i64>,
 ) -> Result<Vec<HistoryEntry>, String> {
     let connection = state.0.lock().map_err(|error| error.to_string())?;
-    let limit = limit.unwrap_or(20).clamp(1, 100);
+    let limit = limit.unwrap_or(20).clamp(1, 500);
 
     let mut statement = connection
         .prepare(

@@ -34,6 +34,7 @@ pub struct NetworkOptions {
     pub proxy: Option<String>,
     pub client_cert_path: Option<String>,
     pub accept_invalid_certs: Option<bool>,
+    pub follow_redirects: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -88,6 +89,9 @@ pub async fn send_http_request(
     if let Some(network) = &payload.network {
         if network.accept_invalid_certs.unwrap_or(false) {
             client = client.danger_accept_invalid_certs(true);
+        }
+        if !network.follow_redirects.unwrap_or(true) {
+            client = client.redirect(reqwest::redirect::Policy::none());
         }
         if let Some(proxy) = network
             .proxy

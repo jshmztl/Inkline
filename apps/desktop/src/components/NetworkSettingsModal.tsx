@@ -105,6 +105,23 @@ export function NetworkSettingsModal({ open, onClose }: NetworkSettingsModalProp
         <p className="network-tip">
           仅建议在内网自签证书或私有 CA 环境下开启。开启后不再校验服务端证书，存在中间人风险。
         </p>
+        <label>
+          <span>重定向</span>
+          <Checkbox
+            checked={options.followRedirects}
+            onChange={(event) =>
+              setOptions((current) => ({
+                ...current,
+                followRedirects: event.target.checked,
+              }))
+            }
+          >
+            自动跟随 301 / 302 重定向
+          </Checkbox>
+        </label>
+        <p className="network-tip">
+          关闭后请求会停在重定向响应，可在响应头中查看 Location 与状态码。
+        </p>
         <div>
           <Button
             size="small"
