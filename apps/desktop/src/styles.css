@@ -1105,6 +1105,42 @@ html[data-theme='dark'] .method-option.method-delete {
   min-width: 0;
 }
 
+.url-host {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 230px;
+  height: var(--aw-control-height);
+  padding: 0 10px;
+  border: 1px solid var(--aw-line);
+  border-radius: 6px;
+  background: var(--aw-surface-2);
+  color: var(--aw-muted);
+  font-family: var(--aw-font-code);
+  font-size: 12.5px;
+  cursor: default;
+}
+
+.url-host .anticon {
+  color: var(--aw-faint);
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+
+.url-host-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.url-host.missing {
+  border-color: color-mix(in srgb, var(--aw-warning) 38%, transparent);
+  background: var(--aw-warning-soft);
+  color: var(--aw-warning);
+}
+
 .url-input input {
   font-family: var(--aw-font-code);
   font-size: 13.5px;

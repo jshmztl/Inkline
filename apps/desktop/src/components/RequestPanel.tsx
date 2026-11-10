@@ -398,7 +398,26 @@ export function RequestPanel({
   );
 
   const resolvedUrl = useMemo(() => resolveTemplate(url, variables), [url, variables]);
+  const hostPrefix = '{{host}}';
+  const usesHostTemplate = url.startsWith(hostPrefix);
+  const editablePath = usesHostTemplate ? url.slice(hostPrefix.length) : url;
+  const resolvedHost = (variables.host ?? '').trim();
   const streamMode = protocol === 'websocket' || protocol === 'sse';
+
+  function updateUrlInput(next: string) {
+    if (!usesHostTemplate || /^https?:\/\//i.test(next)) {
+      setUrl(next);
+      return;
+    }
+    setUrl(`${hostPrefix}${next}`);
+  }
+
+  function normalizeUrlPath() {
+    if (!usesHostTemplate) return;
+    const path = url.slice(hostPrefix.length);
+    if (!path || /^[/?#]/.test(path)) return;
+    setUrl(`${hostPrefix}/${path}`);
+  }
 
   const responseMatchCount = useMemo(() => {
     const needle = responseQuery.trim().toLowerCase();
@@ -1144,14 +1163,32 @@ export function RequestPanel({
           popupMatchSelectWidth={false}
           aria-label="协议"
         />
+        {usesHostTemplate && (
+          <Tooltip
+            title={
+              resolvedHost
+                ? `环境地址：${resolvedHost}。如需修改，请到左侧环境配置中调整 host。`
+                : '当前环境未配置 host，请在左侧环境中新增或修改。'
+            }
+          >
+            <span className={`url-host${resolvedHost ? '' : ' missing'}`}>
+              <LockOutlined />
+              <span className="url-host-text">{resolvedHost || '未配置 host'}</span>
+            </span>
+          </Tooltip>
+        )}
         <Input
-          value={url}
-          onChange={(event) => setUrl(event.target.value)}
+          value={editablePath}
+          onChange={(event) => updateUrlInput(event.target.value)}
           className="url-input"
-          prefix={<LockOutlined />}
+          placeholder={usesHostTemplate ? '/orders/123' : 'https://api.example.com/orders'}
+          title={
+            usesHostTemplate ? `${resolvedHost}${editablePath}` : url
+          }
           aria-label="请求地址"
           spellCheck={false}
           onPressEnter={handleSend}
+          onBlur={normalizeUrlPath}
         />
         {protocol === 'websocket' || protocol === 'sse' ? (
           <Button
