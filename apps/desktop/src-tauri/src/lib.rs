@@ -4,6 +4,7 @@ mod http;
 mod mock;
 mod model;
 mod netprobe;
+mod sse;
 
 use std::sync::Mutex;
 
@@ -17,6 +18,7 @@ pub fn run() {
             app.manage(db::DbState(Mutex::new(connection)));
             app.manage(http::CancelState::default());
             app.manage(http::CookieState::default());
+            app.manage(sse::SseState::default());
             app.manage(mock::MockState::default());
 
             #[cfg(desktop)]
@@ -32,6 +34,8 @@ pub fn run() {
             http::send_http_request,
             http::cancel_http_request,
             http::clear_cookies,
+            sse::start_sse_stream,
+            sse::cancel_sse,
             netprobe::probe_network,
             mock::start_mock_server,
             mock::stop_mock_server,

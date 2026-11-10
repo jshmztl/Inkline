@@ -1,4 +1,8 @@
+import { Channel, invoke } from '@tauri-apps/api/core';
 import type { HeaderPair } from './api';
+import { readNetworkOptions } from './network';
+
+const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
 export type ProtocolKind = 'http' | 'graphql' | 'websocket' | 'sse';
 
@@ -75,6 +79,42 @@ export async function streamSse(
   onEvent: (event: StreamEvent) => void,
   signal: AbortSignal,
 ): Promise<void> {
+  if (isTauri) {
+    const id = `sse-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const channel = new Channel<StreamEvent>();
+    channel.onmessage = (event) => onEvent(event);
+
+    const handleAbort = () => {
+      void invoke('cancel_sse', { id }).catch(() => undefined);
+    };
+    signal.addEventListener('abort', handleAbort, { once: true });
+
+    try {
+      await invoke('start_sse_stream', {
+        payload: {
+          id,
+          url,
+          headers,
+          body,
+          network: readNetworkOptions(),
+        },
+        onEvent: channel,
+      });
+    } catch (error) {
+      if (signal.aborted) {
+        throw new DOMException('SSE 已断开', 'AbortError');
+      }
+      throw error instanceof Error ? error : new Error(String(error));
+    } finally {
+      signal.removeEventListener('abort', handleAbort);
+    }
+
+    if (signal.aborted) {
+      throw new DOMException('SSE 已断开', 'AbortError');
+    }
+    return;
+  }
+
   onEvent({ id: nextEventId(), kind: 'info', at: Date.now(), payload: `连接 ${url}` });
   const init: RequestInit = { method: body ? 'POST' : 'GET', headers: {}, signal };
   const headerMap: Record<string, string> = {};
