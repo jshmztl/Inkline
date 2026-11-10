@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkNetworkAccess, isSameSubnet } from './networkPolicy';
+import { checkNetworkAccess, inIpv6Cidr, isSameSubnet } from './networkPolicy';
 
 describe('networkPolicy', () => {
   it('A 模式只允许本机地址', () => {
@@ -26,5 +26,13 @@ describe('networkPolicy', () => {
     expect(isSameSubnet('192.168.1.23', ['192.168.1.5/24'])).toBe(true);
     expect(isSameSubnet('192.168.2.23', ['192.168.1.5/24'])).toBe(false);
     expect(isSameSubnet('10.0.0.8', ['10.0.0.0/8'])).toBe(true);
+  });
+
+  it('支持 IPv6 网段判断', () => {
+    expect(inIpv6Cidr('fd00::1', 'fd00::/8')).toBe(true);
+    expect(inIpv6Cidr('2001:db8::1', 'fd00::/8')).toBe(false);
+    expect(inIpv6Cidr('fe80::a1b2', 'fe80::/10')).toBe(true);
+    expect(isSameSubnet('fd12::5', ['fd00::/8'])).toBe(true);
+    expect(isSameSubnet('192.168.1.23', ['fd00::/8'])).toBe(false);
   });
 });

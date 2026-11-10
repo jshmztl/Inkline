@@ -138,8 +138,68 @@ function inIpv4Cidr(ip: string, cidr: string): boolean {
   return ((ipValue & mask) >>> 0) === ((baseValue & mask) >>> 0);
 }
 
+function isIpv6Address(ip: string): boolean {
+  const bare = ip.replace(/^\[|\]$/g, '');
+  return bare.includes(':') && /^[0-9a-fA-F:.%]+$/.test(bare);
+}
+
+function ipv6ToBigInt(value: string): bigint | null {
+  let ip = value.trim().replace(/^\[|\]$/g, '');
+  const zone = ip.indexOf('%');
+  if (zone >= 0) ip = ip.slice(0, zone);
+  if (!ip.includes(':')) return null;
+
+  if (ip.includes('.')) {
+    const lastColon = ip.lastIndexOf(':');
+    if (lastColon < 0) return null;
+    const v4 = ipv4ToNumber(ip.slice(lastColon + 1));
+    if (v4 === null) return null;
+    const high = ((v4 >>> 16) & 0xffff).toString(16);
+    const low = (v4 & 0xffff).toString(16);
+    ip = `${ip.slice(0, lastColon + 1)}${high}:${low}`;
+  }
+
+  const halves = ip.split('::');
+  if (halves.length > 2) return null;
+
+  const head = halves[0] ? halves[0].split(':') : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+  const missing = 8 - head.length - tail.length;
+  if (halves.length === 1 && head.length !== 8) return null;
+  if (missing < 0) return null;
+
+  const groups = [...head, ...new Array<string>(missing).fill('0'), ...tail];
+  if (groups.length !== 8) return null;
+
+  let result = 0n;
+  for (const group of groups) {
+    if (!/^[0-9a-fA-F]{1,4}$/.test(group)) return null;
+    result = (result << 16n) + BigInt(parseInt(group, 16));
+  }
+  return result;
+}
+
+export function inIpv6Cidr(ip: string, cidr: string): boolean {
+  const [base, prefixText] = cidr.split('/');
+  const prefix = Number(prefixText);
+  if (!Number.isInteger(prefix) || prefix < 0 || prefix > 128) return false;
+
+  const ipValue = ipv6ToBigInt(ip);
+  const baseValue = ipv6ToBigInt(base);
+  if (ipValue === null || baseValue === null) return false;
+  if (prefix === 0) return true;
+
+  const shift = BigInt(128 - prefix);
+  return ipValue >> shift === baseValue >> shift;
+}
+
 export function isSameSubnet(ip: string, localCidrs: string[]): boolean {
-  return localCidrs.some((cidr) => inIpv4Cidr(ip, cidr));
+  const ipv6 = isIpv6Address(ip);
+  return localCidrs.some((cidr) => {
+    const base = cidr.split('/')[0];
+    if (ipv6 !== isIpv6Address(base)) return false;
+    return ipv6 ? inIpv6Cidr(ip, cidr) : inIpv4Cidr(ip, cidr);
+  });
 }
 
 export function readIntranetCidrs(): string[] {
@@ -149,19 +209,20 @@ export function readIntranetCidrs(): string[] {
     .filter((item) => {
       const [base, prefixText] = item.split('/');
       const prefix = Number(prefixText);
-      return (
-        ipv4ToNumber(base) !== null &&
-        Number.isInteger(prefix) &&
-        prefix >= 0 &&
-        prefix <= 32
-      );
+      if (!Number.isInteger(prefix)) return false;
+      if (isIpv6Address(base)) return prefix >= 0 && prefix <= 128;
+      return ipv4ToNumber(base) !== null && prefix >= 0 && prefix <= 32;
     });
 }
 
 function matchIntranetCidr(ip: string): string | null {
-  if (ipv4ToNumber(ip) === null) return null;
+  const ipv6 = isIpv6Address(ip);
+  if (!ipv6 && ipv4ToNumber(ip) === null) return null;
+
   for (const cidr of readIntranetCidrs()) {
-    if (inIpv4Cidr(ip, cidr)) return cidr;
+    const base = cidr.split('/')[0];
+    if (ipv6 !== isIpv6Address(base)) continue;
+    if (ipv6 ? inIpv6Cidr(ip, cidr) : inIpv4Cidr(ip, cidr)) return cidr;
   }
   return null;
 }
@@ -201,11 +262,11 @@ export async function checkNetworkAccessResolved(
   const probe = await probeNetwork(url);
   if (!probe) return basic;
 
-  const hostIsIpv4 = ipv4ToNumber(basic.host) !== null;
-  const candidates = hostIsIpv4 ? [basic.host] : probe.hostIps;
+  const hostIsIp = ipv4ToNumber(basic.host) !== null || isIpv6Address(basic.host);
+  const candidates = hostIsIp ? [basic.host] : probe.hostIps;
 
   for (const ip of candidates) {
-    if (ipv4ToNumber(ip) !== null) {
+    if (ipv4ToNumber(ip) !== null || isIpv6Address(ip)) {
       if (isSameSubnet(ip, probe.localCidrs)) {
         return {
           allowed: true,
