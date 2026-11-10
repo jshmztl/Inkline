@@ -141,7 +141,10 @@
 
 ### P1-6 工程基线缺失
 
-- [ ] 增加 lint、前端测试与 CSP
+- [ ] 增加 CSP（需真机验证）
+- [x] 增加 lint 与前端测试
+
+**进展**：新增 `pnpm lint`（tsc）与 `pnpm test`（vitest），覆盖网络策略与断言评估；CSP 仍需真机验证后再启用。
 
 **问题**：无 lint 脚本、无前端测试；`tauri.conf.json` 中 `csp: null`；RequestPanel 70KB / Sidebar 38KB / AiPanel 37KB 单文件过大。
 
