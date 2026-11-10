@@ -241,9 +241,7 @@ export function buildFieldReview(
         type: field.type,
         source,
         confidence,
-        note: entry
-          ? `${entry.label}：${entry.description}`
-          : '未命中内置术语表，需人工补充说明',
+        note: entry ? `${entry.label}：${entry.description}` : '',
         term: entry?.term,
       };
     });

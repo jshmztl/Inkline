@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import {
   DownOutlined,
   EyeOutlined,
@@ -10,7 +10,7 @@ import {
   SendOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
-import { App, Button, Checkbox, Dropdown, Modal, Tag, Tooltip } from 'antd';
+import { App, Button, Checkbox, Dropdown, Input, Modal, Tag, Tooltip } from 'antd';
 import { Bubble, Prompts, Sender } from '@ant-design/x';
 import type { ApiRequest, NetworkMode } from '../data/types';
 import { networkModes } from '../data/types';
@@ -22,6 +22,7 @@ import {
   docToOpenApi,
   mergeDraftFields,
   type DraftField,
+  type FieldReview,
   type RequestContext,
 } from '../lib/docTask';
 import { MethodTag } from './MethodTag';
@@ -61,6 +62,7 @@ export function AiPanel({
   const [accepted, setAccepted] = useState<Record<string, boolean>>({});
   const [applied, setApplied] = useState(false);
   const [draft, setDraft] = useState<DraftField[]>([]);
+  const [notes, setNotes] = useState<Record<string, string>>({});
   const [diffOpen, setDiffOpen] = useState(false);
   const [docOpen, setDocOpen] = useState(false);
   const [preflightOpen, setPreflightOpen] = useState(false);
@@ -76,9 +78,20 @@ export function AiPanel({
   const preflight = useMemo(() => (context ? preflightEgress(context) : null), [context]);
   const pending = review.filter((item) => item.confidence < 90).length;
   const requestId = task?.request.id ?? null;
+  const effectiveReview = useMemo(
+    () =>
+      review.map((item) => {
+        const draftNote = draft.find((entry) => entry.key === item.key)?.description;
+        const note = notes[item.key] ?? (draftNote ? draftNote : item.note);
+        return note === item.note ? item : { ...item, note };
+      }),
+    [review, notes, draft],
+  );
+  const requestReview = effectiveReview.filter((item) => item.source === '请求');
+  const responseReview = effectiveReview.filter((item) => item.source === '响应');
   const diff = useMemo(
-    () => (task ? buildDraftDiff(draft, review, accepted) : []),
-    [task, draft, review, accepted],
+    () => (task ? buildDraftDiff(draft, effectiveReview, accepted) : []),
+    [task, draft, effectiveReview, accepted],
   );
   const docMarkdown = useMemo(
     () => (task ? docToMarkdown(task, draft) : ''),
@@ -88,6 +101,7 @@ export function AiPanel({
   useEffect(() => {
     setAccepted({});
     setApplied(false);
+    setNotes({});
   }, [task?.id]);
 
   useEffect(() => {
@@ -182,7 +196,7 @@ export function AiPanel({
 
   function applyDraft() {
     if (!task) return;
-    const next = mergeDraftFields(draft, review, accepted);
+    const next = mergeDraftFields(draft, effectiveReview, accepted);
     setDraft(next);
     try {
       localStorage.setItem(`aw-doc-draft:${task.request.id}`, JSON.stringify(next));
@@ -252,6 +266,51 @@ export function AiPanel({
     } catch {
       message.warning('当前环境无法访问剪贴板');
     }
+  }
+
+  function renderReviewRow(field: FieldReview) {
+    return (
+      <div className="review-row" key={field.key}>
+        <Checkbox
+          checked={accepted[field.key] ?? true}
+          onChange={(event) =>
+            setAccepted((current) => ({
+              ...current,
+              [field.key]: event.target.checked,
+            }))
+          }
+        />
+        <div className="review-field">
+          <div>
+            <code>{field.path}</code>
+            <em>{field.type}</em>
+            <b className={`review-source${field.source === '请求' ? ' req' : ' res'}`}>
+              {field.source}
+            </b>
+          </div>
+          <Input.TextArea
+            className="review-note-input"
+            value={notes[field.key] ?? field.note}
+            onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
+              setNotes((current) => ({ ...current, [field.key]: event.target.value }))
+            }
+            placeholder="补充字段说明（可留空）"
+            aria-label={`${field.path} 字段说明`}
+            autoSize={{ minRows: 1, maxRows: 3 }}
+            variant="borderless"
+          />
+        </div>
+        <div className="confidence">
+          <div className="confidence-bar">
+            <i
+              className={field.confidence < 90 ? 'low' : undefined}
+              style={{ width: `${field.confidence}%` }}
+            />
+          </div>
+          <span>{field.confidence}%</span>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -385,38 +444,25 @@ export function AiPanel({
             {applied && <Tag className="applied-tag">已应用</Tag>}
           </div>
 
-          {review.map((field) => (
-            <label className="review-row" key={field.key}>
-              <Checkbox
-                checked={accepted[field.key] ?? true}
-                onChange={(event) =>
-                  setAccepted((current) => ({
-                    ...current,
-                    [field.key]: event.target.checked,
-                  }))
-                }
-              />
-              <div className="review-field">
-                <div>
-                  <code>{field.path}</code>
-                  <em>{field.type}</em>
-                  <b className={`review-source${field.source === '请求' ? ' req' : ' res'}`}>
-                    {field.source}
-                  </b>
-                </div>
-                <span>{field.note}</span>
+          {requestReview.length > 0 && (
+            <>
+              <div className="review-group">
+                <span>请求参数</span>
+                <em>{requestReview.length}</em>
               </div>
-              <div className="confidence">
-                <div className="confidence-bar">
-                  <i
-                    className={field.confidence < 90 ? 'low' : undefined}
-                    style={{ width: `${field.confidence}%` }}
-                  />
-                </div>
-                <span>{field.confidence}%</span>
+              {requestReview.map(renderReviewRow)}
+            </>
+          )}
+
+          {responseReview.length > 0 && (
+            <>
+              <div className="review-group">
+                <span>响应字段</span>
+                <em>{responseReview.length}</em>
               </div>
-            </label>
-          ))}
+              {responseReview.map(renderReviewRow)}
+            </>
+          )}
 
           {review.length === 0 && (
             <div className="review-empty">等待请求上下文后生成字段审阅。</div>
