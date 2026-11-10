@@ -32,6 +32,7 @@ pub fn run() {
             mock::start_mock_server,
             mock::stop_mock_server,
             ai::ai_chat,
+            ai::ai_chat_stream,
             db::save_request,
             db::list_requests,
             db::delete_request,

@@ -2373,6 +2373,47 @@ html[data-theme='dark'] .ai-panel .ai-bubble-end .ant-bubble-content {
   box-shadow: 0 0 0 2px var(--aw-accent-glow);
 }
 
+.review-glossary-btn.ant-btn {
+  margin-left: auto;
+  color: var(--aw-accent);
+}
+
+.glossary-tip {
+  margin: 0 0 10px;
+  color: var(--aw-muted);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.glossary-head,
+.glossary-row {
+  display: grid;
+  grid-template-columns: 140px 120px minmax(0, 1fr) 30px;
+  gap: 6px;
+  align-items: center;
+}
+
+.glossary-head {
+  padding: 0 2px 6px;
+  color: var(--aw-faint);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.glossary-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 46vh;
+  margin-bottom: 10px;
+  overflow: auto;
+}
+
+.glossary-row .ant-btn {
+  justify-self: end;
+}
+
 .review-row:last-of-type {
   border-bottom: 0;
 }
