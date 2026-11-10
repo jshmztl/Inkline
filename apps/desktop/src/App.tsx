@@ -428,6 +428,53 @@ export function App() {
     await refreshWorkspace();
   }
 
+  async function handleDuplicateRequest(id: string) {
+    const source = savedRequests.find((request) => request.id === id);
+    if (!source) return;
+
+    const newId = `request-${Date.now().toString(36)}`;
+    await saveRequest({
+      ...source,
+      id: newId,
+      name: `${source.name} 副本`,
+      sort: Date.now(),
+      updatedAt: null,
+    });
+    const meta = kvGet(`aw-request-meta:${source.id}`);
+    if (meta) kvSet(`aw-request-meta:${newId}`, meta);
+    await refreshWorkspace();
+  }
+
+  async function handleDuplicateCollection(id: string) {
+    const source = collections.find((collection) => collection.id === id);
+    if (!source) return;
+
+    const newCollectionId = `collection-${Date.now().toString(36)}`;
+    await apiSaveCollection({
+      id: newCollectionId,
+      name: `${source.name} 副本`,
+      sort: collections.length,
+    });
+
+    const requests = savedRequests.filter(
+      (request) => (request.collectionId ?? '') === id,
+    );
+    for (const [index, request] of requests.entries()) {
+      const newId = `request-${Date.now().toString(36)}-${index}`;
+      await saveRequest({
+        ...request,
+        id: newId,
+        collectionId: newCollectionId,
+        sort: index,
+        updatedAt: null,
+      });
+      const meta = kvGet(`aw-request-meta:${request.id}`);
+      if (meta) kvSet(`aw-request-meta:${newId}`, meta);
+    }
+
+    await refreshWorkspace();
+  }
+
   async function handleDeleteRequest(id: string) {
     await apiDeleteRequest(id);
     setOpenTabIds((current) => current.filter((tabId) => tabId !== id));
@@ -610,10 +657,12 @@ export function App() {
               onCreateCollection={handleCreateCollection}
               onRenameCollection={handleRenameCollection}
               onMoveCollection={handleMoveCollection}
+              onDuplicateCollection={handleDuplicateCollection}
               onDeleteCollection={handleDeleteCollection}
               onCreateRequest={handleCreateRequest}
               onRenameRequest={handleRenameRequest}
               onMoveRequest={handleMoveRequest}
+              onDuplicateRequest={handleDuplicateRequest}
               onDeleteRequest={handleDeleteRequest}
               onImport={handleImport}
               onRunTests={handleRunTests}

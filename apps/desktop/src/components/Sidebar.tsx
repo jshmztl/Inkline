@@ -58,10 +58,12 @@ interface SidebarProps {
   onCreateCollection: (name: string) => Promise<string>;
   onRenameCollection: (id: string, name: string) => Promise<void>;
   onMoveCollection: (id: string, direction: -1 | 1) => Promise<void>;
+  onDuplicateCollection: (id: string) => Promise<void>;
   onDeleteCollection: (id: string) => Promise<void>;
   onCreateRequest: (collectionId: string) => Promise<void>;
   onRenameRequest: (id: string, name: string) => Promise<void>;
   onMoveRequest: (id: string, direction: -1 | 1) => Promise<void>;
+  onDuplicateRequest: (id: string) => Promise<void>;
   onDeleteRequest: (id: string) => Promise<void>;
   onImport: (raw: string) => Promise<{ name: string; count: number }>;
   onRunTests: (folder: ApiFolder) => void;
@@ -101,10 +103,12 @@ export function Sidebar({
   onCreateCollection,
   onRenameCollection,
   onMoveCollection,
+  onDuplicateCollection,
   onDeleteCollection,
   onCreateRequest,
   onRenameRequest,
   onMoveRequest,
+  onDuplicateRequest,
   onDeleteRequest,
   onImport,
   onRunTests,
@@ -493,6 +497,7 @@ export function Sidebar({
                     },
                     { key: 'test', label: '运行测试集' },
                     { key: 'export', label: '导出集合' },
+                    { key: 'duplicate', label: '复制集合' },
                     { type: 'divider' },
                     { key: 'delete', label: '删除集合', danger: true },
                   ],
@@ -507,6 +512,7 @@ export function Sidebar({
                       });
                     }
                     if (key === 'export') openExport(folder);
+                    if (key === 'duplicate') void onDuplicateCollection(folder.id);
                     if (key === 'move-up') void onMoveCollection(folder.id, -1);
                     if (key === 'move-down') void onMoveCollection(folder.id, 1);
                     if (key === 'test') onRunTests(folder);
@@ -579,6 +585,7 @@ export function Sidebar({
                               disabled: requestIndex === folder.requests.length - 1,
                             },
                             { type: 'divider' },
+                            { key: 'duplicate', label: '复制请求' },
                             { key: 'delete', label: '删除请求', danger: true },
                           ],
                           onClick: ({ key: action, domEvent }) => {
@@ -593,6 +600,7 @@ export function Sidebar({
                             }
                             if (action === 'move-up') void onMoveRequest(request.id, -1);
                             if (action === 'move-down') void onMoveRequest(request.id, 1);
+                            if (action === 'duplicate') void onDuplicateRequest(request.id);
                             if (action === 'delete') confirmDeleteRequest(request);
                           },
                         }}
