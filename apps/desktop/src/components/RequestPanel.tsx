@@ -1233,13 +1233,6 @@ export function RequestPanel({
           popupMatchSelectWidth={false}
           aria-label="协议"
         />
-        {protocol === 'websocket' && (
-          <Tooltip title="WebSocket 已接入应用网络栈，支持自定义请求头与系统根证书；代理和忽略证书校验暂不支持。">
-            <Tag color="orange" style={{ marginInlineEnd: 0 }}>
-              WS · 不走代理
-            </Tag>
-          </Tooltip>
-        )}
         {usesHostTemplate && (
           <Tooltip
             title={

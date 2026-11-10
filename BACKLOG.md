@@ -103,9 +103,9 @@
 
 ### P1-2 WebSocket / SSE 不经过统一请求引擎
 
-- [ ] 代理与客户端证书对 WS/SSE 生效
+- [x] 代理、客户端证书与忽略证书校验对 WS/SSE 生效
 
-**进展**：SSE 已完整接入 Rust 网络栈（代理、客户端证书、忽略证书校验、取消）。WebSocket 已接入 Rust（系统根证书、自定义请求头、收发与关闭），代理与忽略证书校验暂不支持，界面已标注。
+**进展**：SSE 与 WebSocket 均已接入 Rust 网络栈，共用代理、客户端证书（mTLS）与忽略证书校验设置；WS 支持自定义请求头与主动关闭，界面已移除旧的能力限制提示。
 
 **问题**：WS 使用 WebView 原生 `new WebSocket`，SSE 使用 WebView `fetch`，代理与客户端证书只对普通 HTTP 生效；WS 无重连/心跳/二进制帧查看，SSE 只解析 `data:`。证据：`protocol.ts:26-120`。
 
