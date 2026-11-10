@@ -38,6 +38,38 @@ fn normalize_path(path: &str) -> String {
     }
 }
 
+/// 支持静态路径、`:param` 占位与 `*` 通配。
+fn path_matches(pattern: &str, path: &str) -> bool {
+    let normalized_pattern = normalize_path(pattern);
+    let normalized_path = normalize_path(path);
+
+    let pattern_segments: Vec<&str> = normalized_pattern
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect();
+    let path_segments: Vec<&str> = normalized_path
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect();
+
+    let mut index = 0;
+    while index < pattern_segments.len() {
+        let segment = pattern_segments[index];
+        if segment == "*" {
+            return true;
+        }
+        let Some(actual) = path_segments.get(index) else {
+            return false;
+        };
+        if !segment.starts_with(':') && segment != *actual {
+            return false;
+        }
+        index += 1;
+    }
+
+    index == path_segments.len()
+}
+
 fn reason_phrase(status: u16) -> &'static str {
     match status {
         200 => "OK",
@@ -124,7 +156,7 @@ pub async fn start_mock_server(
 
                         let matched = routes.iter().find(|route| {
                             route.method.eq_ignore_ascii_case(&method)
-                                && normalize_path(&route.path) == path
+                                && path_matches(&route.path, &path)
                         });
 
                         let (status, body, content_type) = match matched {
@@ -177,4 +209,20 @@ pub async fn start_mock_server(
 pub fn stop_mock_server(state: State<'_, MockState>) -> Result<(), String> {
     stop_server(&state);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn matches_static_dynamic_and_wildcard_paths() {
+        assert!(path_matches("/users", "/users"));
+        assert!(path_matches("/users/:id", "/users/42"));
+        assert!(path_matches("/users/:id", "/users/42/"));
+        assert!(path_matches("/users/*", "/users/42/profile"));
+        assert!(!path_matches("/users/:id", "/orders/42"));
+        assert!(!path_matches("/users", "/users/42"));
+        assert!(path_matches("/", "/"));
+    }
 }

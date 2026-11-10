@@ -23,6 +23,7 @@ interface MockConfig {
   body: string;
   contentType: string;
   delayMs: number;
+  pathPattern: string;
 }
 
 const STORAGE_KEY = 'aw-mock-config';
@@ -42,6 +43,7 @@ const defaultConfig: MockConfig = {
   body: defaultBody,
   contentType: 'application/json; charset=utf-8',
   delayMs: 0,
+  pathPattern: '',
 };
 
 function readConfigs(): Record<string, MockConfig> {
@@ -123,7 +125,7 @@ export function MockServerModal({ open, onClose }: MockServerModalProps) {
           const config = configFor(request.id);
           return {
             method: request.method,
-            path: routePath(request.url),
+            path: config.pathPattern.trim() || routePath(request.url),
             status: config.status,
             body: config.body,
             contentType: config.contentType,
@@ -264,7 +266,9 @@ export function MockServerModal({ open, onClose }: MockServerModalProps) {
                   }
                 />
                 <MethodTag method={request.method as HttpMethod} />
-                <span className="mock-path mono">{routePath(request.url)}</span>
+                <span className="mock-path mono">
+                  {config.pathPattern.trim() || routePath(request.url)}
+                </span>
                 <span className="mock-name">{request.name}</span>
               </div>
             );
@@ -301,6 +305,16 @@ export function MockServerModal({ open, onClose }: MockServerModalProps) {
                     value={activeConfig.delayMs}
                     onChange={(value) =>
                       updateConfig(active.id, { delayMs: value ?? 0 })
+                    }
+                  />
+                </label>
+                <label className="mock-field-wide">
+                  <span>路径模式（可选）</span>
+                  <Input
+                    value={activeConfig.pathPattern}
+                    placeholder="/users/:id 或 /users/*"
+                    onChange={(event) =>
+                      updateConfig(active.id, { pathPattern: event.target.value })
                     }
                   />
                 </label>
