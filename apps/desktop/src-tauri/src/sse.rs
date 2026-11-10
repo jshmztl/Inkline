@@ -41,10 +41,10 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-fn emit(channel: &Channel<StreamEvent>, kind: &str, payload: &str) {
+pub(crate) fn emit(channel: &Channel<StreamEvent>, kind: &str, payload: &str) {
     let at = now_ms();
     let _ = channel.send(StreamEvent {
-        id: format!("sse-{at}-{kind}"),
+        id: format!("evt-{at}-{kind}"),
         kind: kind.to_string(),
         at,
         payload: payload.to_string(),

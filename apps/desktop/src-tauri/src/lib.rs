@@ -5,6 +5,7 @@ mod mock;
 mod model;
 mod netprobe;
 mod sse;
+mod ws;
 
 use std::sync::Mutex;
 
@@ -19,6 +20,7 @@ pub fn run() {
             app.manage(http::CancelState::default());
             app.manage(http::CookieState::default());
             app.manage(sse::SseState::default());
+            app.manage(ws::WsState::default());
             app.manage(mock::MockState::default());
 
             #[cfg(desktop)]
@@ -36,6 +38,9 @@ pub fn run() {
             http::clear_cookies,
             sse::start_sse_stream,
             sse::cancel_sse,
+            ws::ws_connect,
+            ws::ws_send,
+            ws::ws_close,
             netprobe::probe_network,
             mock::start_mock_server,
             mock::stop_mock_server,

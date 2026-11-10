@@ -105,7 +105,7 @@
 
 - [ ] 代理与客户端证书对 WS/SSE 生效
 
-**进展**：SSE 已接入 Rust 网络栈，代理、客户端证书、忽略证书校验与主动取消均生效；WebSocket 待接入。
+**进展**：SSE 已完整接入 Rust 网络栈（代理、客户端证书、忽略证书校验、取消）。WebSocket 已接入 Rust（系统根证书、自定义请求头、收发与关闭），代理与忽略证书校验暂不支持，界面已标注。
 
 **问题**：WS 使用 WebView 原生 `new WebSocket`，SSE 使用 WebView `fetch`，代理与客户端证书只对普通 HTTP 生效；WS 无重连/心跳/二进制帧查看，SSE 只解析 `data:`。证据：`protocol.ts:26-120`。
 

@@ -553,23 +553,30 @@ export function RequestPanel({
     setConnected(false);
   }
 
-  function connectWebSocket(finalUrl: string) {
+  function connectWebSocket(
+    finalUrl: string,
+    headers: { name: string; value: string }[],
+  ) {
     disconnectStream();
     setStreamEvents([]);
     setError(null);
     setFeedback('WebSocket 连接中…');
     try {
-      socketRef.current = openWebSocket(finalUrl, (event) => {
-        appendStreamEvent(event);
-        if (event.kind === 'open') {
-          setConnected(true);
-          setFeedback('WebSocket 已连接');
-        }
-        if (event.kind === 'close' || event.kind === 'error') {
-          setConnected(false);
-          if (event.kind === 'error') setError(event.payload);
-        }
-      });
+      socketRef.current = openWebSocket(
+        finalUrl,
+        (event) => {
+          appendStreamEvent(event);
+          if (event.kind === 'open') {
+            setConnected(true);
+            setFeedback('WebSocket 已连接');
+          }
+          if (event.kind === 'close' || event.kind === 'error') {
+            setConnected(false);
+            if (event.kind === 'error') setError(event.payload);
+          }
+        },
+        headers,
+      );
     } catch (caught) {
       const text = caught instanceof Error ? caught.message : String(caught);
       setError(text);
@@ -757,7 +764,7 @@ export function RequestPanel({
           setFeedback(null);
           return;
         }
-        connectWebSocket(wsUrl);
+        connectWebSocket(wsUrl, resolvedHeaders.headers);
       } else {
         void startSse(finalUrl, resolvedHeaders.headers);
       }
@@ -1226,10 +1233,10 @@ export function RequestPanel({
           popupMatchSelectWidth={false}
           aria-label="协议"
         />
-        {(protocol === 'websocket' || protocol === 'sse') && (
-          <Tooltip title="WebSocket 与 SSE 使用应用内置网络栈，代理和客户端证书设置暂不生效；A/B/C 网络模式限制仍然生效。">
+        {protocol === 'websocket' && (
+          <Tooltip title="WebSocket 已接入应用网络栈，支持自定义请求头与系统根证书；代理和忽略证书校验暂不支持。">
             <Tag color="orange" style={{ marginInlineEnd: 0 }}>
-              不走代理
+              WS · 不走代理
             </Tag>
           </Tooltip>
         )}

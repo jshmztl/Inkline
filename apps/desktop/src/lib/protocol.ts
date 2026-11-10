@@ -30,7 +30,65 @@ export function nextEventId() {
 export function openWebSocket(
   url: string,
   onEvent: (event: StreamEvent) => void,
+  headers: HeaderPair[] = [],
 ): WebSocketHandle {
+  if (isTauri) {
+    const id = `ws-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const channel = new Channel<StreamEvent>();
+    channel.onmessage = (event) => onEvent(event);
+    let closed = false;
+
+    void invoke('ws_connect', {
+      payload: {
+        id,
+        url,
+        headers,
+        network: readNetworkOptions(),
+      },
+      onEvent: channel,
+    }).catch((error) => {
+      onEvent({
+        id: nextEventId(),
+        kind: 'error',
+        at: Date.now(),
+        payload: error instanceof Error ? error.message : String(error),
+      });
+    });
+
+    return {
+      send: (message: string) => {
+        if (closed) {
+          onEvent({
+            id: nextEventId(),
+            kind: 'error',
+            at: Date.now(),
+            payload: '连接已关闭',
+          });
+          return;
+        }
+        void invoke('ws_send', { id, message }).catch((cause) => {
+          onEvent({
+            id: nextEventId(),
+            kind: 'error',
+            at: Date.now(),
+            payload: cause instanceof Error ? cause.message : String(cause),
+          });
+        });
+        onEvent({
+          id: nextEventId(),
+          kind: 'info',
+          at: Date.now(),
+          payload: `已发送：${message}`,
+        });
+      },
+      close: () => {
+        if (closed) return;
+        closed = true;
+        void invoke('ws_close', { id }).catch(() => undefined);
+      },
+    };
+  }
+
   const socket = new WebSocket(url);
 
   socket.onopen = () => {
