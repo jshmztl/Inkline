@@ -71,6 +71,21 @@ function toApiRequest(saved: SavedRequest): ApiRequest {
   };
 }
 
+function KvErrorNotifier() {
+  const { message } = AntApp.useApp();
+
+  useEffect(() => {
+    function handle(event: Event) {
+      const detail = (event as CustomEvent<string>).detail;
+      message.error({ content: `本地设置保存失败：${detail}`, duration: 4 });
+    }
+    window.addEventListener('aw-kv-error', handle);
+    return () => window.removeEventListener('aw-kv-error', handle);
+  }, [message]);
+
+  return null;
+}
+
 export function App() {
   const [session, setSession] = useState<Session | null>(readSession);
   const [mode, setMode] = useState<ThemeMode>(readStoredMode);
@@ -482,6 +497,7 @@ export function App() {
     return (
       <AntProvider mode={mode} density={density}>
         <AntApp className="ant-app-root">
+          <KvErrorNotifier />
           <LoginScreen onSignedIn={setSession} />
         </AntApp>
       </AntProvider>
@@ -491,6 +507,7 @@ export function App() {
   return (
     <AntProvider mode={mode} density={density}>
       <AntApp className="ant-app-root">
+        <KvErrorNotifier />
         <div className="app-shell">
           <TopBar
             mode={mode}

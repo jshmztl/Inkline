@@ -16,6 +16,20 @@ const cache = new Map<string, string>();
 const pending = new Set<string>();
 const removed = new Set<string>();
 let flushTimer: number | null = null;
+let lastErrorAt = 0;
+
+function notifyError(error: unknown) {
+  const now = Date.now();
+  if (now - lastErrorAt < 60_000) return;
+  lastErrorAt = now;
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('aw-kv-error', {
+        detail: error instanceof Error ? error.message : String(error),
+      }),
+    );
+  }
+}
 
 function readLegacyStorage(): Record<string, string> {
   const entries: Record<string, string> = {};
@@ -143,6 +157,7 @@ export async function flushKv(): Promise<void> {
     for (const key of Object.keys(entries)) pending.add(key);
     for (const key of removeKeys) removed.add(key);
     console.warn('保存本地设置失败，稍后重试', error);
+    notifyError(error);
     if (flushTimer === null) {
       flushTimer = window.setTimeout(() => {
         flushTimer = null;
