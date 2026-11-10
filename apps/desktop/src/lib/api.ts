@@ -50,6 +50,7 @@ export interface SavedRequest {
   body: string | null;
   dataLevel: string;
   collectionId?: string;
+  sort?: number;
   updatedAt: string | null;
 }
 
@@ -303,7 +304,11 @@ export async function listRequests(): Promise<SavedRequest[]> {
   }
 
   cleanupLegacySeed();
-  return readJson<SavedRequest[]>(SAVED_KEY, []);
+  return readJson<SavedRequest[]>(SAVED_KEY, []).sort(
+    (left, right) =>
+      (left.sort ?? 0) - (right.sort ?? 0) ||
+      (right.updatedAt ?? '').localeCompare(left.updatedAt ?? ''),
+  );
 }
 
 export async function deleteRequest(id: string): Promise<void> {

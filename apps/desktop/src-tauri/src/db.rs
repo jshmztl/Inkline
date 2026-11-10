@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS requests (
     body          TEXT,
     data_level    TEXT NOT NULL DEFAULT 'L1',
     collection_id TEXT NOT NULL DEFAULT 'payment',
+    sort          INTEGER NOT NULL DEFAULT 0,
     updated_at    TEXT NOT NULL
 );
 
@@ -86,6 +87,13 @@ pub fn open(app: &AppHandle) -> Result<Connection, Box<dyn std::error::Error>> {
     if !column_exists(&connection, "requests", "collection_id")? {
         connection.execute(
             "ALTER TABLE requests ADD COLUMN collection_id TEXT NOT NULL DEFAULT 'payment'",
+            [],
+        )?;
+    }
+
+    if !column_exists(&connection, "requests", "sort")? {
+        connection.execute(
+            "ALTER TABLE requests ADD COLUMN sort INTEGER NOT NULL DEFAULT 0",
             [],
         )?;
     }
@@ -189,6 +197,7 @@ pub struct SavedRequest {
     pub body: Option<String>,
     pub data_level: String,
     pub collection_id: Option<String>,
+    pub sort: Option<i64>,
     pub updated_at: Option<String>,
 }
 
@@ -286,12 +295,13 @@ pub fn save_request(
         .clone()
         .unwrap_or_else(|| Utc::now().to_rfc3339());
     let collection_id = request.collection_id.clone().unwrap_or_else(|| "payment".into());
+    let requested_sort = request.sort;
 
     connection
         .execute(
             "INSERT INTO requests
-             (id, name, method, url, headers, body, data_level, collection_id, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+             (id, name, method, url, headers, body, data_level, collection_id, sort, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, COALESCE(?9, 0), ?10)
              ON CONFLICT(id) DO UPDATE SET
                name = excluded.name,
                method = excluded.method,
@@ -300,6 +310,7 @@ pub fn save_request(
                body = excluded.body,
                data_level = excluded.data_level,
                collection_id = excluded.collection_id,
+               sort = COALESCE(?9, requests.sort),
                updated_at = excluded.updated_at",
             params![
                 &request.id,
@@ -310,13 +321,23 @@ pub fn save_request(
                 &request.body,
                 &request.data_level,
                 &collection_id,
+                requested_sort,
                 &updated_at,
             ],
         )
         .map_err(|error| error.to_string())?;
 
+    let sort: i64 = connection
+        .query_row(
+            "SELECT sort FROM requests WHERE id = ?1",
+            params![&request.id],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+
     Ok(SavedRequest {
         collection_id: Some(collection_id),
+        sort: Some(sort),
         updated_at: Some(updated_at),
         ..request
     })
@@ -327,8 +348,8 @@ pub fn list_requests(state: State<'_, DbState>) -> Result<Vec<SavedRequest>, Str
     let connection = state.0.lock().map_err(|error| error.to_string())?;
     let mut statement = connection
         .prepare(
-            "SELECT id, name, method, url, headers, body, data_level, collection_id, updated_at
-             FROM requests ORDER BY updated_at DESC",
+            "SELECT id, name, method, url, headers, body, data_level, collection_id, sort, updated_at
+             FROM requests ORDER BY sort, updated_at DESC",
         )
         .map_err(|error| error.to_string())?;
 
@@ -344,7 +365,8 @@ pub fn list_requests(state: State<'_, DbState>) -> Result<Vec<SavedRequest>, Str
                 body: row.get(5)?,
                 data_level: row.get(6)?,
                 collection_id: Some(row.get(7)?),
-                updated_at: Some(row.get(8)?),
+                sort: Some(row.get(8)?),
+                updated_at: Some(row.get(9)?),
             })
         })
         .map_err(|error| error.to_string())?;

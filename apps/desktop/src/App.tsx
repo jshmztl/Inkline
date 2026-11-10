@@ -360,6 +360,7 @@ export function App() {
       body: null,
       dataLevel: 'L1',
       collectionId,
+      sort: Date.now(),
       updatedAt: null,
     });
     await refreshWorkspace();
@@ -391,6 +392,42 @@ export function App() {
     await refreshWorkspace();
   }
 
+  async function handleMoveCollection(id: string, direction: -1 | 1) {
+    const index = collections.findIndex((collection) => collection.id === id);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= collections.length) return;
+
+    const reordered = [...collections];
+    [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+    await Promise.all(
+      reordered.map((collection, order) =>
+        apiSaveCollection({ ...collection, sort: order }),
+      ),
+    );
+    await refreshWorkspace();
+  }
+
+  async function handleMoveRequest(id: string, direction: -1 | 1) {
+    const source = savedRequests.find((request) => request.id === id);
+    if (!source) return;
+
+    const group = savedRequests.filter(
+      (request) => (request.collectionId ?? '') === (source.collectionId ?? ''),
+    );
+    const index = group.findIndex((request) => request.id === id);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= group.length) return;
+
+    const reordered = [...group];
+    [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+    await Promise.all(
+      reordered.map((request, order) =>
+        saveRequest({ ...request, sort: order, updatedAt: request.updatedAt }),
+      ),
+    );
+    await refreshWorkspace();
+  }
+
   async function handleDeleteRequest(id: string) {
     await apiDeleteRequest(id);
     setOpenTabIds((current) => current.filter((tabId) => tabId !== id));
@@ -415,6 +452,7 @@ export function App() {
         body: request.body,
         dataLevel: 'L1',
         collectionId,
+        sort: index,
         updatedAt: null,
       });
     }
@@ -571,9 +609,11 @@ export function App() {
               onMerged={handleMerged}
               onCreateCollection={handleCreateCollection}
               onRenameCollection={handleRenameCollection}
+              onMoveCollection={handleMoveCollection}
               onDeleteCollection={handleDeleteCollection}
               onCreateRequest={handleCreateRequest}
               onRenameRequest={handleRenameRequest}
+              onMoveRequest={handleMoveRequest}
               onDeleteRequest={handleDeleteRequest}
               onImport={handleImport}
               onRunTests={handleRunTests}

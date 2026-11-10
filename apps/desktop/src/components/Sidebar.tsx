@@ -57,9 +57,11 @@ interface SidebarProps {
   onMerged: () => void;
   onCreateCollection: (name: string) => Promise<string>;
   onRenameCollection: (id: string, name: string) => Promise<void>;
+  onMoveCollection: (id: string, direction: -1 | 1) => Promise<void>;
   onDeleteCollection: (id: string) => Promise<void>;
   onCreateRequest: (collectionId: string) => Promise<void>;
   onRenameRequest: (id: string, name: string) => Promise<void>;
+  onMoveRequest: (id: string, direction: -1 | 1) => Promise<void>;
   onDeleteRequest: (id: string) => Promise<void>;
   onImport: (raw: string) => Promise<{ name: string; count: number }>;
   onRunTests: (folder: ApiFolder) => void;
@@ -98,9 +100,11 @@ export function Sidebar({
   onMerged,
   onCreateCollection,
   onRenameCollection,
+  onMoveCollection,
   onDeleteCollection,
   onCreateRequest,
   onRenameRequest,
+  onMoveRequest,
   onDeleteRequest,
   onImport,
   onRunTests,
@@ -466,7 +470,7 @@ export function Sidebar({
           <span className="sidebar-count">{folders.length}</span>
         </div>
 
-        {filtered.map((folder) => {
+        {filtered.map((folder, folderIndex) => {
           const isCollapsed = collapsed[folder.id] ?? false;
           return (
             <div className="folder" key={folder.id}>
@@ -477,6 +481,16 @@ export function Sidebar({
                   items: [
                     { key: 'new', label: '新建请求', icon: <PlusOutlined /> },
                     { key: 'rename', label: '重命名集合' },
+                    {
+                      key: 'move-up',
+                      label: '上移',
+                      disabled: folderIndex === 0,
+                    },
+                    {
+                      key: 'move-down',
+                      label: '下移',
+                      disabled: folderIndex === filtered.length - 1,
+                    },
                     { key: 'test', label: '运行测试集' },
                     { key: 'export', label: '导出集合' },
                     { type: 'divider' },
@@ -493,6 +507,8 @@ export function Sidebar({
                       });
                     }
                     if (key === 'export') openExport(folder);
+                    if (key === 'move-up') void onMoveCollection(folder.id, -1);
+                    if (key === 'move-down') void onMoveCollection(folder.id, 1);
                     if (key === 'test') onRunTests(folder);
                     if (key === 'delete') confirmDeleteCollection(folder);
                   },
@@ -542,7 +558,7 @@ export function Sidebar({
 
               {!isCollapsed && (
                 <div className="folder-body">
-                  {folder.requests.map((request) => {
+                  {folder.requests.map((request, requestIndex) => {
                     const saved = savedMap.get(request.id);
                     return (
                       <div className="request-row-wrap" key={request.id}>
@@ -552,6 +568,16 @@ export function Sidebar({
                           items: [
                             { key: 'new', label: '新建请求', icon: <PlusOutlined /> },
                             { key: 'rename', label: '重命名请求' },
+                            {
+                              key: 'move-up',
+                              label: '上移',
+                              disabled: requestIndex === 0,
+                            },
+                            {
+                              key: 'move-down',
+                              label: '下移',
+                              disabled: requestIndex === folder.requests.length - 1,
+                            },
                             { type: 'divider' },
                             { key: 'delete', label: '删除请求', danger: true },
                           ],
@@ -565,6 +591,8 @@ export function Sidebar({
                                 value: request.name,
                               });
                             }
+                            if (action === 'move-up') void onMoveRequest(request.id, -1);
+                            if (action === 'move-down') void onMoveRequest(request.id, 1);
                             if (action === 'delete') confirmDeleteRequest(request);
                           },
                         }}
