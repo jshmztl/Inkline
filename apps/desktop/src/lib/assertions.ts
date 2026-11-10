@@ -8,6 +8,8 @@ export type AssertionOperator =
   | 'equals'
   | 'notEquals'
   | 'contains'
+  | 'matches'
+  | 'typeIs'
   | 'gt'
   | 'lt';
 
@@ -34,6 +36,8 @@ export const assertionOperators: { value: AssertionOperator; label: string }[] =
   { value: 'equals', label: '等于' },
   { value: 'notEquals', label: '不等于' },
   { value: 'contains', label: '包含' },
+  { value: 'matches', label: '匹配正则' },
+  { value: 'typeIs', label: '类型为' },
   { value: 'gt', label: '大于' },
   { value: 'lt', label: '小于' },
 ];
@@ -107,6 +111,23 @@ export function evaluateAssertions(
         case 'contains':
           passed = actualText.includes(expected);
           break;
+        case 'matches':
+          try {
+            passed = new RegExp(expected).test(actualText);
+          } catch {
+            passed = false;
+          }
+          break;
+        case 'typeIs': {
+          const actualType =
+            actual === null
+              ? 'null'
+              : Array.isArray(actual)
+                ? 'array'
+                : typeof actual;
+          passed = actualType === expected.toLowerCase();
+          break;
+        }
         case 'gt':
           passed = Number(actualText) > Number(expected);
           break;

@@ -41,4 +41,18 @@ describe('assertions', () => {
 
     expect(results).toHaveLength(0);
   });
+
+  it('支持正则与类型断言', () => {
+    const results = evaluateAssertions(
+      [
+        { id: '1', path: 'body.ok', operator: 'matches', expected: '^(true|false)$', enabled: true },
+        { id: '2', path: 'body.data.tags', operator: 'typeIs', expected: 'array', enabled: true },
+        { id: '3', path: 'body.data.id', operator: 'typeIs', expected: 'number', enabled: true },
+        { id: '4', path: 'body.missing', operator: 'typeIs', expected: 'undefined', enabled: true },
+      ],
+      response,
+    );
+
+    expect(results.every((item) => item.passed)).toBe(true);
+  });
 });

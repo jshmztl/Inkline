@@ -18,6 +18,8 @@ pub struct StreamEvent {
     pub kind: String,
     pub at: u64,
     pub payload: String,
+    pub label: Option<String>,
+    pub event_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -42,12 +44,24 @@ fn now_ms() -> u64 {
 }
 
 pub(crate) fn emit(channel: &Channel<StreamEvent>, kind: &str, payload: &str) {
+    emit_event(channel, kind, payload, None, None);
+}
+
+pub(crate) fn emit_event(
+    channel: &Channel<StreamEvent>,
+    kind: &str,
+    payload: &str,
+    label: Option<String>,
+    event_id: Option<String>,
+) {
     let at = now_ms();
     let _ = channel.send(StreamEvent {
         id: format!("evt-{at}-{kind}"),
         kind: kind.to_string(),
         at,
         payload: payload.to_string(),
+        label,
+        event_id,
     });
 }
 
@@ -71,13 +85,33 @@ fn find_event_boundary(buffer: &[u8]) -> Option<(usize, usize)> {
     None
 }
 
-fn parse_event_data(raw: &[u8]) -> String {
+struct ParsedEvent {
+    data: String,
+    event: Option<String>,
+    id: Option<String>,
+}
+
+fn parse_event(raw: &[u8]) -> ParsedEvent {
     let text = String::from_utf8_lossy(raw);
-    text.lines()
-        .filter_map(|line| line.strip_prefix("data:"))
-        .map(|line| line.strip_prefix(' ').unwrap_or(line))
-        .collect::<Vec<_>>()
-        .join("\n")
+    let mut data: Vec<&str> = Vec::new();
+    let mut event = None;
+    let mut id = None;
+
+    for line in text.lines() {
+        if let Some(value) = line.strip_prefix("data:") {
+            data.push(value.strip_prefix(' ').unwrap_or(value));
+        } else if let Some(value) = line.strip_prefix("event:") {
+            event = Some(value.trim().to_string());
+        } else if let Some(value) = line.strip_prefix("id:") {
+            id = Some(value.trim().to_string());
+        }
+    }
+
+    ParsedEvent {
+        data: data.join("\n"),
+        event,
+        id,
+    }
 }
 
 #[tauri::command]
@@ -192,9 +226,15 @@ pub async fn start_sse_stream(
                             while let Some((boundary, length)) = find_event_boundary(&buffer) {
                                 let raw: Vec<u8> = buffer.drain(..boundary).collect();
                                 buffer.drain(..length);
-                                let data = parse_event_data(&raw);
-                                if !data.is_empty() {
-                                    emit(&on_event, "message", &data);
+                                let parsed = parse_event(&raw);
+                                if !parsed.data.is_empty() || parsed.event.is_some() {
+                                    emit_event(
+                                        &on_event,
+                                        "message",
+                                        &parsed.data,
+                                        parsed.event,
+                                        parsed.id,
+                                    );
                                 }
                             }
                         }
@@ -240,7 +280,7 @@ mod tests {
         let (boundary, length) = find_event_boundary(buffer).expect("first boundary");
         assert_eq!(&buffer[..boundary], b"data: hello");
         assert_eq!(length, 2);
-        assert_eq!(parse_event_data(&buffer[..boundary]), "hello");
+        assert_eq!(parse_event(&buffer[..boundary]).data, "hello");
     }
 
     #[test]
@@ -248,6 +288,14 @@ mod tests {
         let buffer = b"data: line1\r\ndata: line2\r\n\r\n";
         let (boundary, length) = find_event_boundary(buffer).expect("boundary");
         assert_eq!(length, 4);
-        assert_eq!(parse_event_data(&buffer[..boundary]), "line1\nline2");
+        assert_eq!(parse_event(&buffer[..boundary]).data, "line1\nline2");
+    }
+
+    #[test]
+    fn parses_event_name_and_id() {
+        let parsed = parse_event(b"event: update\nid: 42\ndata: payload");
+        assert_eq!(parsed.event.as_deref(), Some("update"));
+        assert_eq!(parsed.id.as_deref(), Some("42"));
+        assert_eq!(parsed.data, "payload");
     }
 }

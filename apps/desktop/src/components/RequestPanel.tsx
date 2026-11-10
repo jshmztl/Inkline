@@ -1991,6 +1991,14 @@ export function RequestPanel({
                                   ? 'CLOSE'
                                   : 'INFO'}
                         </span>
+                        {event.label && (
+                          <span
+                            className="stream-label"
+                            title={event.eventId ? `事件 ID：${event.eventId}` : undefined}
+                          >
+                            {event.label}
+                          </span>
+                        )}
                       </div>
                       <pre>{event.payload}</pre>
                     </div>

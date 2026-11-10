@@ -13,6 +13,8 @@ export interface StreamEvent {
   kind: StreamEventKind;
   at: number;
   payload: string;
+  label?: string;
+  eventId?: string;
 }
 
 export interface WebSocketHandle {

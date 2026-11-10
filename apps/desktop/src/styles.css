@@ -1635,6 +1635,15 @@ html[data-theme='dark'] .method-option.method-delete {
   letter-spacing: 0.06em;
 }
 
+.stream-label {
+  margin-left: 6px;
+  padding: 0 6px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  font-size: 11px;
+  opacity: 0.75;
+}
+
 .stream-event pre {
   margin: 2px 0 0;
   font-family: inherit;

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use futures_util::{SinkExt, StreamExt};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
@@ -133,7 +134,9 @@ fn build_connector(network: Option<&NetworkOptions>) -> Result<Connector, String
     Ok(Connector::Rustls(Arc::new(config)))
 }
 
-fn proxy_address(network: Option<&NetworkOptions>) -> Result<Option<(String, u16)>, String> {
+fn proxy_address(
+    network: Option<&NetworkOptions>,
+) -> Result<Option<(String, u16, Option<String>)>, String> {
     let Some(proxy) = network
         .and_then(|options| options.proxy.as_deref())
         .map(str::trim)
@@ -146,20 +149,24 @@ fn proxy_address(network: Option<&NetworkOptions>) -> Result<Option<(String, u16
     if url.scheme() != "http" {
         return Err("WebSocket 仅支持 HTTP 代理".to_string());
     }
-    if !url.username().is_empty() || url.password().is_some() {
-        return Err("WebSocket 代理暂不支持用户名密码认证".to_string());
-    }
 
     let host = url
         .host_str()
         .ok_or_else(|| "代理地址缺少主机名".to_string())?
         .to_string();
     let port = url.port_or_known_default().unwrap_or(8080);
-    Ok(Some((host, port)))
+    let auth = if url.username().is_empty() && url.password().is_none() {
+        None
+    } else {
+        let raw = format!("{}:{}", url.username(), url.password().unwrap_or(""));
+        Some(format!("Basic {}", STANDARD.encode(raw.as_bytes())))
+    };
+
+    Ok(Some((host, port, auth)))
 }
 
 async fn connect_proxy_tunnel(
-    proxy: (String, u16),
+    proxy: (String, u16, Option<String>),
     host: &str,
     port: u16,
 ) -> Result<TcpStream, String> {
@@ -167,9 +174,14 @@ async fn connect_proxy_tunnel(
         .await
         .map_err(|error| format!("连接代理失败：{error}"))?;
 
-    let request = format!(
-        "CONNECT {host}:{port} HTTP/1.1\r\nHost: {host}:{port}\r\nProxy-Connection: keep-alive\r\n\r\n"
+    let mut request = format!(
+        "CONNECT {host}:{port} HTTP/1.1\r\nHost: {host}:{port}\r\nProxy-Connection: keep-alive\r\n"
     );
+    if let Some(auth) = proxy.2 {
+        request.push_str(&format!("Proxy-Authorization: {auth}\r\n"));
+    }
+    request.push_str("\r\n");
+
     stream
         .write_all(request.as_bytes())
         .await
@@ -283,6 +295,7 @@ pub async fn ws_connect(
 
     let connections = state.0.clone();
     let stream_id = payload.id.clone();
+    let pong_sender = sender.clone();
 
     tauri::async_runtime::spawn(async move {
         loop {
@@ -303,7 +316,10 @@ pub async fn ws_connect(
                     emit(&on_event, "close", &text);
                     break;
                 }
-                Some(Ok(Message::Ping(_))) | Some(Ok(Message::Pong(_))) => {}
+                Some(Ok(Message::Ping(payload))) => {
+                    let _ = pong_sender.send(Message::Pong(payload));
+                }
+                Some(Ok(Message::Pong(_))) => {}
                 Some(Ok(Message::Frame(_))) => {}
                 Some(Err(error)) => {
                     emit(&on_event, "error", &format!("WebSocket 错误：{error}"));
@@ -360,16 +376,27 @@ mod tests {
     fn parses_http_proxy_address() {
         let network = network_with_proxy("http://127.0.0.1:7890");
         let parsed = proxy_address(Some(&network)).expect("proxy should parse");
-        assert_eq!(parsed, Some(("127.0.0.1".to_string(), 7890)));
+        assert_eq!(
+            parsed,
+            Some(("127.0.0.1".to_string(), 7890, None))
+        );
     }
 
     #[test]
-    fn rejects_non_http_and_authenticated_proxy() {
+    fn parses_authenticated_proxy() {
+        let network = network_with_proxy("http://user:pass@127.0.0.1:7890");
+        let parsed = proxy_address(Some(&network))
+            .expect("proxy should parse")
+            .expect("proxy should exist");
+        assert_eq!(parsed.0, "127.0.0.1");
+        assert_eq!(parsed.1, 7890);
+        assert_eq!(parsed.2.as_deref(), Some("Basic dXNlcjpwYXNz"));
+    }
+
+    #[test]
+    fn rejects_non_http_proxy() {
         let https = network_with_proxy("https://127.0.0.1:7890");
         assert!(proxy_address(Some(&https)).is_err());
-
-        let authenticated = network_with_proxy("http://user:pass@127.0.0.1:7890");
-        assert!(proxy_address(Some(&authenticated)).is_err());
     }
 
     #[test]
