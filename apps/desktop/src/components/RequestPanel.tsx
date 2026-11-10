@@ -41,7 +41,7 @@ import {
   type WebSocketHandle,
 } from '../lib/protocol';
 import { resolveHeaders, resolveTemplate } from '../lib/variables';
-import { checkNetworkAccess } from '../lib/networkPolicy';
+import { checkNetworkAccessResolved } from '../lib/networkPolicy';
 import {
   assertionOperators,
   evaluateAssertions,
@@ -742,7 +742,7 @@ export function RequestPanel({
         setFeedback('已断开连接');
         return;
       }
-      const access = checkNetworkAccess(finalUrl, networkMode);
+      const access = await checkNetworkAccessResolved(finalUrl, networkMode);
       if (!access.allowed) {
         setError(access.reason);
         setFeedback(null);
@@ -846,7 +846,7 @@ export function RequestPanel({
       return;
     }
 
-    const access = checkNetworkAccess(finalUrl, networkMode);
+    const access = await checkNetworkAccessResolved(finalUrl, networkMode);
     if (!access.allowed) {
       setError(access.reason);
       setFeedback(null);

@@ -3,6 +3,7 @@ mod db;
 mod http;
 mod mock;
 mod model;
+mod netprobe;
 
 use std::sync::Mutex;
 
@@ -29,6 +30,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             http::send_http_request,
             http::cancel_http_request,
+            netprobe::probe_network,
             mock::start_mock_server,
             mock::stop_mock_server,
             ai::ai_chat,

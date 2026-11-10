@@ -53,7 +53,7 @@ export function StatusBar({
   async function handleRetry(task: QueuedTask) {
     setRetrying(task.id);
     try {
-      const result = await retryTask(task);
+      const result = await retryTask(task, networkMode);
       await recordHistory({
         method: task.method,
         url: task.url,
@@ -81,7 +81,7 @@ export function StatusBar({
   async function handleRetryAll() {
     setRetryingAll(true);
     try {
-      const result = await retryQueue();
+      const result = await retryQueue(networkMode);
       if (result.success > 0) {
         recordAudit({
           type: 'request',

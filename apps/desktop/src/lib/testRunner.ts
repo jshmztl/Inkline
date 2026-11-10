@@ -5,7 +5,9 @@ import {
   type AssertionRow,
   type AssertionResult,
 } from './assertions';
+import { checkNetworkAccessResolved } from './networkPolicy';
 import { resolveTemplate } from './variables';
+import type { NetworkMode } from '../data/types';
 
 export interface TestCaseResult {
   id: string;
@@ -29,6 +31,7 @@ function missingNames(names: string[]) {
 export async function runCollectionTests(
   collectionId: string,
   variables: Record<string, string>,
+  networkMode: NetworkMode,
 ): Promise<TestCaseResult[]> {
   const requests = (await listRequests()).filter(
     (request) => (request.collectionId ?? 'payment') === collectionId,
@@ -88,6 +91,17 @@ export async function runCollectionTests(
 
     const configured = readAssertionRows(request.id);
     const rows = configured.length > 0 ? configured : defaultAssertions;
+
+    const access = await checkNetworkAccessResolved(resolvedUrl.value, networkMode);
+    if (!access.allowed) {
+      results.push({
+        ...base,
+        url: resolvedUrl.value,
+        error: access.reason,
+        assertions: [],
+      });
+      continue;
+    }
 
     try {
       const response = await sendHttpRequest({

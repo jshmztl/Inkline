@@ -464,7 +464,7 @@ export function App() {
   async function handleRunTests(folder: ApiFolder) {
     setTestRun({ name: folder.name, running: true, results: [] });
     try {
-      const results = await runCollectionTests(folder.id, currentVariables);
+      const results = await runCollectionTests(folder.id, currentVariables, networkMode);
       setTestRun({ name: folder.name, running: false, results });
     } catch {
       setTestRun({ name: folder.name, running: false, results: [] });

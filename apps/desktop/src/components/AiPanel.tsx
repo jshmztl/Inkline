@@ -36,7 +36,7 @@ import { AiGatewayModal } from './AiGatewayModal';
 import { preflightEgress } from '../lib/egress';
 import { recordAudit } from '../lib/audit';
 import { resolveModelRoute } from '../lib/modelRoute';
-import { checkNetworkAccess } from '../lib/networkPolicy';
+import { checkNetworkAccessResolved, type NetworkAccess } from '../lib/networkPolicy';
 import {
   chatWithGateway,
   chatWithGatewayStream,
@@ -124,10 +124,20 @@ export function AiPanel({
     () => resolveModelRoute(networkMode, activeRequest.dataLevel),
     [networkMode, activeRequest.dataLevel],
   );
-  const gatewayAccess = useMemo(() => {
+  const [gatewayAccess, setGatewayAccess] = useState<NetworkAccess | null>(null);
+  useEffect(() => {
     const baseUrl = gatewayConfig.baseUrl.trim();
-    if (!baseUrl) return null;
-    return checkNetworkAccess(baseUrl, networkMode);
+    if (!baseUrl) {
+      setGatewayAccess(null);
+      return;
+    }
+    let cancelled = false;
+    void checkNetworkAccessResolved(baseUrl, networkMode).then((access) => {
+      if (!cancelled) setGatewayAccess(access);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [gatewayConfig.baseUrl, networkMode]);
   const routeBlocked = !route.allowed || (gatewayAccess ? !gatewayAccess.allowed : false);
   const routeReason = !route.allowed
@@ -275,7 +285,7 @@ export function AiPanel({
       .join('\n\n');
   }
 
-  function runAiAction(
+  async function runAiAction(
     action: 'task' | 'descriptions' | 'tests' | 'chat',
     chatText = '',
   ) {
@@ -285,7 +295,7 @@ export function AiPanel({
     }
     const baseUrl = readGatewayConfig().baseUrl.trim();
     if (baseUrl) {
-      const access = checkNetworkAccess(baseUrl, networkMode);
+      const access = await checkNetworkAccessResolved(baseUrl, networkMode);
       if (!access.allowed) {
         message.error(access.reason);
         return;
@@ -321,7 +331,7 @@ export function AiPanel({
 
   function runTask() {
     if (!task) return;
-    runAiAction('task');
+    void runAiAction('task');
   }
 
   function openGlossary() {
@@ -497,7 +507,7 @@ export function AiPanel({
     const text = composer.trim();
     if (!text || streaming) return;
     setComposer('');
-    runAiAction('chat', text);
+    void runAiAction('chat', text);
   }
 
   function downloadDoc(format: 'markdown' | 'openapi') {

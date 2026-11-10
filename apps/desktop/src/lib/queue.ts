@@ -1,5 +1,7 @@
 import { sendHttpRequest, type HeaderPair, type SendResponse } from './api';
+import { checkNetworkAccessResolved } from './networkPolicy';
 import { readNetworkOptions } from './network';
+import type { NetworkMode } from '../data/types';
 
 export interface QueuedTask {
   id: string;
@@ -67,8 +69,13 @@ export function queueCount() {
   return readQueue().length;
 }
 
-export async function retryTask(task: QueuedTask): Promise<SendResponse> {
+export async function retryTask(
+  task: QueuedTask,
+  networkMode: NetworkMode,
+): Promise<SendResponse> {
   try {
+    const access = await checkNetworkAccessResolved(task.url, networkMode);
+    if (!access.allowed) throw new Error(access.reason);
     const result = await sendHttpRequest({
       method: task.method,
       url: task.url,
@@ -92,13 +99,13 @@ export async function retryTask(task: QueuedTask): Promise<SendResponse> {
   }
 }
 
-export async function retryQueue() {
+export async function retryQueue(networkMode: NetworkMode) {
   const tasks = readQueue();
   let success = 0;
   let failed = 0;
   for (const task of tasks) {
     try {
-      await retryTask(task);
+      await retryTask(task, networkMode);
       success += 1;
     } catch {
       failed += 1;
