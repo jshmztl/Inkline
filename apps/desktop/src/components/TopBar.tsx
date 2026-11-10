@@ -45,14 +45,14 @@ const auditFilters: { label: string; value: AuditFilter }[] = [
   { label: '请求', value: 'request' },
   { label: 'AI', value: 'ai-task' },
   { label: '出网', value: 'egress' },
-  { label: '同步', value: 'sync' },
+  { label: '本机快照', value: 'sync' },
 ];
 
 const auditTypeLabel: Record<AuditType, string> = {
   request: '请求',
   'ai-task': 'AI',
   egress: '出网',
-  sync: '同步',
+  sync: '本机快照',
 };
 
 function formatAuditTime(value: string) {

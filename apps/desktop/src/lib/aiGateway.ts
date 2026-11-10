@@ -1,3 +1,5 @@
+import { kvGet, kvSet } from './kv';
+
 export type AiProvider = 'deepseek' | 'qwen-cloud' | 'qwen-ollama' | 'qwen-vllm' | 'custom';
 
 export interface AiGatewayConfig {
@@ -72,7 +74,7 @@ export const defaultGatewayConfig: AiGatewayConfig = {
 
 export function readGatewayConfig(): AiGatewayConfig {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = kvGet(STORAGE_KEY);
     if (!raw) return { ...defaultGatewayConfig };
     const parsed = JSON.parse(raw) as Partial<AiGatewayConfig>;
     return { ...defaultGatewayConfig, ...parsed };
@@ -83,7 +85,7 @@ export function readGatewayConfig(): AiGatewayConfig {
 
 export function writeGatewayConfig(config: AiGatewayConfig) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+    kvSet(STORAGE_KEY, JSON.stringify(config));
   } catch {
     // 本地存储不可用时仅保留内存配置。
   }

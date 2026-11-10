@@ -1,3 +1,5 @@
+import { kvGet, kvSet } from './kv';
+
 export interface WorkspaceEnvironment {
   value: string;
   label: string;
@@ -27,7 +29,7 @@ function sanitize(list: WorkspaceEnvironment[]) {
 
 export function listEnvironments(): WorkspaceEnvironment[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = kvGet(STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as WorkspaceEnvironment[];
     if (!Array.isArray(parsed)) return [];
@@ -43,7 +45,7 @@ export function listEnvironments(): WorkspaceEnvironment[] {
 
 export function writeEnvironments(list: WorkspaceEnvironment[]) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    kvSet(STORAGE_KEY, JSON.stringify(list));
   } catch {
     // 存储不可用时仅对本次会话生效。
   }

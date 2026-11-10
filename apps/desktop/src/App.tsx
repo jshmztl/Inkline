@@ -18,6 +18,7 @@ import {
 } from './lib/api';
 import type { RequestContext } from './lib/docTask';
 import { listEnvironments, saveEnvironmentVariables, writeEnvironments } from './lib/envStore';
+import { kvGet, kvSet } from './lib/kv';
 import { parseImport } from './lib/importer';
 import {
   collectLocalDocuments,
@@ -47,11 +48,11 @@ const CommandPalette = lazy(() =>
 );
 
 function readStoredMode(): ThemeMode {
-  return localStorage.getItem('aw-theme') === 'dark' ? 'dark' : 'light';
+  return kvGet('aw-theme') === 'dark' ? 'dark' : 'light';
 }
 
 function readStoredDensity(): Density {
-  const stored = localStorage.getItem('aw-density');
+  const stored = kvGet('aw-density');
   if (stored === 'compact' || stored === 'comfortable') return stored;
   return 'default';
 }
@@ -223,12 +224,12 @@ export function App() {
   function toggleMode() {
     const next = mode === 'light' ? 'dark' : 'light';
     setMode(next);
-    localStorage.setItem('aw-theme', next);
+    kvSet('aw-theme', next);
   }
 
   function changeDensity(next: Density) {
     setDensity(next);
-    localStorage.setItem('aw-density', next);
+    kvSet('aw-density', next);
   }
 
   function selectRequest(request: ApiRequest) {

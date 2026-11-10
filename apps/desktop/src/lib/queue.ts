@@ -1,4 +1,5 @@
 import { sendHttpRequest, type HeaderPair, type SendResponse } from './api';
+import { kvGet, kvSet } from './kv';
 import { checkNetworkAccessResolved } from './networkPolicy';
 import { readNetworkOptions } from './network';
 import type { NetworkMode } from '../data/types';
@@ -22,7 +23,7 @@ const MAX_TASKS = 50;
 
 function readQueue(): QueuedTask[] {
   try {
-    const raw = localStorage.getItem(QUEUE_KEY);
+    const raw = kvGet(QUEUE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as QueuedTask[];
     return Array.isArray(parsed) ? parsed : [];
@@ -33,7 +34,7 @@ function readQueue(): QueuedTask[] {
 
 function writeQueue(tasks: QueuedTask[]) {
   try {
-    localStorage.setItem(QUEUE_KEY, JSON.stringify(tasks.slice(0, MAX_TASKS)));
+    kvSet(QUEUE_KEY, JSON.stringify(tasks.slice(0, MAX_TASKS)));
   } catch {
     // 本地存储不可用时队列仅保留在内存调用栈中。
   }

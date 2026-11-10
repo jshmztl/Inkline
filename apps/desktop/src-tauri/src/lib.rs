@@ -16,6 +16,7 @@ pub fn run() {
             let connection = db::open(app.handle())?;
             app.manage(db::DbState(Mutex::new(connection)));
             app.manage(http::CancelState::default());
+            app.manage(http::CookieState::default());
             app.manage(mock::MockState::default());
 
             #[cfg(desktop)]
@@ -30,6 +31,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             http::send_http_request,
             http::cancel_http_request,
+            http::clear_cookies,
             netprobe::probe_network,
             mock::start_mock_server,
             mock::stop_mock_server,
@@ -44,7 +46,10 @@ pub fn run() {
             db::record_history,
             db::list_history,
             db::clear_history,
-            db::delete_history
+            db::delete_history,
+            db::load_settings,
+            db::save_settings,
+            db::delete_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

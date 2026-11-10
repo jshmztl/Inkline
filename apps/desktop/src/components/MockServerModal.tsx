@@ -3,6 +3,7 @@ import { PlayCircleOutlined, StopOutlined } from '@ant-design/icons';
 import { App, Button, Checkbox, Input, InputNumber, Modal, Tag } from 'antd';
 import type { HttpMethod } from '../data/types';
 import type { SavedRequest as SavedRequestApi } from '../lib/api';
+import { kvGet, kvSet } from '../lib/kv';
 import {
   listRequests,
   startMockServer,
@@ -45,7 +46,7 @@ const defaultConfig: MockConfig = {
 
 function readConfigs(): Record<string, MockConfig> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = kvGet(STORAGE_KEY);
     return raw ? (JSON.parse(raw) as Record<string, MockConfig>) : {};
   } catch {
     return {};
@@ -54,7 +55,7 @@ function readConfigs(): Record<string, MockConfig> {
 
 function writeConfigs(configs: Record<string, MockConfig>) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(configs));
+    kvSet(STORAGE_KEY, JSON.stringify(configs));
   } catch {
     // 本地存储不可用时仅保留内存配置。
   }

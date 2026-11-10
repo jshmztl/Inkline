@@ -1,3 +1,5 @@
+import { kvGet, kvRemove, kvSet } from './kv';
+
 export interface Session {
   account: string;
   name: string;
@@ -10,7 +12,7 @@ const storageKey = 'aw-session';
 
 export function readSession(): Session | null {
   try {
-    const raw = localStorage.getItem(storageKey);
+    const raw = kvGet(storageKey);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Session;
     if (!parsed?.account || !parsed?.workspace) return null;
@@ -43,7 +45,7 @@ export function signIn(account: string, password: string): Session | { error: st
   };
 
   try {
-    localStorage.setItem(storageKey, JSON.stringify(session));
+    kvSet(storageKey, JSON.stringify(session));
   } catch {
     // 存储不可用时仍允许本次会话使用。
   }
@@ -53,7 +55,7 @@ export function signIn(account: string, password: string): Session | { error: st
 
 export function signOut() {
   try {
-    localStorage.removeItem(storageKey);
+    kvRemove(storageKey);
   } catch {
     // 忽略存储清理失败。
   }

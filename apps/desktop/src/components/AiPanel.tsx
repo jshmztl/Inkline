@@ -18,6 +18,7 @@ import {
 import { App, Button, Checkbox, Dropdown, Input, Modal, Tag, Tooltip } from 'antd';
 import { Bubble, Prompts, Sender } from '@ant-design/x';
 import type { ApiRequest, NetworkMode } from '../data/types';
+import { kvGet, kvSet } from '../lib/kv';
 import { networkModes } from '../data/types';
 import {
   buildDocTask,
@@ -180,7 +181,7 @@ export function AiPanel({
       return;
     }
     try {
-      const raw = localStorage.getItem(`aw-doc-draft:${requestId}`);
+      const raw = kvGet(`aw-doc-draft:${requestId}`);
       const parsed = raw ? JSON.parse(raw) : [];
       setDraft(Array.isArray(parsed) ? (parsed as DraftField[]) : []);
     } catch {
@@ -363,7 +364,7 @@ export function AiPanel({
     const next = mergeDraftFields(draft, effectiveReview, accepted);
     setDraft(next);
     try {
-      localStorage.setItem(`aw-doc-draft:${task.request.id}`, JSON.stringify(next));
+      kvSet(`aw-doc-draft:${task.request.id}`, JSON.stringify(next));
     } catch {
       // localStorage 不可用时仅保留内存草稿。
     }

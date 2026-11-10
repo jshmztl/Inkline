@@ -154,7 +154,7 @@ export function StatusBar({
         <DatabaseOutlined /> SQLite 本地
       </span>
       <span className="status-sep" />
-      <span className="status-item mono">v0.1.0</span>
+      <span className="status-item mono">v{__APP_VERSION__}</span>
 
       <Modal
         open={open}

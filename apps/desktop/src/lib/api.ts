@@ -226,6 +226,12 @@ export async function cancelHttpRequest(id: string): Promise<void> {
   }
 }
 
+export async function clearCookies(): Promise<void> {
+  if (isTauri) {
+    await invoke('clear_cookies');
+  }
+}
+
 export interface MockRoutePayload {
   method: string;
   path: string;

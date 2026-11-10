@@ -5,18 +5,25 @@ import 'antd/dist/reset.css';
 import './styles.css';
 import { getCssVars, type ThemeMode } from '@api-workbench/ui';
 import { App } from './App';
+import { initKv, kvGet } from './lib/kv';
 
-const mode: ThemeMode = localStorage.getItem('aw-theme') === 'dark' ? 'dark' : 'light';
-const root = document.documentElement;
-root.dataset.theme = mode;
-root.style.colorScheme = mode;
+async function bootstrap() {
+  await initKv();
 
-for (const [name, value] of Object.entries(getCssVars(mode))) {
-  root.style.setProperty(name, value);
+  const mode: ThemeMode = kvGet('aw-theme') === 'dark' ? 'dark' : 'light';
+  const root = document.documentElement;
+  root.dataset.theme = mode;
+  root.style.colorScheme = mode;
+
+  for (const [name, value] of Object.entries(getCssVars(mode))) {
+    root.style.setProperty(name, value);
+  }
+
+  ReactDOM.createRoot(document.getElementById('root')!).render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>,
+  );
 }
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
+void bootstrap();

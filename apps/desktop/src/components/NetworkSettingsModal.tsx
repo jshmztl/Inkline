@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Button, Input, Modal } from 'antd';
+import { App, Button, Checkbox, Input, Modal } from 'antd';
+import { clearCookies } from '../lib/api';
 import {
   readNetworkOptions,
   writeNetworkOptions,
@@ -12,6 +13,7 @@ interface NetworkSettingsModalProps {
 }
 
 export function NetworkSettingsModal({ open, onClose }: NetworkSettingsModalProps) {
+  const { message } = App.useApp();
   const [options, setOptions] = useState<NetworkOptions>(readNetworkOptions);
 
   useEffect(() => {
@@ -86,6 +88,35 @@ export function NetworkSettingsModal({ open, onClose }: NetworkSettingsModalProp
         <p className="network-tip">
           PEM 文件需同时包含客户端证书与私钥。配置仅在桌面应用中生效，留空表示不使用。
         </p>
+        <label>
+          <span>HTTPS 证书校验</span>
+          <Checkbox
+            checked={options.acceptInvalidCerts}
+            onChange={(event) =>
+              setOptions((current) => ({
+                ...current,
+                acceptInvalidCerts: event.target.checked,
+              }))
+            }
+          >
+            忽略证书校验（内网自签证书）
+          </Checkbox>
+        </label>
+        <p className="network-tip">
+          仅建议在内网自签证书或私有 CA 环境下开启。开启后不再校验服务端证书，存在中间人风险。
+        </p>
+        <div>
+          <Button
+            size="small"
+            onClick={() => {
+              void clearCookies()
+                .then(() => message.success('已清除 Cookie'))
+                .catch(() => message.warning('仅桌面应用支持清除 Cookie'));
+            }}
+          >
+            清除 Cookie
+          </Button>
+        </div>
       </div>
     </Modal>
   );

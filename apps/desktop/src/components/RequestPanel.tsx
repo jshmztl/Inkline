@@ -52,6 +52,7 @@ import {
 } from '../lib/assertions';
 import { runScript } from '../lib/scriptSandbox';
 import { readNetworkOptions } from '../lib/network';
+import { kvGet, kvSet } from '../lib/kv';
 import { MethodTag } from './MethodTag';
 import { CodeEditor, formatJson, formatXml } from './CodeEditor';
 import { NetworkSettingsModal } from './NetworkSettingsModal';
@@ -139,7 +140,7 @@ const defaultMeta: RequestMeta = {
 
 function readRequestMeta(id: string): RequestMeta {
   try {
-    const raw = localStorage.getItem(`aw-request-meta:${id}`);
+    const raw = kvGet(`aw-request-meta:${id}`);
     if (!raw) return { ...defaultMeta };
     const parsed = JSON.parse(raw) as Partial<RequestMeta>;
     return {
@@ -157,7 +158,7 @@ function readRequestMeta(id: string): RequestMeta {
 
 function writeRequestMeta(id: string, meta: RequestMeta) {
   try {
-    localStorage.setItem(`aw-request-meta:${id}`, JSON.stringify(meta));
+    kvSet(`aw-request-meta:${id}`, JSON.stringify(meta));
   } catch {
     // 存储不可用时仅保留在内存中。
   }

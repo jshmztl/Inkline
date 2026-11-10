@@ -1,3 +1,5 @@
+import { kvGet, kvRemove, kvSet } from './kv';
+
 export type AuditType = 'request' | 'ai-task' | 'egress' | 'sync';
 
 export interface AuditEntry {
@@ -23,7 +25,7 @@ export function recordAudit(entry: Omit<AuditEntry, 'id' | 'at'>): AuditEntry {
   try {
     const entries = listAudit(MAX_ENTRIES);
     entries.unshift(record);
-    localStorage.setItem(AUDIT_KEY, JSON.stringify(entries.slice(0, MAX_ENTRIES)));
+    kvSet(AUDIT_KEY, JSON.stringify(entries.slice(0, MAX_ENTRIES)));
   } catch {
     // 存储不可用时审计仅保留在返回值中。
   }
@@ -33,7 +35,7 @@ export function recordAudit(entry: Omit<AuditEntry, 'id' | 'at'>): AuditEntry {
 
 export function listAudit(limit = 50): AuditEntry[] {
   try {
-    const raw = localStorage.getItem(AUDIT_KEY);
+    const raw = kvGet(AUDIT_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as AuditEntry[];
     if (!Array.isArray(parsed)) return [];
@@ -45,7 +47,7 @@ export function listAudit(limit = 50): AuditEntry[] {
 
 export function clearAudit() {
   try {
-    localStorage.removeItem(AUDIT_KEY);
+    kvRemove(AUDIT_KEY);
   } catch {
     // 忽略清理失败。
   }

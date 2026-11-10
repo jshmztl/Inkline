@@ -70,7 +70,7 @@ export function LoginScreen({ onSignedIn }: LoginScreenProps) {
           </ul>
         </div>
 
-        <span className="login-foot">v0.1 · 内网构建 · 数据不出域</span>
+        <span className="login-foot">v{__APP_VERSION__} · 内网构建 · 数据不出域</span>
       </section>
 
       <section className="login-panel">
@@ -109,7 +109,7 @@ export function LoginScreen({ onSignedIn }: LoginScreenProps) {
             解锁工作区
           </Button>
 
-          <div className="login-hint">本机离线解锁，不连接服务端。</div>
+          <div className="login-hint">本机模式：不连接服务端，账号仅用于区分使用者，不做身份校验。</div>
         </div>
       </section>
     </div>

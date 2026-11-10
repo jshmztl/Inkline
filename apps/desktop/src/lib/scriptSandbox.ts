@@ -26,6 +26,27 @@ export interface ScriptRunResult {
 }
 
 const WORKER_SOURCE = String.raw`
+// 脚本沙箱禁止一切网络与外部资源能力，避免绕过应用的网络模式策略。
+function blockNetwork() {
+  var blocked = function () {
+    throw new Error('脚本沙箱禁止网络访问');
+  };
+  self.fetch = blocked;
+  self.XMLHttpRequest = blocked;
+  self.WebSocket = blocked;
+  self.EventSource = blocked;
+  self.importScripts = blocked;
+  if (self.navigator) {
+    try {
+      Object.defineProperty(self.navigator, 'sendBeacon', { value: blocked });
+    } catch (error) {
+      // 部分环境不允许改写 navigator，忽略即可。
+    }
+  }
+}
+
+blockNetwork();
+
 function formatValue(value) {
   if (typeof value === 'string') return value;
   try {

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 use chrono::Utc;
@@ -44,6 +45,12 @@ CREATE TABLE IF NOT EXISTS history (
 CREATE TABLE IF NOT EXISTS app_meta (
     key    TEXT PRIMARY KEY,
     value  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TEXT NOT NULL
 );
 "#;
 
@@ -432,4 +439,120 @@ pub fn delete_history(state: State<'_, DbState>, id: i64) -> Result<(), String> 
         .execute("DELETE FROM history WHERE id = ?1", params![id])
         .map_err(|error| error.to_string())?;
     Ok(())
+}
+
+fn load_settings_from(connection: &Connection) -> Result<BTreeMap<String, String>, String> {
+    let mut statement = connection
+        .prepare("SELECT key, value FROM settings")
+        .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|error| error.to_string())?;
+
+    let mut settings = BTreeMap::new();
+    for row in rows {
+        let (key, value) = row.map_err(|error| error.to_string())?;
+        settings.insert(key, value);
+    }
+    Ok(settings)
+}
+
+fn save_settings_to(
+    connection: &mut Connection,
+    entries: &BTreeMap<String, String>,
+) -> Result<(), String> {
+    let updated_at = Utc::now().to_rfc3339();
+    let transaction = connection
+        .transaction()
+        .map_err(|error| error.to_string())?;
+
+    for (key, value) in entries {
+        transaction
+            .execute(
+                "INSERT INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(key) DO UPDATE SET
+                   value = excluded.value,
+                   updated_at = excluded.updated_at",
+                params![key, value, &updated_at],
+            )
+            .map_err(|error| error.to_string())?;
+    }
+
+    transaction.commit().map_err(|error| error.to_string())
+}
+
+fn delete_settings_from(connection: &Connection, keys: &[String]) -> Result<(), String> {
+    for key in keys {
+        connection
+            .execute("DELETE FROM settings WHERE key = ?1", params![key])
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn load_settings(state: State<'_, DbState>) -> Result<BTreeMap<String, String>, String> {
+    let connection = state.0.lock().map_err(|error| error.to_string())?;
+    load_settings_from(&connection)
+}
+
+#[tauri::command]
+pub fn save_settings(
+    state: State<'_, DbState>,
+    entries: BTreeMap<String, String>,
+) -> Result<(), String> {
+    let mut connection = state.0.lock().map_err(|error| error.to_string())?;
+    save_settings_to(&mut connection, &entries)
+}
+
+#[tauri::command]
+pub fn delete_settings(state: State<'_, DbState>, keys: Vec<String>) -> Result<(), String> {
+    let connection = state.0.lock().map_err(|error| error.to_string())?;
+    delete_settings_from(&connection, &keys)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_connection() -> Connection {
+        let connection = Connection::open_in_memory().expect("open in-memory database");
+        connection.execute_batch(SCHEMA).expect("create schema");
+        connection
+    }
+
+    #[test]
+    fn settings_round_trip_and_delete() {
+        let mut connection = test_connection();
+        let mut entries = BTreeMap::new();
+        entries.insert("aw-theme".to_string(), "dark".to_string());
+        entries.insert("aw-network-options".to_string(), "{}".to_string());
+
+        save_settings_to(&mut connection, &entries).expect("save settings");
+        let loaded = load_settings_from(&connection).expect("load settings");
+        assert_eq!(loaded.get("aw-theme").map(String::as_str), Some("dark"));
+        assert_eq!(loaded.len(), 2);
+
+        delete_settings_from(&connection, &["aw-theme".to_string()]).expect("delete setting");
+        let loaded = load_settings_from(&connection).expect("load settings after delete");
+        assert!(!loaded.contains_key("aw-theme"));
+        assert_eq!(loaded.len(), 1);
+    }
+
+    #[test]
+    fn settings_upsert_overwrites_value() {
+        let mut connection = test_connection();
+        let mut first = BTreeMap::new();
+        first.insert("aw-density".to_string(), "default".to_string());
+        save_settings_to(&mut connection, &first).expect("save settings");
+
+        let mut second = BTreeMap::new();
+        second.insert("aw-density".to_string(), "compact".to_string());
+        save_settings_to(&mut connection, &second).expect("save settings again");
+
+        let loaded = load_settings_from(&connection).expect("load settings");
+        assert_eq!(loaded.get("aw-density").map(String::as_str), Some("compact"));
+    }
 }

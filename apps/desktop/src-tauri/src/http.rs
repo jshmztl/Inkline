@@ -1,8 +1,9 @@
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
+use reqwest::cookie::Jar;
 use reqwest::multipart::{Form, Part};
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
@@ -13,6 +14,9 @@ use crate::model::HeaderPair;
 
 #[derive(Default)]
 pub struct CancelState(pub Mutex<HashMap<String, oneshot::Sender<()>>>);
+
+#[derive(Default)]
+pub struct CookieState(pub Mutex<Arc<Jar>>);
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -29,6 +33,7 @@ pub struct MultipartField {
 pub struct NetworkOptions {
     pub proxy: Option<String>,
     pub client_cert_path: Option<String>,
+    pub accept_invalid_certs: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -60,6 +65,7 @@ pub struct SendResponse {
 pub async fn send_http_request(
     payload: SendRequestPayload,
     cancel: State<'_, CancelState>,
+    cookie: State<'_, CookieState>,
 ) -> Result<SendResponse, String> {
     let url = reqwest::Url::parse(&payload.url).map_err(|error| format!("URL 无效：{error}"))?;
     if !matches!(url.scheme(), "http" | "https") {
@@ -69,10 +75,20 @@ pub async fn send_http_request(
     let method = Method::from_bytes(payload.method.to_uppercase().as_bytes())
         .map_err(|error| format!("请求方法无效：{error}"))?;
 
+    let cookie_provider = cookie
+        .0
+        .lock()
+        .map_err(|error| error.to_string())?
+        .clone();
+
     let mut client = reqwest::Client::builder()
-        .timeout(Duration::from_millis(payload.timeout_ms.unwrap_or(30_000)));
+        .timeout(Duration::from_millis(payload.timeout_ms.unwrap_or(30_000)))
+        .cookie_provider(cookie_provider);
 
     if let Some(network) = &payload.network {
+        if network.accept_invalid_certs.unwrap_or(false) {
+            client = client.danger_accept_invalid_certs(true);
+        }
         if let Some(proxy) = network
             .proxy
             .as_deref()
@@ -213,5 +229,12 @@ pub fn cancel_http_request(cancel: State<'_, CancelState>, id: String) -> Result
             let _ = sender.send(());
         }
     }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn clear_cookies(cookie: State<'_, CookieState>) -> Result<(), String> {
+    let mut jar = cookie.0.lock().map_err(|error| error.to_string())?;
+    *jar = Arc::new(Jar::default());
     Ok(())
 }
