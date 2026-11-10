@@ -20,7 +20,7 @@ import {
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import { App, Button, Checkbox, Dropdown, Input, Segmented, Select, Tag, Tooltip } from 'antd';
-import type { ApiRequest, HttpMethod, KvRow } from '../data/types';
+import type { ApiRequest, HttpMethod, KvRow, NetworkMode } from '../data/types';
 import { recordAudit } from '../lib/audit';
 import { enqueueTask } from '../lib/queue';
 import {
@@ -41,6 +41,7 @@ import {
   type WebSocketHandle,
 } from '../lib/protocol';
 import { resolveHeaders, resolveTemplate } from '../lib/variables';
+import { checkNetworkAccess } from '../lib/networkPolicy';
 import {
   assertionOperators,
   evaluateAssertions,
@@ -63,6 +64,7 @@ interface RequestPanelProps {
   saved: SavedRequest | null;
   variables: Record<string, string>;
   actor: string;
+  networkMode: NetworkMode;
   collectionId: string;
   onSelectTab: (requestId: string) => void;
   onCloseTab: (requestId: string) => void;
@@ -213,6 +215,7 @@ export function RequestPanel({
   saved,
   variables,
   actor,
+  networkMode,
   collectionId,
   onSelectTab,
   onCloseTab,
@@ -739,6 +742,13 @@ export function RequestPanel({
         setFeedback('已断开连接');
         return;
       }
+      const access = checkNetworkAccess(finalUrl, networkMode);
+      if (!access.allowed) {
+        setError(access.reason);
+        setFeedback(null);
+        message.error({ content: access.reason, duration: 3 });
+        return;
+      }
       if (protocol === 'websocket') {
         const wsUrl = finalUrl.replace(/^http:/i, 'ws:').replace(/^https:/i, 'wss:');
         if (!/^wss?:\/\//i.test(wsUrl)) {
@@ -833,6 +843,14 @@ export function RequestPanel({
       setError(`缺少环境变量：${names}`);
       setFeedback(null);
       message.error({ content: `缺少环境变量：${names}`, duration: 2.4 });
+      return;
+    }
+
+    const access = checkNetworkAccess(finalUrl, networkMode);
+    if (!access.allowed) {
+      setError(access.reason);
+      setFeedback(null);
+      message.error({ content: access.reason, duration: 3 });
       return;
     }
 

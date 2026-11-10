@@ -566,6 +566,7 @@ export function App() {
                 saved={activeSaved}
                 variables={currentVariables}
                 actor={session.account}
+                networkMode={networkMode}
                 collectionId={activeRequest.collectionId ?? ''}
                 onSelectTab={selectTab}
                 onCloseTab={closeTab}

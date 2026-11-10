@@ -36,6 +36,7 @@ import { AiGatewayModal } from './AiGatewayModal';
 import { preflightEgress } from '../lib/egress';
 import { recordAudit } from '../lib/audit';
 import { resolveModelRoute } from '../lib/modelRoute';
+import { checkNetworkAccess } from '../lib/networkPolicy';
 import {
   chatWithGateway,
   chatWithGatewayStream,
@@ -123,6 +124,17 @@ export function AiPanel({
     () => resolveModelRoute(networkMode, activeRequest.dataLevel),
     [networkMode, activeRequest.dataLevel],
   );
+  const gatewayAccess = useMemo(() => {
+    const baseUrl = gatewayConfig.baseUrl.trim();
+    if (!baseUrl) return null;
+    return checkNetworkAccess(baseUrl, networkMode);
+  }, [gatewayConfig.baseUrl, networkMode]);
+  const routeBlocked = !route.allowed || (gatewayAccess ? !gatewayAccess.allowed : false);
+  const routeReason = !route.allowed
+    ? route.reason
+    : gatewayAccess && !gatewayAccess.allowed
+      ? gatewayAccess.reason
+      : '';
   const preflight = useMemo(() => (context ? preflightEgress(context) : null), [context]);
   const pending = review.filter((item) => item.confidence < 90).length;
   const requestId = task?.request.id ?? null;
@@ -270,6 +282,14 @@ export function AiPanel({
     if (!route.allowed) {
       message.error(route.reason);
       return;
+    }
+    const baseUrl = readGatewayConfig().baseUrl.trim();
+    if (baseUrl) {
+      const access = checkNetworkAccess(baseUrl, networkMode);
+      if (!access.allowed) {
+        message.error(access.reason);
+        return;
+      }
     }
     if (route.egress) {
       setPendingAction(action);
@@ -649,14 +669,20 @@ export function AiPanel({
               术语：{task.glossary.map((hit) => hit.entry.term).join(' · ')}
             </div>
           )}
-          <div className={`ai-route${route.allowed ? '' : ' blocked'}`}>
+          <div className={`ai-route${routeBlocked ? ' blocked' : ''}`}>
             <i className="ai-route-dot" />
             <code>{gatewayConfig.baseUrl || route.endpoint}</code>
-            <span>{route.egress ? '出网' : '不出网'}</span>
+            <span>
+              {gatewayAccess?.scope === 'public'
+                ? '公网地址'
+                : route.egress
+                  ? '出网'
+                  : '不出网'}
+            </span>
             {route.approval && <span>需审批</span>}
             {route.egress && <span>脱敏 {preflight?.masks.length ?? 0} 项</span>}
           </div>
-          {!route.allowed && <div className="ai-route-warn">{route.reason}</div>}
+          {routeReason && <div className="ai-route-warn">{routeReason}</div>}
           <div className="ai-task-actions">
             <Button
               type="primary"
@@ -1088,6 +1114,7 @@ export function AiPanel({
 
       <AiGatewayModal
         open={gatewayOpen}
+        networkMode={networkMode}
         onClose={() => {
           setGatewayOpen(false);
           setGatewayConfig(readGatewayConfig());

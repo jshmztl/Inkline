@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { ApiOutlined, CheckCircleFilled, CloseCircleOutlined } from '@ant-design/icons';
 import { Button, Input, Modal, Select } from 'antd';
+import type { NetworkMode } from '../data/types';
+import { checkNetworkAccess } from '../lib/networkPolicy';
 import {
   aiProviders,
   chatWithGateway,
@@ -12,10 +14,11 @@ import {
 
 interface AiGatewayModalProps {
   open: boolean;
+  networkMode: NetworkMode;
   onClose: () => void;
 }
 
-export function AiGatewayModal({ open, onClose }: AiGatewayModalProps) {
+export function AiGatewayModal({ open, networkMode, onClose }: AiGatewayModalProps) {
   const [config, setConfig] = useState<AiGatewayConfig>(readGatewayConfig);
   const [testing, setTesting] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
@@ -38,6 +41,11 @@ export function AiGatewayModal({ open, onClose }: AiGatewayModalProps) {
   }
 
   async function handleTest() {
+    const access = checkNetworkAccess(config.baseUrl.trim(), networkMode);
+    if (!access.allowed) {
+      setResult({ ok: false, text: access.reason });
+      return;
+    }
     setTesting(true);
     setResult(null);
     try {
