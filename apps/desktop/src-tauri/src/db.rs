@@ -52,6 +52,16 @@ CREATE TABLE IF NOT EXISTS settings (
     value      TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id     INTEGER PRIMARY KEY AUTOINCREMENT,
+    type   TEXT NOT NULL,
+    action TEXT NOT NULL,
+    detail TEXT NOT NULL,
+    actor  TEXT NOT NULL,
+    level  TEXT,
+    at     TEXT NOT NULL
+);
 "#;
 
 const LEGACY_SEED_REQUESTS: &[&str] = &[
@@ -439,6 +449,96 @@ pub fn delete_history(state: State<'_, DbState>, id: i64) -> Result<(), String> 
     let connection = state.0.lock().map_err(|error| error.to_string())?;
     connection
         .execute("DELETE FROM history WHERE id = ?1", params![id])
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AuditEntry {
+    pub id: Option<i64>,
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub action: String,
+    pub detail: String,
+    pub actor: String,
+    pub level: Option<String>,
+    pub at: Option<String>,
+}
+
+#[tauri::command]
+pub fn record_audit(
+    state: State<'_, DbState>,
+    entry: AuditEntry,
+) -> Result<AuditEntry, String> {
+    let connection = state.0.lock().map_err(|error| error.to_string())?;
+    let at = entry
+        .at
+        .clone()
+        .unwrap_or_else(|| Utc::now().to_rfc3339());
+
+    connection
+        .execute(
+            "INSERT INTO audit_logs (type, action, detail, actor, level, at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                &entry.kind,
+                &entry.action,
+                &entry.detail,
+                &entry.actor,
+                &entry.level,
+                &at,
+            ],
+        )
+        .map_err(|error| error.to_string())?;
+
+    Ok(AuditEntry {
+        id: Some(connection.last_insert_rowid()),
+        at: Some(at),
+        ..entry
+    })
+}
+
+#[tauri::command]
+pub fn list_audit(
+    state: State<'_, DbState>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> Result<Vec<AuditEntry>, String> {
+    let connection = state.0.lock().map_err(|error| error.to_string())?;
+    let limit = limit.unwrap_or(200).clamp(1, 2000);
+    let offset = offset.unwrap_or(0).max(0);
+
+    let mut statement = connection
+        .prepare(
+            "SELECT id, type, action, detail, actor, level, at
+             FROM audit_logs ORDER BY id DESC LIMIT ?1 OFFSET ?2",
+        )
+        .map_err(|error| error.to_string())?;
+
+    let rows = statement
+        .query_map(params![limit, offset], |row| {
+            Ok(AuditEntry {
+                id: Some(row.get(0)?),
+                kind: row.get(1)?,
+                action: row.get(2)?,
+                detail: row.get(3)?,
+                actor: row.get(4)?,
+                level: row.get(5)?,
+                at: Some(row.get(6)?),
+            })
+        })
+        .map_err(|error| error.to_string())?;
+
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn clear_audit(state: State<'_, DbState>) -> Result<(), String> {
+    let connection = state.0.lock().map_err(|error| error.to_string())?;
+    connection
+        .execute("DELETE FROM audit_logs", [])
         .map_err(|error| error.to_string())?;
     Ok(())
 }

@@ -17,6 +17,7 @@ import {
   type SavedRequest,
 } from './lib/api';
 import type { RequestContext } from './lib/docTask';
+import { migrateLegacyAudit } from './lib/audit';
 import { listEnvironments, saveEnvironmentVariables, writeEnvironments } from './lib/envStore';
 import { kvGet, kvSet } from './lib/kv';
 import { parseImport } from './lib/importer';
@@ -123,6 +124,7 @@ export function App() {
 
   useEffect(() => {
     let alive = true;
+    void migrateLegacyAudit();
     listHistory(HISTORY_PAGE_SIZE, 0)
       .then((entries) => {
         if (!alive) return;

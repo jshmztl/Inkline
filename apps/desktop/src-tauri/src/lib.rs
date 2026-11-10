@@ -47,6 +47,9 @@ pub fn run() {
             db::list_history,
             db::clear_history,
             db::delete_history,
+            db::record_audit,
+            db::list_audit,
+            db::clear_audit,
             db::load_settings,
             db::save_settings,
             db::delete_settings

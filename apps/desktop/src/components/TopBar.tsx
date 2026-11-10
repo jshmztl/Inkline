@@ -90,7 +90,13 @@ export function TopBar({
 
   useEffect(() => {
     if (!auditOpen) return;
-    setEntries(listAudit(200));
+    let alive = true;
+    void listAudit(200).then((next) => {
+      if (alive) setEntries(next);
+    });
+    return () => {
+      alive = false;
+    };
   }, [auditOpen]);
 
   useEffect(() => {
@@ -133,8 +139,8 @@ export function TopBar({
   const visibleEntries =
     auditFilter === 'all' ? entries : entries.filter((entry) => entry.type === auditFilter);
 
-  function handleClear() {
-    clearAudit();
+  async function handleClear() {
+    await clearAudit();
     setEntries([]);
     message.success('审计日志已清空');
   }
