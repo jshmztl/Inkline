@@ -1,6 +1,7 @@
 export interface NetworkOptions {
   proxy: string;
   clientCertPath: string;
+  intranetCidrs: string;
 }
 
 const STORAGE_KEY = 'aw-network-options';
@@ -8,6 +9,7 @@ const STORAGE_KEY = 'aw-network-options';
 export const defaultNetworkOptions: NetworkOptions = {
   proxy: '',
   clientCertPath: '',
+  intranetCidrs: '',
 };
 
 export function readNetworkOptions(): NetworkOptions {

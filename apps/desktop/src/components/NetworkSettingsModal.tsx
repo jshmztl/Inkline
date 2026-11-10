@@ -53,6 +53,24 @@ export function NetworkSettingsModal({ open, onClose }: NetworkSettingsModalProp
           />
         </label>
         <label>
+          <span>内网网段白名单（每行一个 CIDR）</span>
+          <Input.TextArea
+            value={options.intranetCidrs}
+            rows={3}
+            placeholder={'192.168.0.0/16\n192.168.0.0/16'}
+            onChange={(event) =>
+              setOptions((current) => ({
+                ...current,
+                intranetCidrs: event.target.value,
+              }))
+            }
+          />
+        </label>
+        <p className="network-tip">
+          仅 B 内网模式生效。用于放行跨网段的政府/企业内网地址，例如本机
+          192.168.1.x、服务器 192.168.2.x 时可填写 192.168.0.0/16；公网地址仍会被拦截。
+        </p>
+        <label>
           <span>客户端证书（PEM 文件路径）</span>
           <Input
             value={options.clientCertPath}

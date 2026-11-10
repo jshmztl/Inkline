@@ -1,4 +1,5 @@
 import type { NetworkMode } from '../data/types';
+import { readNetworkOptions } from './network';
 
 export type NetworkScope = 'local' | 'intranet' | 'public' | 'invalid';
 
@@ -60,10 +61,12 @@ export function checkNetworkAccess(url: string, mode: NetworkMode): NetworkAcces
     return { allowed: true, scope: 'local', host, reason: '本机地址' };
   }
 
+  const whitelist = matchIntranetCidr(host);
+
   if (mode === 'C') {
     return {
       allowed: true,
-      scope: isIntranetHost(host) ? 'intranet' : 'public',
+      scope: isIntranetHost(host) || whitelist ? 'intranet' : 'public',
       host,
       reason: 'C 外网模式允许访问',
     };
@@ -78,6 +81,15 @@ export function checkNetworkAccess(url: string, mode: NetworkMode): NetworkAcces
     };
   }
 
+  if (whitelist) {
+    return {
+      allowed: true,
+      scope: 'intranet',
+      host,
+      reason: `内网网段 ${whitelist}`,
+    };
+  }
+
   if (isIntranetHost(host)) {
     return { allowed: true, scope: 'intranet', host, reason: '内网地址' };
   }
@@ -86,7 +98,7 @@ export function checkNetworkAccess(url: string, mode: NetworkMode): NetworkAcces
     allowed: false,
     scope: 'public',
     host,
-    reason: `B 内网模式禁止访问公网地址 ${host}，请切换到 C 外网或改用内网地址`,
+    reason: `B 内网模式已阻止 ${host}：跨网段内网地址请到「网络设置」添加内网网段，公网访问请切换到 C 外网`,
   };
 }
 
@@ -130,6 +142,30 @@ export function isSameSubnet(ip: string, localCidrs: string[]): boolean {
   return localCidrs.some((cidr) => inIpv4Cidr(ip, cidr));
 }
 
+export function readIntranetCidrs(): string[] {
+  return readNetworkOptions()
+    .intranetCidrs.split(/[\n,;]+/)
+    .map((item) => item.trim())
+    .filter((item) => {
+      const [base, prefixText] = item.split('/');
+      const prefix = Number(prefixText);
+      return (
+        ipv4ToNumber(base) !== null &&
+        Number.isInteger(prefix) &&
+        prefix >= 0 &&
+        prefix <= 32
+      );
+    });
+}
+
+function matchIntranetCidr(ip: string): string | null {
+  if (ipv4ToNumber(ip) === null) return null;
+  for (const cidr of readIntranetCidrs()) {
+    if (inIpv4Cidr(ip, cidr)) return cidr;
+  }
+  return null;
+}
+
 async function probeNetwork(url: string): Promise<NetworkProbe | null> {
   if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return null;
   try {
@@ -169,18 +205,25 @@ export async function checkNetworkAccessResolved(
   const candidates = hostIsIpv4 ? [basic.host] : probe.hostIps;
 
   for (const ip of candidates) {
-    if (ipv4ToNumber(ip) === null) continue;
-    if (isSameSubnet(ip, probe.localCidrs)) {
-      return {
-        allowed: true,
-        scope: 'intranet',
-        host: basic.host,
-        reason: `内网地址 · 与本地同网段（${ip}）`,
-      };
+    if (ipv4ToNumber(ip) !== null) {
+      if (isSameSubnet(ip, probe.localCidrs)) {
+        return {
+          allowed: true,
+          scope: 'intranet',
+          host: basic.host,
+          reason: `内网地址 · 与本地同网段（${ip}）`,
+        };
+      }
+      const cidr = matchIntranetCidr(ip);
+      if (cidr) {
+        return {
+          allowed: true,
+          scope: 'intranet',
+          host: basic.host,
+          reason: `内网网段 ${cidr}${basic.host === ip ? '' : ` · ${ip}`}`,
+        };
+      }
     }
-  }
-
-  for (const ip of candidates) {
     if (isIntranetHost(ip)) {
       return {
         allowed: true,
