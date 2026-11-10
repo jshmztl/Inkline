@@ -366,17 +366,24 @@ export function RequestPanel({
 
   useEffect(() => {
     if (!replay) return;
+    const host = (variables.host ?? '').trim();
     setMethod(replay.method);
-    setUrl(replay.url);
+    setUrl(
+      host && replay.url.startsWith(host)
+        ? `{{host}}${replay.url.slice(host.length)}`
+        : replay.url,
+    );
     setError(null);
   }, [replay]);
+
+  const resolvedUrl = useMemo(() => resolveTemplate(url, variables), [url, variables]);
 
   useEffect(() => {
     onContextChange({
       id: activeRequest.id,
       name: requestName.trim() || activeRequest.name,
       method,
-      url,
+      url: resolvedUrl.value,
       dataLevel: activeRequest.dataLevel,
       headers: headers
         .filter((row) => row.enabled && row.key.trim())
@@ -390,14 +397,22 @@ export function RequestPanel({
           }
         : null,
     });
-  }, [activeRequest, method, url, headers, body, response, requestName, onContextChange]);
+  }, [
+    activeRequest,
+    method,
+    resolvedUrl.value,
+    headers,
+    body,
+    response,
+    requestName,
+    onContextChange,
+  ]);
 
   const activeRows = useMemo(
     () => (requestTab === 'headers' ? headers : params),
     [requestTab, headers, params],
   );
 
-  const resolvedUrl = useMemo(() => resolveTemplate(url, variables), [url, variables]);
   const hostPrefix = '{{host}}';
   const usesHostTemplate = url.startsWith(hostPrefix);
   const editablePath = usesHostTemplate ? url.slice(hostPrefix.length) : url;

@@ -66,15 +66,6 @@ interface SidebarProps {
   onClearHistory: () => Promise<void>;
 }
 
-function shortUrl(url: string) {
-  try {
-    const parsed = new URL(url);
-    return `${parsed.pathname}${parsed.search}`;
-  } catch {
-    return url;
-  }
-}
-
 function formatSavedAt(value: string | null | undefined) {
   if (!value) return '刚刚';
   const date = new Date(value);
@@ -742,7 +733,7 @@ export function Sidebar({
                 >
                   <span className={`history-dot ${failed ? 'bad' : 'ok'}`} />
                   <span className="history-method">{entry.method}</span>
-                  <span className="history-path">{shortUrl(entry.url)}</span>
+                  <span className="history-path">{entry.url}</span>
                   <span className="history-time">
                     {entry.durationMs != null ? `${entry.durationMs}ms` : '—'}
                   </span>

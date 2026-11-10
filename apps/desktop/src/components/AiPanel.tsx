@@ -582,7 +582,9 @@ export function AiPanel({
       <div className="ai-context">
         <div className="ai-context-request">
           <MethodTag method={activeRequest.method} />
-          <code>{activeRequest.path}</code>
+          <code title={context?.url ?? activeRequest.path}>
+            {context?.url ?? activeRequest.path}
+          </code>
         </div>
         <Tag className={`level-tag level-${activeRequest.dataLevel.toLowerCase()}`}>
           {activeRequest.dataLevel} 敏感
