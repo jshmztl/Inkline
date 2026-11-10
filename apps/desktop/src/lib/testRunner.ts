@@ -6,6 +6,8 @@ import {
   type AssertionResult,
 } from './assertions';
 import { checkNetworkAccessResolved } from './networkPolicy';
+import { readRequestScripts } from './requestMeta';
+import { runScript } from './scriptSandbox';
 import { resolveTemplate } from './variables';
 import type { NetworkMode } from '../data/types';
 
@@ -38,6 +40,8 @@ export async function runCollectionTests(
   );
 
   const results: TestCaseResult[] = [];
+  // 集合测试按顺序执行，后置脚本写入的变量可供后续请求使用。
+  let currentVariables = { ...variables };
 
   for (const request of requests) {
     const base: Omit<TestCaseResult, 'assertions'> = {
@@ -47,7 +51,32 @@ export async function runCollectionTests(
       url: request.url,
     };
 
-    const resolvedUrl = resolveTemplate(request.url, variables);
+    const scripts = readRequestScripts(request.id);
+
+    if (scripts.preScript.trim()) {
+      const pre = await runScript(scripts.preScript, {
+        variables: currentVariables,
+        request: {
+          method: request.method,
+          url: request.url,
+          headers: request.headers,
+          body: request.body,
+        },
+        response: null,
+      });
+      currentVariables = pre.variables;
+      if (pre.error) {
+        results.push({
+          ...base,
+          url: request.url,
+          error: `前置脚本执行失败：${pre.error}`,
+          assertions: [],
+        });
+        continue;
+      }
+    }
+
+    const resolvedUrl = resolveTemplate(request.url, currentVariables);
     if (resolvedUrl.missing.length > 0) {
       results.push({
         ...base,
@@ -60,7 +89,7 @@ export async function runCollectionTests(
 
     const headerMissing: string[] = [];
     const headers = request.headers.map((header) => {
-      const value = resolveTemplate(header.value, variables);
+      const value = resolveTemplate(header.value, currentVariables);
       headerMissing.push(...value.missing);
       return { name: header.name, value: value.value };
     });
@@ -76,7 +105,7 @@ export async function runCollectionTests(
 
     let body: string | undefined;
     if (request.body && request.method !== 'GET' && request.method !== 'DELETE') {
-      const resolvedBody = resolveTemplate(request.body, variables);
+      const resolvedBody = resolveTemplate(request.body, currentVariables);
       if (resolvedBody.missing.length > 0) {
         results.push({
           ...base,
@@ -110,12 +139,45 @@ export async function runCollectionTests(
         headers,
         body,
       });
+
+      const assertions = evaluateAssertions(rows, response);
+
+      if (scripts.postScript.trim()) {
+        const post = await runScript(scripts.postScript, {
+          variables: currentVariables,
+          request: {
+            method: request.method,
+            url: resolvedUrl.value,
+            headers,
+            body: body ?? null,
+          },
+          response: {
+            status: response.status,
+            statusText: response.statusText,
+            headers: response.headers,
+            body: response.body,
+            durationMs: response.durationMs,
+          },
+        });
+        currentVariables = post.variables;
+        if (post.error) {
+          assertions.push({
+            id: `post-script-${request.id}`,
+            path: 'script.post',
+            operator: 'equals',
+            expected: '执行成功',
+            actual: post.error,
+            passed: false,
+          });
+        }
+      }
+
       results.push({
         ...base,
         url: resolvedUrl.value,
         status: response.status,
         durationMs: response.durationMs,
-        assertions: evaluateAssertions(rows, response),
+        assertions,
       });
     } catch (caught) {
       results.push({

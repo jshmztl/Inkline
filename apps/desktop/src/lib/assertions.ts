@@ -1,5 +1,6 @@
 import type { SendResponse } from './api';
 import { kvGet } from './kv';
+import { REQUEST_META_PREFIX } from './requestMeta';
 
 export type AssertionOperator =
   | 'exists'
@@ -127,11 +128,9 @@ export function evaluateAssertions(
     });
 }
 
-const META_PREFIX = 'aw-request-meta:';
-
 export function readAssertionRows(requestId: string): AssertionRow[] {
   try {
-    const raw = kvGet(`${META_PREFIX}${requestId}`);
+    const raw = kvGet(`${REQUEST_META_PREFIX}${requestId}`);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as { assertionRows?: AssertionRow[] };
     return Array.isArray(parsed.assertionRows) ? parsed.assertionRows : [];
