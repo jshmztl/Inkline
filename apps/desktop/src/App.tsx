@@ -47,6 +47,8 @@ const CommandPalette = lazy(() =>
   })),
 );
 
+const HISTORY_PAGE_SIZE = 50;
+
 function readStoredMode(): ThemeMode {
   return kvGet('aw-theme') === 'dark' ? 'dark' : 'light';
 }
@@ -97,6 +99,7 @@ export function App() {
   const [openTabIds, setOpenTabIds] = useState<string[]>([]);
   const autoOpenRef = useRef(true);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [historyHasMore, setHistoryHasMore] = useState(false);
   const [savedRequests, setSavedRequests] = useState<SavedRequest[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
   const [requestContext, setRequestContext] = useState<RequestContext | null>(null);
@@ -120,9 +123,11 @@ export function App() {
 
   useEffect(() => {
     let alive = true;
-    listHistory(200)
+    listHistory(HISTORY_PAGE_SIZE, 0)
       .then((entries) => {
-        if (alive) setHistory(entries);
+        if (!alive) return;
+        setHistory(entries);
+        setHistoryHasMore(entries.length >= HISTORY_PAGE_SIZE);
       })
       .catch(() => {
         // 历史加载失败不阻断主流程。
@@ -269,10 +274,27 @@ export function App() {
   }
 
   function refreshHistory() {
-    listHistory(200)
-      .then(setHistory)
+    listHistory(HISTORY_PAGE_SIZE, 0)
+      .then((entries) => {
+        setHistory(entries);
+        setHistoryHasMore(entries.length >= HISTORY_PAGE_SIZE);
+      })
       .catch(() => {
         // 忽略历史刷新失败。
+      });
+  }
+
+  function loadMoreHistory() {
+    listHistory(HISTORY_PAGE_SIZE, history.length)
+      .then((entries) => {
+        setHistory((current) => {
+          const known = new Set(current.map((item) => item.id));
+          return [...current, ...entries.filter((item) => !known.has(item.id))];
+        });
+        setHistoryHasMore(entries.length >= HISTORY_PAGE_SIZE);
+      })
+      .catch(() => {
+        // 忽略加载更多历史失败。
       });
   }
 
@@ -529,6 +551,7 @@ export function App() {
               activeRequestId={activeRequestId}
               folders={folders}
               history={history}
+              historyHasMore={historyHasMore}
               savedRequests={savedRequests}
               environment={environment}
               workspaceEnvironments={workspaceEnvs}
@@ -554,6 +577,7 @@ export function App() {
               onRunTests={handleRunTests}
               onDeleteHistory={handleDeleteHistory}
               onClearHistory={handleClearHistory}
+              onLoadMoreHistory={loadMoreHistory}
             />
             {allRequests.length === 0 ? (
               <section className="workspace-empty">

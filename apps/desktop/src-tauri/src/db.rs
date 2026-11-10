@@ -392,19 +392,21 @@ pub fn record_history(
 pub fn list_history(
     state: State<'_, DbState>,
     limit: Option<i64>,
+    offset: Option<i64>,
 ) -> Result<Vec<HistoryEntry>, String> {
     let connection = state.0.lock().map_err(|error| error.to_string())?;
     let limit = limit.unwrap_or(20).clamp(1, 500);
+    let offset = offset.unwrap_or(0).max(0);
 
     let mut statement = connection
         .prepare(
             "SELECT id, request_id, method, url, status, duration_ms, size_bytes, error, created_at
-             FROM history ORDER BY id DESC LIMIT ?1",
+             FROM history ORDER BY id DESC LIMIT ?1 OFFSET ?2",
         )
         .map_err(|error| error.to_string())?;
 
     let rows = statement
-        .query_map(params![limit], |row| {
+        .query_map(params![limit, offset], |row| {
             Ok(HistoryEntry {
                 id: Some(row.get(0)?),
                 request_id: row.get(1)?,

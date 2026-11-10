@@ -39,6 +39,7 @@ interface SidebarProps {
   activeRequestId: string;
   folders: ApiFolder[];
   history: HistoryEntry[];
+  historyHasMore: boolean;
   savedRequests: SavedRequest[];
   environment: string;
   workspaceEnvironments: WorkspaceEnvironment[];
@@ -64,6 +65,7 @@ interface SidebarProps {
   onRunTests: (folder: ApiFolder) => void;
   onDeleteHistory: (id: number) => Promise<void>;
   onClearHistory: () => Promise<void>;
+  onLoadMoreHistory: () => void;
 }
 
 function formatSavedAt(value: string | null | undefined) {
@@ -78,6 +80,7 @@ export function Sidebar({
   activeRequestId,
   folders,
   history,
+  historyHasMore,
   savedRequests,
   environment,
   workspaceEnvironments,
@@ -103,6 +106,7 @@ export function Sidebar({
   onRunTests,
   onDeleteHistory,
   onClearHistory,
+  onLoadMoreHistory,
 }: SidebarProps) {
   const { message, modal } = App.useApp();
   const [query, setQuery] = useState('');
@@ -741,6 +745,11 @@ export function Sidebar({
               </Dropdown>
             );
           })
+        )}
+        {historyHasMore && !historyQuery && (
+          <Button type="link" size="small" block onClick={onLoadMoreHistory}>
+            加载更多历史
+          </Button>
         )}
       </div>
 

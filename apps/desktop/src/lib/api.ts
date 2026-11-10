@@ -272,12 +272,12 @@ export async function recordHistory(entry: HistoryEntry): Promise<HistoryEntry> 
   return item;
 }
 
-export async function listHistory(limit = 6): Promise<HistoryEntry[]> {
+export async function listHistory(limit = 6, offset = 0): Promise<HistoryEntry[]> {
   if (isTauri) {
-    return invoke<HistoryEntry[]>('list_history', { limit });
+    return invoke<HistoryEntry[]>('list_history', { limit, offset });
   }
 
-  return readJson<HistoryEntry[]>(HISTORY_KEY, []).slice(0, limit);
+  return readJson<HistoryEntry[]>(HISTORY_KEY, []).slice(offset, offset + limit);
 }
 
 export async function saveRequest(request: SavedRequest): Promise<SavedRequest> {
