@@ -1226,6 +1226,13 @@ export function RequestPanel({
           popupMatchSelectWidth={false}
           aria-label="协议"
         />
+        {(protocol === 'websocket' || protocol === 'sse') && (
+          <Tooltip title="WebSocket 与 SSE 使用应用内置网络栈，代理和客户端证书设置暂不生效；A/B/C 网络模式限制仍然生效。">
+            <Tag color="orange" style={{ marginInlineEnd: 0 }}>
+              不走代理
+            </Tag>
+          </Tooltip>
+        )}
         {usesHostTemplate && (
           <Tooltip
             title={
