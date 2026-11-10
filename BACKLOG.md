@@ -141,10 +141,10 @@
 
 ### P1-6 工程基线缺失
 
-- [ ] 增加 CSP（需真机验证）
+- [x] 增加 CSP
 - [x] 增加 lint 与前端测试
 
-**进展**：新增 `pnpm lint`（tsc）与 `pnpm test`（vitest），覆盖网络策略与断言评估；CSP 仍需真机验证后再启用。
+**进展**：新增 `pnpm lint`（tsc）与 `pnpm test`（vitest）；已启用 CSP，允许 IPC、HTTP(S)/WS(S)、内联样式与脚本沙箱所需的 Blob Worker。CSP 需在真机安装后确认界面与脚本功能正常。
 
 **问题**：无 lint 脚本、无前端测试；`tauri.conf.json` 中 `csp: null`；RequestPanel 70KB / Sidebar 38KB / AiPanel 37KB 单文件过大。
 
