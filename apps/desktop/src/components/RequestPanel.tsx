@@ -7,6 +7,7 @@ import {
   CopyOutlined,
   DeleteOutlined,
   DownloadOutlined,
+  DiffOutlined,
   EditOutlined,
   FormatPainterOutlined,
   GlobalOutlined,
@@ -64,6 +65,18 @@ const GraphqlSchemaModal = lazy(() =>
     default: module.GraphqlSchemaModal,
   })),
 );
+
+const ResponseDiffModal = lazy(() =>
+  import('./ResponseDiffModal').then((module) => ({
+    default: module.ResponseDiffModal,
+  })),
+);
+
+interface ResponseBaseline {
+  body: string;
+  status?: number;
+  savedAt: string;
+}
 
 interface RequestPanelProps {
   activeRequest: ApiRequest;
@@ -265,6 +278,8 @@ export function RequestPanel({
   const [schemaLoading, setSchemaLoading] = useState(false);
   const [schemaError, setSchemaError] = useState('');
   const [schemaTypes, setSchemaTypes] = useState<GraphqlType[]>([]);
+  const [diffOpen, setDiffOpen] = useState(false);
+  const [diffBaseline, setDiffBaseline] = useState<ResponseBaseline | null>(null);
   const [preScript, setPreScript] = useState(defaultMeta.preScript);
   const [postScript, setPostScript] = useState(defaultMeta.postScript);
   const [scriptLogs, setScriptLogs] = useState<ScriptLog[]>([]);
@@ -1188,6 +1203,35 @@ export function RequestPanel({
     message.success('已清空响应');
   }
 
+  function readResponseBaseline(): ResponseBaseline | null {
+    try {
+      const raw = kvGet(`aw-response-baseline:${activeRequest.id}`);
+      return raw ? (JSON.parse(raw) as ResponseBaseline) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function saveResponseBaseline() {
+    if (!response) return;
+    kvSet(
+      `aw-response-baseline:${activeRequest.id}`,
+      JSON.stringify({
+        body: response.body,
+        status: response.status,
+        savedAt: new Date().toISOString(),
+      }),
+    );
+    message.success('已保存为响应基线');
+  }
+
+  function openResponseDiff() {
+    const baseline = readResponseBaseline();
+    if (!baseline || !response) return;
+    setDiffBaseline(baseline);
+    setDiffOpen(true);
+  }
+
   return (
     <section className="request-pane">
       <div className="request-tabs" role="tablist" aria-label="打开的请求">
@@ -1388,6 +1432,18 @@ export function RequestPanel({
             types={schemaTypes}
             onClose={() => setSchemaOpen(false)}
             onRefresh={() => void openSchema()}
+          />
+        </Suspense>
+      )}
+
+      {diffOpen && diffBaseline && (
+        <Suspense fallback={null}>
+          <ResponseDiffModal
+            open={diffOpen}
+            before={diffBaseline.body}
+            after={response?.body ?? ''}
+            savedAt={new Date(diffBaseline.savedAt).toLocaleString()}
+            onClose={() => setDiffOpen(false)}
           />
         </Suspense>
       )}
@@ -1999,6 +2055,18 @@ export function RequestPanel({
                   icon: <DownloadOutlined />,
                   disabled: !hasResponseContent,
                 },
+                {
+                  key: 'baseline',
+                  label: '保存响应为基线',
+                  icon: <SaveOutlined />,
+                  disabled: !response || streamMode,
+                },
+                {
+                  key: 'diff',
+                  label: '对比基线',
+                  icon: <DiffOutlined />,
+                  disabled: !response || streamMode || !readResponseBaseline(),
+                },
                 { type: 'divider' },
                 {
                   key: 'clear',
@@ -2011,6 +2079,8 @@ export function RequestPanel({
               onClick: ({ key }) => {
                 if (key === 'copy') void copyResponse();
                 if (key === 'download') downloadResponse();
+                if (key === 'baseline') saveResponseBaseline();
+                if (key === 'diff') openResponseDiff();
                 if (key === 'clear') clearResponse();
               },
             }}
