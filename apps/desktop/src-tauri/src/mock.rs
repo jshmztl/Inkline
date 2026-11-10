@@ -75,12 +75,18 @@ pub async fn start_mock_server(
     state: State<'_, MockState>,
     port: u16,
     routes: Vec<MockRoute>,
+    host: Option<String>,
 ) -> Result<u16, String> {
     stop_server(&state);
 
-    let listener = TcpListener::bind(("127.0.0.1", port))
+    let host = host.unwrap_or_else(|| "127.0.0.1".to_string());
+    if host != "127.0.0.1" && host != "0.0.0.0" {
+        return Err("Mock Server 仅支持监听 127.0.0.1 或 0.0.0.0".to_string());
+    }
+
+    let listener = TcpListener::bind((host.as_str(), port))
         .await
-        .map_err(|error| format!("无法监听 127.0.0.1:{port}：{error}"))?;
+        .map_err(|error| format!("无法监听 {host}:{port}：{error}"))?;
     let actual_port = listener
         .local_addr()
         .map_err(|error| error.to_string())?

@@ -76,7 +76,9 @@ export function MockServerModal({ open, onClose }: MockServerModalProps) {
   const [configs, setConfigs] = useState<Record<string, MockConfig>>(readConfigs);
   const [selected, setSelected] = useState<string | null>(null);
   const [port, setPort] = useState(8787);
+  const [lanAccess, setLanAccess] = useState(() => kvGet('aw-mock-lan') === '1');
   const [runningPort, setRunningPort] = useState<number | null>(null);
+  const [runningHost, setRunningHost] = useState('127.0.0.1');
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<{ tone: 'ok' | 'bad' | ''; text: string }>({
     tone: '',
@@ -134,11 +136,18 @@ export function MockServerModal({ open, onClose }: MockServerModalProps) {
         return;
       }
 
-      const actual = await startMockServer(port, routes);
+      const actual = await startMockServer(
+        port,
+        routes,
+        lanAccess ? '0.0.0.0' : '127.0.0.1',
+      );
       setRunningPort(actual);
+      setRunningHost(lanAccess ? '0.0.0.0' : '127.0.0.1');
       setStatus({
         tone: 'ok',
-        text: `运行中 · http://127.0.0.1:${actual} · ${routes.length} 条路由`,
+        text: lanAccess
+          ? `运行中 · http://0.0.0.0:${actual} · 局域网设备可用本机 IP:${actual} 访问`
+          : `运行中 · http://127.0.0.1:${actual} · ${routes.length} 条路由`,
       });
       message.success(`Mock Server 已启动 · ${routes.length} 条路由`);
     } catch (caught) {
@@ -187,6 +196,16 @@ export function MockServerModal({ open, onClose }: MockServerModalProps) {
           onChange={(value) => setPort(value ?? 8787)}
           style={{ width: 96 }}
         />
+        <Checkbox
+          checked={lanAccess}
+          onChange={(event) => {
+            const next = event.target.checked;
+            setLanAccess(next);
+            kvSet('aw-mock-lan', next ? '1' : '0');
+          }}
+        >
+          允许局域网访问
+        </Checkbox>
         {runningPort ? (
           <Button
             danger
@@ -209,7 +228,7 @@ export function MockServerModal({ open, onClose }: MockServerModalProps) {
         )}
         {runningPort ? (
           <Tag color="green" className="mono">
-            运行中 · http://127.0.0.1:{runningPort}
+            运行中 · http://{runningHost}:{runningPort}
           </Tag>
         ) : (
           <span className="mock-hint">根据已保存请求生成路由，未匹配路径返回 404。</span>

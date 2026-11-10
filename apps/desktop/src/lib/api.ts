@@ -245,9 +245,10 @@ export interface MockRoutePayload {
 export async function startMockServer(
   port: number,
   routes: MockRoutePayload[],
+  host = '127.0.0.1',
 ): Promise<number> {
   if (isTauri) {
-    return invoke<number>('start_mock_server', { port, routes });
+    return invoke<number>('start_mock_server', { port, routes, host });
   }
   throw new Error('Mock Server 仅在桌面应用中可用');
 }
