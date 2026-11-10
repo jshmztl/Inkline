@@ -344,3 +344,38 @@ pub fn ws_close(state: State<'_, WsState>, id: String) -> Result<(), String> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn network_with_proxy(proxy: &str) -> NetworkOptions {
+        NetworkOptions {
+            proxy: Some(proxy.to_string()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn parses_http_proxy_address() {
+        let network = network_with_proxy("http://127.0.0.1:7890");
+        let parsed = proxy_address(Some(&network)).expect("proxy should parse");
+        assert_eq!(parsed, Some(("127.0.0.1".to_string(), 7890)));
+    }
+
+    #[test]
+    fn rejects_non_http_and_authenticated_proxy() {
+        let https = network_with_proxy("https://127.0.0.1:7890");
+        assert!(proxy_address(Some(&https)).is_err());
+
+        let authenticated = network_with_proxy("http://user:pass@127.0.0.1:7890");
+        assert!(proxy_address(Some(&authenticated)).is_err());
+    }
+
+    #[test]
+    fn empty_proxy_means_direct_connection() {
+        let network = network_with_proxy("   ");
+        assert_eq!(proxy_address(Some(&network)).expect("empty proxy"), None);
+    }
+}
+
