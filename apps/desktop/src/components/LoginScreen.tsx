@@ -1,26 +1,34 @@
 import { useState } from 'react';
-import { LockOutlined, SafetyCertificateOutlined, WifiOutlined } from '@ant-design/icons';
-import { App, Button, Input } from 'antd';
-import { signIn, type Session } from '../lib/session';
+import {
+  LockOutlined,
+  SafetyCertificateOutlined,
+  TeamOutlined,
+  WifiOutlined,
+} from '@ant-design/icons';
+import { Button, Input } from 'antd';
+import { enterLocal, enterTeam, type Session } from '../lib/session';
 
 interface LoginScreenProps {
   onSignedIn: (session: Session) => void;
 }
 
 export function LoginScreen({ onSignedIn }: LoginScreenProps) {
-  const { message } = App.useApp();
-  const [account, setAccount] = useState('');
-  const [password, setPassword] = useState('');
+  const [teamName, setTeamName] = useState('');
+  const [memberName, setMemberName] = useState('');
   const [error, setError] = useState('');
 
-  function submit() {
-    const result = signIn(account, password);
+  function handleLocal() {
+    setError('');
+    onSignedIn(enterLocal());
+  }
+
+  function handleTeam() {
+    const result = enterTeam(teamName, memberName);
     if ('error' in result) {
       setError(result.error);
       return;
     }
     setError('');
-    message.success(`已解锁 ${result.workspace}`);
     onSignedIn(result);
   }
 
@@ -75,41 +83,57 @@ export function LoginScreen({ onSignedIn }: LoginScreenProps) {
 
       <section className="login-panel">
         <div className="login-card">
-          <h2>解锁本机工作区</h2>
-          <p>凭据仅用于本机会话，不会上传到任何服务。</p>
+          <h2>进入工作区</h2>
+          <p>不需要账号口令。个人使用直接进入；团队使用填写团队与成员信息。</p>
+
+          <Button type="primary" size="large" block onClick={handleLocal}>
+            直接进入本机工作区
+          </Button>
+
+          <div className="login-divider">或使用团队工作区</div>
 
           <div className="login-field">
-            <label htmlFor="login-account">账号</label>
+            <label htmlFor="login-team">团队名称</label>
             <Input
-              id="login-account"
+              id="login-team"
               size="middle"
-              value={account}
-              onChange={(event) => setAccount(event.target.value)}
-              placeholder="name@internal"
-              autoComplete="username"
+              value={teamName}
+              maxLength={40}
+              onChange={(event) => setTeamName(event.target.value)}
+              onPressEnter={handleTeam}
+              placeholder="例如：支付中台"
+              autoComplete="organization"
             />
           </div>
 
           <div className="login-field">
-            <label htmlFor="login-password">口令</label>
-            <Input.Password
-              id="login-password"
+            <label htmlFor="login-member">成员名称</label>
+            <Input
+              id="login-member"
               size="middle"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              onPressEnter={submit}
-              placeholder="输入工作区口令"
-              autoComplete="current-password"
+              value={memberName}
+              maxLength={40}
+              onChange={(event) => setMemberName(event.target.value)}
+              onPressEnter={handleTeam}
+              placeholder="例如：张三"
+              autoComplete="name"
             />
           </div>
 
           {error && <span className="login-error">{error}</span>}
 
-          <Button type="primary" block onClick={submit} disabled={!account.trim() || !password}>
-            解锁工作区
+          <Button
+            block
+            icon={<TeamOutlined />}
+            onClick={handleTeam}
+            disabled={!teamName.trim() || !memberName.trim()}
+          >
+            进入团队工作区
           </Button>
 
-          <div className="login-hint">本机模式：不连接服务端，账号仅用于区分使用者，不做身份校验。</div>
+          <div className="login-hint">
+            本机模式不校验身份。团队信息仅用于本机标识、审计与快照记录，不会上传；跨机同步需接入团队服务。
+          </div>
         </div>
       </section>
     </div>

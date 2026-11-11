@@ -70,13 +70,14 @@ export function pushTeamSnapshot(
   pushedBy: string,
   requests: SavedRequest[],
   documents: Record<string, DraftField[]>,
+  workspace = '本机工作区',
 ): TeamSnapshot {
   const previous = readTeamSnapshot();
   const snapshot: TeamSnapshot = {
     revision: (previous?.revision ?? 0) + 1,
     updatedAt: new Date().toISOString(),
     pushedBy,
-    workspace: '本机工作区',
+    workspace,
     requests,
     documents,
   };

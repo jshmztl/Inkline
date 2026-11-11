@@ -9,12 +9,13 @@ import {
   SearchOutlined,
   SunOutlined,
   SyncOutlined,
+  TeamOutlined,
 } from '@ant-design/icons';
-import { App, Button, Drawer, Dropdown, Modal, Progress, Segmented, Select, Tooltip } from 'antd';
+import { App, Button, Drawer, Dropdown, Input, Modal, Progress, Segmented, Select, Tooltip } from 'antd';
 import type { Density, ThemeMode } from '@inkline/ui';
 import { networkModes, type NetworkMode } from '../data/types';
 import { clearAudit, listAudit, type AuditEntry, type AuditType } from '../lib/audit';
-import type { Session } from '../lib/session';
+import { saveTeamProfile, type Session } from '../lib/session';
 import { checkUpdate, installUpdate, type UpdateInfo, type UpdateProgress } from '../lib/update';
 
 interface TopBarProps {
@@ -30,6 +31,7 @@ interface TopBarProps {
   onEnvironmentChange: (environment: string) => void;
   onSignOut: () => void;
   onOpenPalette: () => void;
+  onSessionChange: (session: Session) => void;
 }
 
 const densityItems = [
@@ -75,6 +77,7 @@ export function TopBar({
   onEnvironmentChange,
   onSignOut,
   onOpenPalette,
+  onSessionChange,
 }: TopBarProps) {
   const { message, notification } = App.useApp();
   const network = networkModes[networkMode];
@@ -87,6 +90,9 @@ export function TopBar({
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
   const [progress, setProgress] = useState<UpdateProgress>({ downloaded: 0, total: null });
+  const [teamOpen, setTeamOpen] = useState(false);
+  const [teamNameDraft, setTeamNameDraft] = useState('');
+  const [memberDraft, setMemberDraft] = useState('');
 
   useEffect(() => {
     if (!auditOpen) return;
@@ -190,6 +196,23 @@ export function TopBar({
     }
   }
 
+  function openTeamSettings() {
+    setTeamNameDraft(session.team?.name ?? session.workspace);
+    setMemberDraft(session.team?.member ?? session.name);
+    setTeamOpen(true);
+  }
+
+  function handleSaveTeam() {
+    const result = saveTeamProfile(teamNameDraft, memberDraft);
+    if ('error' in result) {
+      message.error(result.error);
+      return;
+    }
+    onSessionChange(result);
+    setTeamOpen(false);
+    message.success('团队信息已更新');
+  }
+
   return (
     <header className="topbar">
       <div className="topbar-brand">
@@ -282,21 +305,25 @@ export function TopBar({
             items: [
               {
                 key: 'account',
-                label: `${session.name} · ${session.role}`,
+                label: `${session.name} · ${session.workspace}`,
                 disabled: true,
               },
-              { type: 'divider' },
+              ...(session.mode === 'team'
+                ? [{ key: 'team', label: '团队设置', icon: <TeamOutlined /> }]
+                : []),
+              { type: 'divider' as const },
               {
                 key: 'update',
                 label: networkMode === 'C' ? '检查更新' : '检查更新（需外网）',
                 icon: <CloudDownloadOutlined />,
                 disabled: networkMode !== 'C',
               },
-              { key: 'signout', label: '退出登录', icon: <LogoutOutlined /> },
+              { key: 'signout', label: '切换工作区', icon: <LogoutOutlined /> },
             ],
             onClick: ({ key }) => {
               if (key === 'signout') onSignOut();
               if (key === 'update') handleCheckUpdate();
+              if (key === 'team') openTeamSettings();
             },
           }}
         >
@@ -311,6 +338,52 @@ export function TopBar({
           </button>
         </Dropdown>
       </div>
+
+      <Modal
+        open={teamOpen}
+        title="团队设置"
+        width={420}
+        onCancel={() => setTeamOpen(false)}
+        footer={[
+          <Button key="cancel" size="small" onClick={() => setTeamOpen(false)}>
+            取消
+          </Button>,
+          <Button
+            key="save"
+            size="small"
+            type="primary"
+            disabled={!teamNameDraft.trim() || !memberDraft.trim()}
+            onClick={handleSaveTeam}
+          >
+            保存
+          </Button>,
+        ]}
+      >
+        <div className="login-field">
+          <label htmlFor="team-name">团队名称</label>
+          <Input
+            id="team-name"
+            value={teamNameDraft}
+            maxLength={40}
+            onChange={(event) => setTeamNameDraft(event.target.value)}
+            placeholder="例如：支付中台"
+          />
+        </div>
+        <div className="login-field">
+          <label htmlFor="team-member">成员名称</label>
+          <Input
+            id="team-member"
+            value={memberDraft}
+            maxLength={40}
+            onChange={(event) => setMemberDraft(event.target.value)}
+            onPressEnter={handleSaveTeam}
+            placeholder="例如：张三"
+          />
+        </div>
+        <div className="login-hint">
+          团队信息用于本机标识、审计与快照记录，不会上传；团队快照仍保存在本机，跨机同步需接入团队服务。
+        </div>
+      </Modal>
 
       <Drawer
         open={auditOpen}

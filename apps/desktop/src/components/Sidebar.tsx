@@ -357,7 +357,7 @@ export function Sidebar({
         type: 'sync',
         action: '三方合并',
         detail: `拉取 ${plan.remoteChanges.length} 条 · 冲突 ${plan.conflicts.length} 条`,
-        actor: session.account,
+        actor: session.name,
       });
       onMerged();
       setMergeOpen(false);
@@ -379,7 +379,7 @@ export function Sidebar({
         type: 'sync',
         action: `推送本地快照 rev ${snapshot.revision}`,
         detail: `${snapshot.requests.length} 个请求 · ${Object.keys(snapshot.documents).length} 份文档`,
-        actor: session.account,
+        actor: session.name,
       });
       message.success(`已推送 rev ${snapshot.revision} · ${snapshot.requests.length} 个请求`);
     } catch {
@@ -404,7 +404,7 @@ export function Sidebar({
         type: 'sync',
         action: `拉取本地快照 rev ${result.snapshot.revision}`,
         detail: `${result.pulled} 个请求 · ${Object.keys(result.snapshot.documents).length} 份文档`,
-        actor: session.account,
+        actor: session.name,
       });
       message.success(`已拉取 rev ${result.snapshot.revision} · ${result.pulled} 个请求`);
     } catch {

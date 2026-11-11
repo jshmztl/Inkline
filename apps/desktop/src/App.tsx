@@ -589,6 +589,7 @@ export function App() {
       session?.account ?? 'local',
       savedRequests,
       collectLocalDocuments(),
+      session?.workspace ?? '本机工作区',
     );
     setTeamSnapshot(snapshot);
     return snapshot;
@@ -659,6 +660,7 @@ export function App() {
             onEnvironmentChange={setEnvironment}
             onSignOut={handleSignOut}
             onOpenPalette={() => setPaletteOpen(true)}
+            onSessionChange={setSession}
           />
 
           <div className="workspace">
@@ -726,7 +728,7 @@ export function App() {
                 replay={replay}
                 saved={activeSaved}
                 variables={currentVariables}
-                actor={session.account}
+                actor={session.name}
                 networkMode={networkMode}
                 collectionId={activeRequest.collectionId ?? ''}
                 onSelectTab={selectTab}
@@ -753,7 +755,7 @@ export function App() {
                 activeRequest={activeRequest}
                 context={requestContext}
                 syncNonce={syncNonce}
-                actor={session.account}
+                actor={session.name}
                 collections={collections}
                 onCreateRequestFromDoc={handleCreateRequestFromDoc}
               />
@@ -762,7 +764,7 @@ export function App() {
 
           <StatusBar
             networkMode={networkMode}
-            actor={session.account}
+            actor={session.name}
             queueNonce={queueNonce}
             onQueueChange={() => setQueueNonce((current) => current + 1)}
           />
