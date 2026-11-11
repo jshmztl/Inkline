@@ -50,7 +50,24 @@ jobs:
           pnpm --filter @inkline/desktop lint
           pnpm --filter @inkline/desktop test
 
-      - name: 构建签名 MSI
+      - name: 准备 Windows 代码签名证书
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_BASE64)) {
+            Write-Host '未配置 WINDOWS_CERTIFICATE_BASE64，本次构建不进行 Windows 代码签名'
+            exit 0
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP 'inkline-codesign.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64))
+          "INKLINE_SIGN_PFX=$pfx" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "INKLINE_SIGN_PFX_PASSWORD=$env:WINDOWS_CERTIFICATE_PASSWORD" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "INKLINE_SIGN_DESCRIPTION=Inkline" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host '已准备代码签名证书'
+
+      - name: 构建签名安装包
         shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -58,6 +75,21 @@ jobs:
           UPDATE_BASE_URL: ${{ format('https://github.com/{0}/releases/latest/download', github.repository) }}
           UPDATE_ASSET_NAME: inkline_x64-setup.exe
         run: pnpm release
+
+      - name: 校验安装包签名
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:INKLINE_SIGN_PFX)) {
+            Write-Host '未配置代码签名证书，跳过签名校验'
+            exit 0
+          }
+          $bundle = 'apps/desktop/src-tauri/target/release/bundle'
+          $installer = Get-ChildItem "$bundle/nsis/*.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $installer) { throw '未找到 NSIS 安装包' }
+          $signature = Get-AuthenticodeSignature $installer.FullName
+          if (-not $signature.SignerCertificate) { throw "安装包未签名：$($installer.FullName)" }
+          Write-Host "签名状态：$($signature.Status)"
+          Write-Host "签名者：$($signature.SignerCertificate.Subject)"
 
       - name: 整理发布产物
         shell: pwsh

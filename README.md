@@ -69,7 +69,7 @@ pnpm tauri dev
 # 仅前端构建与类型检查
 pnpm build
 
-# 生成 Windows 安装包（NSIS，不签名）
+# 生成 Windows 安装包（NSIS，默认不签名）
 pnpm tauri build
 
 # 生成带更新签名的发布产物
@@ -77,6 +77,31 @@ pnpm release
 ```
 
 普通构建输出到 `apps/desktop/src-tauri/target/release/bundle/nsis/`。
+
+### Windows 代码签名（可选）
+
+安装包默认不签名，SmartScreen 会提示“未知发布者”。自签名证书只能让已部署该证书的机器识别发布者，**不能保证所有机器跳过 SmartScreen**；若要在公网彻底消除提示，需要 OV / EV 代码签名证书或 Azure Trusted Signing。
+
+1. 生成一次自签名证书（私钥保存在 `%USERPROFILE%\.tauri`，不会进入仓库）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File apps/desktop/scripts/new-signing-cert.ps1 -Password "自定义口令"
+```
+
+2. 本地签名构建（需要 Windows SDK 的 signtool）：
+
+```powershell
+$env:INKLINE_SIGN_PFX = "$env:USERPROFILE\.tauri\inkline-codesign.pfx"
+$env:INKLINE_SIGN_PFX_PASSWORD = "自定义口令"
+$env:INKLINE_SIGN_DESCRIPTION = "Inkline"
+pnpm release
+```
+
+3. CI 签名：在仓库 Secrets 中添加 `WINDOWS_CERTIFICATE_BASE64`（PFX 的 Base64，生成脚本会输出）与 `WINDOWS_CERTIFICATE_PASSWORD`。未配置时流水线自动跳过签名，构建不受影响。
+
+4. 让内网机器信任证书：将 `inkline-codesign.cer` 通过 GPO / Intune 部署到“受信任的根证书颁发机构”和“受信任的发布者”。未部署证书的机器仍会看到 SmartScreen 提示。
+
+> 私钥与 PFX 请离线备份，不要提交到仓库；更换证书后，已信任旧证书的机器需要重新部署新证书。
 
 ## 自动更新
 
