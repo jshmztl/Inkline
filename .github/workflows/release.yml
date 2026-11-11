@@ -56,17 +56,17 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           UPDATE_BASE_URL: ${{ format('https://github.com/{0}/releases/latest/download', github.repository) }}
-          UPDATE_ASSET_NAME: inkline_x64.msi
+          UPDATE_ASSET_NAME: inkline_x64-setup.exe
         run: pnpm release
 
       - name: 整理发布产物
         shell: pwsh
         run: |
           $bundle = 'apps/desktop/src-tauri/target/release/bundle'
-          $msi = Get-ChildItem "$bundle/msi/*.msi" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-          if (-not $msi) { throw '未找到 MSI' }
-          Copy-Item $msi.FullName "$bundle/inkline_x64.msi" -Force
-          Get-ChildItem $bundle -File | Where-Object { $_.Name -match '\.(msi|sig|json)$' } | Select-Object Name, Length
+          $installer = Get-ChildItem "$bundle/nsis/*.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $installer) { throw '未找到 NSIS 安装包' }
+          Copy-Item $installer.FullName "$bundle/inkline_x64-setup.exe" -Force
+          Get-ChildItem $bundle -File | Where-Object { $_.Name -match '\.(exe|msi|sig|json)$' } | Select-Object Name, Length
 
       - name: 发布 GitHub Release
         shell: pwsh
@@ -75,7 +75,7 @@ jobs:
         run: |
           $bundle = 'apps/desktop/src-tauri/target/release/bundle'
           gh release create $env:GITHUB_REF_NAME `
-            "$bundle/inkline_x64.msi" `
+            "$bundle/inkline_x64-setup.exe" `
             "$bundle/latest.json" `
             --title "Inkline $env:GITHUB_REF_NAME" `
             --notes "Inkline $env:GITHUB_REF_NAME"

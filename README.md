@@ -67,18 +67,18 @@ pnpm tauri dev
 # 仅前端构建与类型检查
 pnpm build
 
-# 生成 Windows 安装包（MSI，不签名）
+# 生成 Windows 安装包（NSIS，不签名）
 pnpm tauri build
 
 # 生成带更新签名的发布产物
 pnpm release
 ```
 
-普通构建输出到 `apps/desktop/src-tauri/target/release/bundle/msi/`。
+普通构建输出到 `apps/desktop/src-tauri/target/release/bundle/nsis/`。
 
 ## 自动更新
 
-桌面端使用 Tauri Updater 检查发行版上的静态清单，更新包经 minisign 签名校验后以 MSI passive 模式安装。
+桌面端使用 Tauri Updater 检查发行版上的静态清单，更新包经 minisign 签名校验后以 NSIS passive 模式安装。
 
 - 启动后约 2.5 秒自动检查一次，发现新版本时在右下角提示；失败静默，不打扰使用
 - 也可随时在「账户菜单 → 检查更新」手动检查
@@ -118,9 +118,9 @@ git push origin v0.1.1
 pnpm release
 ```
 
-脚本会输出 MSI、`<msi>.sig` 与 `latest.json`，均位于 `apps/desktop/src-tauri/target/release/bundle/`。
+脚本会输出 NSIS 安装包、`<installer>.exe.sig` 与 `latest.json`，均位于 `apps/desktop/src-tauri/target/release/bundle/`。
 
-3. 把 MSI 重命名为 `inkline_x64.msi`，连同 `latest.json` 一起上传到 GitHub Releases，并将该发布设为 latest。
+3. 把安装包重命名为 `inkline_x64-setup.exe`，连同 `latest.json` 一起上传到 GitHub Releases，并将该发布设为 latest。
 4. 客户端在「账户菜单 → 检查更新」中检查、下载并安装。
 
 注意事项：
@@ -141,6 +141,7 @@ pnpm release
 ## 数据与存储
 
 - SQLite 数据库：系统应用数据目录下的 `inkline.db`，包含 `requests`、`history`、`settings`、`audit_logs` 等表。
+- 卸载时会弹窗询问是否删除应用数据：选择“是”会清理 `%APPDATA%\com.inkline.desktop` 与 `%LOCALAPPDATA%\com.inkline.desktop`；选择“否”会保留数据，重新安装后可继续使用。
 - 浏览器预览的本地键：`aw-session`、`aw-doc-draft:{requestId}`、`aw-team-remote`、`aw-team-base`、`aw-audit`、`aw-offline-queue`。
 - 出网预检默认识别 `token`、`secret`、`password`、`authorization`、`api-key`、`tenant` 等敏感字段并脱敏。
 
