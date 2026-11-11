@@ -141,7 +141,7 @@ pnpm release
 ## 数据与存储
 
 - SQLite 数据库：系统应用数据目录下的 `inkline.db`，包含 `requests`、`history`、`settings`、`audit_logs` 等表。
-- 卸载时会弹窗询问是否删除应用数据：选择“是”会清理 `%APPDATA%\com.inkline.desktop` 与 `%LOCALAPPDATA%\com.inkline.desktop`；选择“否”会保留数据，重新安装后可继续使用。
+- 卸载时会弹窗询问是否删除应用数据：选择“是”会清理 `%APPDATA%` 与 `%LOCALAPPDATA%` 下的 `com.inkline.desktop`，以及旧版 `com.apiworkbench.desktop`（不清理会被重装后的旧库迁移逻辑恢复）；选择“否”会保留数据，重新安装后可继续使用。
 - 浏览器预览的本地键：`aw-session`、`aw-doc-draft:{requestId}`、`aw-team-remote`、`aw-team-base`、`aw-audit`、`aw-offline-queue`。
 - 出网预检默认识别 `token`、`secret`、`password`、`authorization`、`api-key`、`tenant` 等敏感字段并脱敏。
 
