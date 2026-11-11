@@ -17,6 +17,7 @@
 - 公网多租户 SaaS、计费。
 - 把 AI 网关、Mock 服务托管到团队服务。
 - 环境变量中的密钥跨机同步（默认不同步）。
+- 企业 SSO / OIDC（本期不接入，仅预留扩展点）。
 
 ## 2. 现状与约束
 
@@ -49,13 +50,32 @@
 - 服务端建议：Node 22 + Fastify + PostgreSQL 16；若希望与桌面端同栈，可用 Rust + axum + sqlx，接口不变。
 - 快照较小时直接存 `bytea/jsonb`；超过阈值（如 2 MB）转存对象存储，接口返回下载地址。
 
+### 3.1 服务端技术栈：Node 还是 Rust
+
+| 维度 | Node 22 + Fastify | Rust + axum |
+| --- | --- | --- |
+| 开发效率 | 高，HTTP / JSON / 鉴权 / 测试生态成熟 | 中，强类型与编译期保障好，但样板代码更多 |
+| 性能与内存 | 本场景足够（I/O 密集）；内存约 100–300 MB | 更高吞吐、更低内存；瓶颈通常在数据库而非语言 |
+| 与桌面端关系 | 无法复用 Rust 代码，但可与前端共享 TypeScript 类型 | 与 Tauri 后端同语言，便于统一模型与错误处理 |
+| 部署 | 需要 Node 运行时或打包产物，镜像较大 | 单个静态二进制，镜像小，内网离线部署更省事 |
+| 数据库生态 | Prisma / node-pg-migrate，迁移方便 | sqlx / sea-orm，编译期 SQL 校验 |
+| 维护门槛 | 前端或全栈同学可直接接手 | 需要 Rust 经验，人员要求更高 |
+| 安全 | 内存安全依赖运行时与依赖审计 | 内存安全、依赖相对少 |
+
+结论：
+
+- 团队服务是典型的 JSON CRUD + 大对象传输，**性能不是选型瓶颈**。
+- 如果 M1 要尽快上线、维护人手以 TS/Node 为主，选 **Node 22 + Fastify**。
+- 如果希望桌面端与服务端同栈、单二进制部署、长期由 Rust 同学维护，选 **Rust + axum**。
+- 两种方案共用同一套 HTTP 接口与数据库表结构，后续互换成本主要在实现，不在协议。
+
 ## 4. 身份与权限
 
 ### 身份
 
 - 账号：`account`（工号 / 内网邮箱），密码使用 Argon2id 哈希。
 - 访问令牌：JWT，15 分钟有效；刷新令牌 30 天，旋转式刷新。
-- 预留企业 SSO：`POST /v1/auth/oidc/exchange`，用 OIDC code 换取同一套令牌。
+- 企业 SSO 本期不接入；后续可按 `POST /v1/auth/oidc/exchange` 扩展，复用同一套令牌模型，不影响现有接口。
 - 桌面端令牌必须存操作系统凭据库（Tauri keyring），**不得写入 localStorage**。
 
 ### 角色
@@ -85,6 +105,9 @@ teams (
   id uuid primary key,
   name text not null,
   current_revision bigint not null default 0,
+  max_data_level text not null default 'L1' check (max_data_level in ('L0','L1','L2','L3')),
+  snapshot_retention_days int not null default 90,
+  audit_retention_days int not null default 90,
   created_by uuid not null references users(id),
   created_at timestamptz not null default now()
 );
@@ -206,6 +229,7 @@ refresh_tokens (
 | `forbidden` | 403 | 无团队权限 |
 | `not_found` | 404 | 资源不存在 |
 | `validation_failed` | 422 | 字段校验失败 |
+| `data_level_forbidden` | 422 | 快照包含团队策略禁止的数据分级 |
 | `payload_too_large` | 413 | 超过大小限制 |
 | `rate_limited` | 429 | 频率限制 |
 | `revision_conflict` | 409 | 版本冲突，需要先拉取合并 |
@@ -270,15 +294,20 @@ refresh_tokens (
 
 #### GET /v1/teams/{teamId}
 
-返回团队基本信息、当前 revision、角色、成员数。
+返回团队基本信息、当前 revision、角色、成员数、数据分级上限与快照 / 审计保留策略。
 
 #### PATCH /v1/teams/{teamId}
 
 ```json
-{ "name": "订单中台" }
+{
+  "name": "订单中台",
+  "maxDataLevel": "L1",
+  "snapshotRetentionDays": 90,
+  "auditRetentionDays": 90
+}
 ```
 
-仅 `owner`。
+仅 `owner`。`maxDataLevel` 默认 `L1`，`L3` 不允许设置；保留天数建议限制在 7–3650 天。
 
 #### GET /v1/teams/{teamId}/members
 
@@ -453,12 +482,35 @@ sequenceDiagram
 - 密码 Argon2id；登录失败限速与锁定。
 - Access Token 短时效，Refresh Token 旋转并支持撤销。
 - 团队隔离：所有查询强制带 `team_id`，禁止跨团队 ID 访问。
-- 快照内容含请求体，可能包含业务数据：push 前客户端必须提示数据分级；L2/L3 默认禁止 push 或在团队策略中显式允许。
+- 数据分级：默认只允许 L0/L1 进入团队服务；L2 需 owner 显式开启，L3 禁止，详见 7.1。
 - 服务端静态加密：数据库/对象存储启用加密；更高要求可加客户端端到端加密（团队密钥，服务端只见密文，列为后续阶段）。
 - 大小限制：压缩后 10 MB / 解压后 50 MB；超限 413。
 - 限流：每用户 10 req/s，每团队并发 push 1。
 - 审计日志不可由普通成员删除；仅 `owner` 可导出。
 - 禁止服务端拉取客户端提交的任意 URL，避免 SSRF。
+
+### 7.1 数据分级与 L2/L3 风险
+
+默认策略：`maxDataLevel = L1`。L2 需要 `owner` 在团队设置中显式开启并二次确认；L3 永久禁止进入团队服务。
+
+L2/L3 数据进入团队服务的主要风险：
+
+| 风险 | 说明 |
+| --- | --- |
+| 数据集中 | 团队库成为 L2/L3 数据的集中存储点，一旦被入侵，影响面远大于单机 |
+| 明文与备份 | 未启用端到端加密时，数据库、备份与对象存储对运维人员可见 |
+| 权限扩散 | `owner` / `admin` 可读取整包快照；成员离职或降权后，历史快照仍然存在 |
+| 合规 | 等保与数据分级制度通常要求 L2/L3 不出生产域，进入团队库可能直接违规 |
+| 客户端误标 | `dataLevel` 由客户端声明，服务端无法验证真实性，存在误传或绕过 |
+| 保留窗口 | 长期留存会扩大暴露时间，必须配合更短的保留期 |
+| 审计泄露 | 审计详情如记录 URL 与字段名，也会暴露业务结构 |
+
+建议：
+
+- 默认只允许 L0/L1；确需 L2 时由 `owner` 开启，并同时启用静态加密、限制导出、缩短快照保留期（如 30 天）。
+- 服务端在 push 时校验 `requests[].dataLevel`，超过团队策略返回 `422 data_level_forbidden` 并写入审计。
+- 客户端 push 前按分级阻断并提示；L2 必须二次确认。
+- 强合规场景选择端到端加密（M4），或只同步接口结构、不同步请求体与响应正文。
 
 ## 8. 错误与重试
 
@@ -477,13 +529,23 @@ sequenceDiagram
 - 日志：结构化 JSON，含 `requestId`、`teamId`、`userId`、耗时；不记录密码、令牌与快照正文。
 - 升级：接口保持 `/v1` 向后兼容；破坏性变更走 `/v2`。
 
+### 9.1 数据保留与清理
+
+- 默认快照与审计均保留 **90 天（3 个月）**。
+- 全局默认可通过环境变量配置：`INKLINE_SNAPSHOT_RETENTION_DAYS`、`INKLINE_AUDIT_RETENTION_DAYS`。
+- 团队 `owner` 可在团队设置中覆盖（建议限制 7–3650 天）；`GET /v1/teams/{id}` 返回实际生效值，客户端在团队设置中展示。
+- 清理任务每天 03:00 执行，分批删除过期数据；每个团队始终保留最新一份快照，即使它已超过保留期，避免新成员无法拉取。
+- 删除快照时同步删除对象存储文件；清理动作写入审计（`actor = system`）。
+- 过期版本不可恢复；需要长期归档时由 `owner` 手动导出（M2）。
+- `GET /v1/meta` 返回全局默认值，便于客户端展示与排障。
+
 ## 10. 客户端改造点
 
 1. 团队设置增加「团队服务地址」与登录入口；令牌存 OS 凭据库。
 2. 新增 `lib/teamService.ts`，替换 `team.ts` 的本机快照实现；本机模式继续走本地实现。
 3. 快照 payload 升到 schemaVersion 2，补 `collections`。
 4. push / pull 改为真实请求，保留现有三方合并弹窗与冲突展示。
-5. push 前增加数据分级确认（L2/L3 需显式允许）。
+5. push 前按团队 `maxDataLevel` 阻断：L2 需二次确认，L3 禁止。
 6. 状态栏与侧栏展示连接状态、最后同步时间、当前 revision。
 7. 离线队列：失败进入重试队列，恢复网络后自动推送。
 
@@ -492,9 +554,9 @@ sequenceDiagram
 | 阶段 | 内容 | 验收 |
 | --- | --- | --- |
 | M1 | 登录、团队创建、快照 push / pull / 冲突、审计、健康检查 | 两台机器同步同一团队，冲突可合并；未授权访问被拒 |
-| M2 | 邀请码、成员与角色管理、团队改名、快照历史与回滚 | 成员权限矩阵通过；owner 唯一性 |
+| M2 | 邀请码、成员与角色管理、团队改名、快照历史与回滚、保留策略配置与清理任务 | 成员权限矩阵通过；owner 唯一性；过期数据按时清理 |
 | M3 | 增量同步（JSON Patch）、单请求级协作、评论、在线状态 | 大团队下同步体积与延迟可接受 |
-| M4 | 企业 SSO / OIDC、端到端加密、审计导出 | 安全评审通过 |
+| M4 | 端到端加密、审计导出（企业 SSO 暂不排期） | 安全评审通过 |
 
 ## 12. 测试与验收
 
@@ -505,12 +567,13 @@ sequenceDiagram
 - 令牌测试：过期、刷新旋转、撤销、重放。
 - 边界测试：空团队、超大快照、非法 JSON、schemaVersion 不兼容。
 - 故障测试：数据库短暂不可用、对象存储失败、网络中断重试。
+- 数据分级测试：L2 超限返回 422 并记审计；L3 始终拒绝。
+- 保留测试：过期快照 / 审计按配置清理，最新快照始终保留。
 - 客户端 E2E：本机 → 团队 → 第二客户端拉取 → 修改 → 冲突合并 → 再推送。
 
 ## 13. 待确认
 
-- 团队服务端技术栈：Node/Fastify 还是 Rust/axum。
-- 是否需要企业 SSO（LDAP / OIDC）作为 M1 范围。
-- L2/L3 数据是否允许进入团队服务，还是只允许 L0/L1。
-- 快照保留策略与审计保留期。
+- 团队服务端技术栈：Node/Fastify 还是 Rust/axum（建议 Node 先落地 M1）。
+- L2 是否允许进入团队服务（建议默认禁止，确需时由 owner 开启）；L3 一律禁止。
 - 是否需要客户端端到端加密（服务端不可读）。
+- 保留期默认 90 天已确定，团队可配置范围是否限制为 7–3650 天。
