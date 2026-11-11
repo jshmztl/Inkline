@@ -14,6 +14,8 @@ import {
   LockOutlined,
   MoreOutlined,
   PlusOutlined,
+  ProfileOutlined,
+  RightOutlined,
   SaveOutlined,
   SearchOutlined,
   SendOutlined,
@@ -32,7 +34,9 @@ import {
   type SavedRequest,
   type SendResponse,
 } from '../lib/api';
-import type { RequestContext } from '../lib/docTask';
+import type { DraftField, RequestContext } from '../lib/docTask';
+import { describeBodyFields, extractBodyFields } from '../lib/bodyFields';
+import { readGlossary } from '../lib/glossary';
 import {
   nextEventId,
   openWebSocket,
@@ -257,6 +261,10 @@ export function RequestPanel({
   const [headers, setHeaders] = useState<KvRow[]>([]);
   const [body, setBody] = useState('');
   const [bodyMode, setBodyMode] = useState<BodyMode>(defaultMeta.bodyMode);
+  const [bodyNotesOpen, setBodyNotesOpen] = useState(
+    () => kvGet('aw-body-notes-open') !== '0',
+  );
+  const [docDraft, setDocDraft] = useState<DraftField[]>([]);
   const [formRows, setFormRows] = useState<KvRow[]>(defaultMeta.formRows);
   const [fileRows, setFileRows] = useState<FileRow[]>(defaultMeta.fileRows);
   const [assertionRows, setAssertionRows] = useState<AssertionRow[]>(
@@ -327,6 +335,26 @@ export function RequestPanel({
     setFeedback(null);
     setResponseQuery('');
   }, [activeRequest, saved]);
+
+  useEffect(() => {
+    function loadDraft() {
+      try {
+        const raw = kvGet(`aw-doc-draft:${activeRequest.id}`);
+        const parsed = raw ? JSON.parse(raw) : [];
+        setDocDraft(Array.isArray(parsed) ? (parsed as DraftField[]) : []);
+      } catch {
+        setDocDraft([]);
+      }
+    }
+
+    loadDraft();
+
+    function handleDraftUpdated(event: Event) {
+      if ((event as CustomEvent<string>).detail === activeRequest.id) loadDraft();
+    }
+    window.addEventListener('aw-doc-draft-updated', handleDraftUpdated);
+    return () => window.removeEventListener('aw-doc-draft-updated', handleDraftUpdated);
+  }, [activeRequest.id]);
 
   useEffect(() => {
     const meta = readRequestMeta(activeRequest.id);
@@ -443,6 +471,23 @@ export function RequestPanel({
     () => (requestTab === 'headers' ? headers : params),
     [requestTab, headers, params],
   );
+
+  const bodyFields = useMemo(() => {
+    if (bodyMode !== 'json' && bodyMode !== 'xml') return [];
+    return describeBodyFields(
+      extractBodyFields(body, bodyMode),
+      docDraft,
+      readGlossary(),
+    );
+  }, [body, bodyMode, docDraft]);
+
+  function toggleBodyNotes() {
+    setBodyNotesOpen((current) => {
+      const next = !current;
+      kvSet('aw-body-notes-open', next ? '1' : '0');
+      return next;
+    });
+  }
 
   const hostPrefix = '{{host}}';
   const usesHostTemplate = url.startsWith(hostPrefix);
@@ -1598,6 +1643,18 @@ export function RequestPanel({
                 <Button
                   variant="text"
                   size="small"
+                  icon={<ProfileOutlined />}
+                  color="geekblue"
+                  onClick={toggleBodyNotes}
+                  aria-pressed={bodyNotesOpen}
+                >
+                  {bodyNotesOpen ? '隐藏注释' : '字段注释'}
+                </Button>
+              )}
+              {(bodyMode === 'json' || bodyMode === 'xml') && (
+                <Button
+                  variant="text"
+                  size="small"
                   icon={<FormatPainterOutlined />}
                   color="cyan"
                   onClick={formatRequestBody}
@@ -1739,21 +1796,72 @@ export function RequestPanel({
                 )}
               </div>
             ) : (
-              <CodeEditor
-                value={body}
-                onChange={setBody}
-                language={
-                  bodyMode === 'json' ? 'json' : bodyMode === 'xml' ? 'xml' : 'text'
-                }
-                ariaLabel="请求体"
-                placeholder={
-                  bodyMode === 'json'
-                    ? '{\n  "key": "value"\n}'
-                    : bodyMode === 'xml'
-                      ? '<root>\n  <key>value</key>\n</root>'
-                      : '请输入请求体…'
-                }
-              />
+              <div className="body-split">
+                <CodeEditor
+                  value={body}
+                  onChange={setBody}
+                  language={
+                    bodyMode === 'json' ? 'json' : bodyMode === 'xml' ? 'xml' : 'text'
+                  }
+                  ariaLabel="请求体"
+                  placeholder={
+                    bodyMode === 'json'
+                      ? '{\n  "key": "value"\n}'
+                      : bodyMode === 'xml'
+                        ? '<root>\n  <key>value</key>\n</root>'
+                        : '请输入请求体…'
+                  }
+                />
+                {bodyNotesOpen && (bodyMode === 'json' || bodyMode === 'xml') && (
+                  <aside className="body-notes" aria-label="字段注释">
+                    <div className="body-notes-head">
+                      <strong>字段注释</strong>
+                      <span>{bodyFields.length} 个字段</span>
+                      <Tooltip title="收起字段注释">
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<RightOutlined />}
+                          onClick={toggleBodyNotes}
+                          aria-label="收起字段注释"
+                        />
+                      </Tooltip>
+                    </div>
+                    <div className="body-notes-list">
+                      {bodyFields.length === 0 ? (
+                        <div className="body-notes-empty">
+                          {body.trim()
+                            ? '当前请求体没有可映射的字段，或语法有误。'
+                            : '请求体为空，暂无可映射字段。'}
+                        </div>
+                      ) : (
+                        bodyFields.map((field) => (
+                          <div className="body-note-row" key={field.path}>
+                            <div
+                              className="body-note-path"
+                              title={field.path}
+                              style={{ paddingLeft: field.depth * 12 }}
+                            >
+                              <code>{field.name}</code>
+                              <em>{field.type}</em>
+                            </div>
+                            <div
+                              className={`body-note-text${field.description ? '' : ' empty'}`}
+                            >
+                              {field.description || '暂无说明'}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                    <div className="body-notes-foot">
+                      {bodyFields.some((field) => field.description)
+                        ? '说明来自 AI 文档草稿与字段术语表，修改请求体后自动刷新。'
+                        : '在右侧 AI 面板生成字段说明并应用后，会自动同步到这里。'}
+                    </div>
+                  </aside>
+                )}
+              </div>
             )}
           </div>
         )}

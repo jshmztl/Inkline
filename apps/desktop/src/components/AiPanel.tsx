@@ -395,6 +395,9 @@ export function AiPanel({
     } catch {
       // localStorage 不可用时仅保留内存草稿。
     }
+    window.dispatchEvent(
+      new CustomEvent('aw-doc-draft-updated', { detail: task.request.id }),
+    );
     setApplied(true);
     setDiffOpen(false);
     message.success(`已应用到文档草稿 · ${next.length} 个字段`);
