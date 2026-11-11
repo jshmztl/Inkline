@@ -2,6 +2,7 @@ node_modules/
 dist/
 **/src-tauri/target/
 **/src-tauri/gen/
+apps/team-server/target/
 .screenshots/
 .trae-html-share-packages/
 *.local
