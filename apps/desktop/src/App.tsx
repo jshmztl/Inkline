@@ -17,6 +17,7 @@ import {
   type SavedRequest,
 } from './lib/api';
 import type { RequestContext } from './lib/docTask';
+import type { RequestDraft } from './lib/requestDraft';
 import { migrateLegacyAudit } from './lib/audit';
 import { listEnvironments, saveEnvironmentVariables, writeEnvironments } from './lib/envStore';
 import { kvGet, kvSet } from './lib/kv';
@@ -368,6 +369,33 @@ export function App() {
     setActiveRequestId(created.id);
     setOpenTabIds((current) =>
       current.includes(created.id) ? current : [...current, created.id],
+    );
+  }
+
+  async function handleCreateRequestFromDoc(draft: RequestDraft, collectionId: string) {
+    let target = collectionId;
+    if (!target || !collections.some((collection) => collection.id === target)) {
+      target = await handleCreateCollection('AI 生成接口');
+    }
+
+    const id = `request-${Date.now().toString(36)}`;
+    await saveRequest({
+      id,
+      name: draft.name,
+      method: draft.method,
+      url: draft.url,
+      headers: draft.headers,
+      body: draft.body,
+      dataLevel: 'L1',
+      collectionId: target,
+      sort: Date.now(),
+      updatedAt: null,
+    });
+    await refreshWorkspace();
+    autoOpenRef.current = true;
+    setActiveRequestId(id);
+    setOpenTabIds((current) =>
+      current.includes(id) ? current : [...current, id],
     );
   }
 
@@ -726,6 +754,8 @@ export function App() {
                 context={requestContext}
                 syncNonce={syncNonce}
                 actor={session.account}
+                collections={collections}
+                onCreateRequestFromDoc={handleCreateRequestFromDoc}
               />
             </Suspense>
           </div>

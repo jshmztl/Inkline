@@ -2600,6 +2600,39 @@ html[data-theme='dark'] .ai-panel .ai-bubble-end .ant-bubble-content {
   overflow: auto;
 }
 
+/* ---------- 从文档创建接口 ---------- */
+
+.draft-tip {
+  margin: 0 0 10px;
+  color: var(--aw-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.draft-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 10px;
+}
+
+.draft-field > label {
+  color: var(--aw-muted);
+  font-size: 12px;
+}
+
+.draft-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.draft-body {
+  max-height: 180px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
 .ai-footnote {
   display: flex;
   align-items: center;

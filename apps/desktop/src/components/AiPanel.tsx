@@ -5,6 +5,7 @@ import {
   DownOutlined,
   ExperimentOutlined,
   EyeOutlined,
+  FileAddOutlined,
   FileTextOutlined,
   LockOutlined,
   MoreOutlined,
@@ -15,11 +16,18 @@ import {
   SettingOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
-import { App, Button, Checkbox, Dropdown, Input, Modal, Tag, Tooltip } from 'antd';
+import { App, Button, Checkbox, Dropdown, Input, Modal, Select, Tag, Tooltip } from 'antd';
 import { Bubble, Prompts, Sender } from '@ant-design/x';
-import type { ApiRequest, NetworkMode } from '../data/types';
+import type { ApiRequest, HttpMethod, NetworkMode } from '../data/types';
 import { kvGet, kvSet } from '../lib/kv';
 import { networkModes } from '../data/types';
+import type { Collection } from '../lib/api';
+import {
+  httpMethods,
+  looksLikeApiDoc,
+  parseRequestDraft,
+  type RequestDraft,
+} from '../lib/requestDraft';
 import {
   buildDocTask,
   buildDraftDiff,
@@ -55,7 +63,11 @@ interface AiPanelProps {
   context: RequestContext | null;
   syncNonce: number;
   actor: string;
+  collections: Collection[];
+  onCreateRequestFromDoc: (draft: RequestDraft, collectionId: string) => Promise<void>;
 }
+
+type AiAction = 'task' | 'descriptions' | 'tests' | 'chat' | 'extract';
 
 interface ChatMessage {
   key: string;
@@ -63,7 +75,20 @@ interface ChatMessage {
   text: string;
 }
 
-const prompts = ['生成接口文档', '补全字段说明', '生成测试用例', '解释错误'];
+const prompts = ['从文档生成接口', '生成接口文档', '补全字段说明', '生成测试用例', '解释错误'];
+
+const extractSystemPrompt = [
+  '你是 API 文档解析器。用户会粘贴从 Word 复制的接口说明，请只提取其中一个接口。',
+  '只输出一个 JSON 对象，不要输出解释文字或其他内容。',
+  'JSON 结构：',
+  '{"name":"接口名称","method":"GET|POST|PUT|PATCH|DELETE","url":"接口地址","headers":[{"name":"Header 名","value":"Header 值"}],"body":"请求体示例，没有则为 null"}',
+  '要求：',
+  '- url 优先使用文档中的完整地址；没有域名时保留以 / 开头的路径',
+  '- method 使用文档给出的请求方式，未给出时用 GET',
+  '- headers 只保留文档明确列出的请求头',
+  '- body 输出原始示例文本（JSON 或表单），不要改写字段',
+  '- 文档包含多个接口时，只输出第一个',
+].join('\n');
 
 function parseDescriptionJson(text: string): Record<string, unknown> | null {
   const cleaned = text
@@ -88,6 +113,8 @@ export function AiPanel({
   context,
   syncNonce,
   actor,
+  collections,
+  onCreateRequestFromDoc,
 }: AiPanelProps) {
   const { message } = App.useApp();
   const network = networkModes[networkMode];
@@ -108,10 +135,12 @@ export function AiPanel({
   const [descLoading, setDescLoading] = useState(false);
   const [testsLoading, setTestsLoading] = useState(false);
   const [streaming, setStreaming] = useState(false);
-  const [pendingAction, setPendingAction] = useState<
-    'task' | 'descriptions' | 'tests' | 'chat'
-  >('task');
+  const [pendingAction, setPendingAction] = useState<AiAction>('task');
   const [pendingChat, setPendingChat] = useState('');
+  const [draftRequest, setDraftRequest] = useState<RequestDraft | null>(null);
+  const [draftCollectionId, setDraftCollectionId] = useState('');
+  const [draftLoading, setDraftLoading] = useState(false);
+  const [creatingDraft, setCreatingDraft] = useState(false);
 
   const task = useMemo(
     () => (context ? buildDocTask(context, glossaryEntries) : null),
@@ -286,10 +315,7 @@ export function AiPanel({
       .join('\n\n');
   }
 
-  async function runAiAction(
-    action: 'task' | 'descriptions' | 'tests' | 'chat',
-    chatText = '',
-  ) {
+  async function runAiAction(action: AiAction, chatText = '') {
     if (!route.allowed) {
       message.error(route.reason);
       return;
@@ -311,10 +337,7 @@ export function AiPanel({
     executeAiAction(action, chatText);
   }
 
-  function executeAiAction(
-    action: 'task' | 'descriptions' | 'tests' | 'chat',
-    chatText = '',
-  ) {
+  function executeAiAction(action: AiAction, chatText = '') {
     if (action === 'task') {
       void startTask();
       return;
@@ -325,6 +348,10 @@ export function AiPanel({
     }
     if (action === 'tests') {
       void generateTestsNow();
+      return;
+    }
+    if (action === 'extract') {
+      void extractRequestNow(chatText);
       return;
     }
     void sendChat(chatText);
@@ -448,6 +475,77 @@ export function AiPanel({
     }
   }
 
+  async function extractRequestNow(text: string) {
+    const source = text.trim();
+    if (!source) {
+      message.warning('请先粘贴接口文档内容');
+      return;
+    }
+    setDraftLoading(true);
+    setMessages((current) => [
+      ...current,
+      {
+        key: `doc-${Date.now()}`,
+        placement: 'end',
+        text: source.length > 1200 ? `${source.slice(0, 1200)}…` : source,
+      },
+    ]);
+
+    try {
+      const reply = await chatWithGateway(
+        readGatewayConfig(),
+        [
+          { role: 'system', content: extractSystemPrompt },
+          { role: 'user', content: `接口文档如下：\n\n${source.slice(0, 6000)}` },
+        ],
+        120_000,
+      );
+      const parsed = parseRequestDraft(reply.content);
+      if (!parsed) throw new Error('未识别到完整的请求方法、地址或 JSON 结构');
+      setDraftRequest(parsed);
+      setDraftCollectionId(activeRequest.collectionId ?? collections[0]?.id ?? '');
+      setMessages((current) => [
+        ...current,
+        {
+          key: `doc-ok-${Date.now()}`,
+          placement: 'start',
+          text: `已识别接口：${parsed.method} ${parsed.url}（${reply.model}）。请确认名称与集合后创建。`,
+        },
+      ]);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      message.error(`接口解析失败：${reason}`);
+      setMessages((current) => [
+        ...current,
+        { key: `doc-fail-${Date.now()}`, placement: 'start', text: `接口解析失败：${reason}` },
+      ]);
+    } finally {
+      setDraftLoading(false);
+    }
+  }
+
+  async function confirmCreateDraft() {
+    if (!draftRequest) return;
+    setCreatingDraft(true);
+    try {
+      await onCreateRequestFromDoc(draftRequest, draftCollectionId);
+      recordAudit({
+        type: 'ai-task',
+        action: `文档解析 · ${draftRequest.method} ${draftRequest.url}`,
+        detail: `${draftRequest.name} · 由文档片段创建接口`,
+        actor,
+        level: 'L1',
+      });
+      message.success('接口已创建并打开');
+      setDraftRequest(null);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      message.error(`创建接口失败：${reason}`);
+    } finally {
+      setCreatingDraft(false);
+    }
+  }
+
   async function sendChat(text: string) {
     if (!text.trim() || streaming) return;
     const config = readGatewayConfig();
@@ -506,9 +604,10 @@ export function AiPanel({
 
   function submit() {
     const text = composer.trim();
-    if (!text || streaming) return;
+    if (!text || streaming || draftLoading) return;
     setComposer('');
-    void runAiAction('chat', text);
+    // 粘贴的接口文档直接进入解析流程，普通消息仍走对话。
+    void runAiAction(looksLikeApiDoc(text) ? 'extract' : 'chat', text);
   }
 
   function downloadDoc(format: 'markdown' | 'openapi') {
@@ -653,7 +752,7 @@ export function AiPanel({
               <RobotOutlined />
             </span>
             <strong>把接口文档交给 AI</strong>
-            <p>基于当前请求与响应生成字段说明、示例与术语，过程可追溯、可审计。</p>
+            <p>粘贴 Word 里的接口说明，点「生成接口」即可创建请求；也可基于当前请求生成字段说明与示例。</p>
           </div>
         )}
 
@@ -724,6 +823,16 @@ export function AiPanel({
           wrap
           onItemClick={({ data }) => {
             const label = String(data.label ?? '');
+            if (label === '从文档生成接口') {
+              const text = composer.trim();
+              if (!text) {
+                message.info('把 Word 里的接口信息粘贴到输入框，再点「生成接口」或直接发送。');
+                return;
+              }
+              setComposer('');
+              void runAiAction('extract', text);
+              return;
+            }
             if (label === '生成接口文档') {
               runTask();
               return;
@@ -865,13 +974,29 @@ export function AiPanel({
           value={composer}
           onChange={(value) => setComposer(value)}
           onSubmit={submit}
-          placeholder="描述目标，或粘贴接口规范…"
+          placeholder="粘贴接口文档自动生成接口，或描述目标…"
           autoSize={{ minRows: 3, maxRows: 6 }}
           footer={
             <span className="composer-hint">{streaming ? 'AI 生成中…' : '⌘↵ 发送'}</span>
           }
           actions={
             <>
+              <Tooltip title="把粘贴的接口文档解析为接口">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<FileAddOutlined />}
+                  loading={draftLoading}
+                  disabled={!composer.trim() || streaming}
+                  onClick={() => {
+                    const text = composer.trim();
+                    if (!text) return;
+                    setComposer('');
+                    void runAiAction('extract', text);
+                  }}
+                  aria-label="从文档生成接口"
+                />
+              </Tooltip>
               <Tooltip title="添加附件">
                 <Button
                   type="text"
@@ -1121,6 +1246,105 @@ export function AiPanel({
             确认后将按脱敏结果发送到外部模型，操作会记入审计日志。
           </p>
         </div>
+      </Modal>
+
+      <Modal
+        open={draftRequest !== null}
+        title="从文档创建接口"
+        width={640}
+        onCancel={() => setDraftRequest(null)}
+        footer={[
+          <Button key="cancel" size="small" onClick={() => setDraftRequest(null)}>
+            取消
+          </Button>,
+          <Button
+            key="create"
+            size="small"
+            type="primary"
+            loading={creatingDraft}
+            disabled={!draftRequest || !draftRequest.url.trim()}
+            onClick={() => void confirmCreateDraft()}
+          >
+            创建接口
+          </Button>,
+        ]}
+      >
+        {draftRequest && (
+          <>
+            <p className="draft-tip">
+              AI 已从文档中提取以下接口，确认后会加入所选集合并自动打开。
+              {collections.length === 0 && '当前还没有集合，创建时会自动新建「AI 生成接口」集合。'}
+            </p>
+            <div className="draft-field">
+              <label htmlFor="draft-name">接口名称</label>
+              <Input
+                id="draft-name"
+                value={draftRequest.name}
+                maxLength={60}
+                onChange={(event) =>
+                  setDraftRequest({ ...draftRequest, name: event.target.value })
+                }
+              />
+            </div>
+            <div className="draft-row">
+              <div className="draft-field">
+                <label>请求方法</label>
+                <Select<HttpMethod>
+                  value={draftRequest.method}
+                  onChange={(method) => setDraftRequest({ ...draftRequest, method })}
+                  options={httpMethods.map((method) => ({ value: method, label: method }))}
+                />
+              </div>
+              <div className="draft-field">
+                <label>所属集合</label>
+                <Select
+                  value={draftCollectionId || undefined}
+                  onChange={(value: string) => setDraftCollectionId(value)}
+                  placeholder={collections.length > 0 ? '选择集合' : '将新建「AI 生成接口」集合'}
+                  disabled={collections.length === 0}
+                  options={collections.map((collection) => ({
+                    value: collection.id,
+                    label: collection.name,
+                  }))}
+                />
+              </div>
+            </div>
+            <div className="draft-field">
+              <label htmlFor="draft-url">请求地址</label>
+              <Input
+                id="draft-url"
+                value={draftRequest.url}
+                onChange={(event) =>
+                  setDraftRequest({ ...draftRequest, url: event.target.value })
+                }
+              />
+            </div>
+            <div className="preflight">
+              <div className="preflight-row">
+                <span>请求头</span>
+                <b>{draftRequest.headers.length} 项</b>
+              </div>
+              {draftRequest.headers.length > 0 && (
+                <div className="preflight-masks">
+                  {draftRequest.headers.map((header, index) => (
+                    <div className="preflight-mask" key={`${header.name}-${index}`}>
+                      <code>{header.name}</code>
+                      <span>{header.value || '（空）'}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="preflight-row">
+                <span>请求体</span>
+                <b>{draftRequest.body ? `${draftRequest.body.length} 字符` : '无'}</b>
+              </div>
+            </div>
+            {draftRequest.body && (
+              <pre className="doc-preview draft-body">{draftRequest.body}</pre>
+            )}
+            <p className="draft-tip">创建后可在请求面板中继续调整参数、认证与脚本。</p>
+          </>
+        )}
       </Modal>
 
       <AiGatewayModal
