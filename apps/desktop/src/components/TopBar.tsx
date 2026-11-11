@@ -11,7 +11,7 @@ import {
   SyncOutlined,
 } from '@ant-design/icons';
 import { App, Button, Drawer, Dropdown, Modal, Progress, Segmented, Select, Tooltip } from 'antd';
-import type { Density, ThemeMode } from '@api-workbench/ui';
+import type { Density, ThemeMode } from '@inkline/ui';
 import { networkModes, type NetworkMode } from '../data/types';
 import { clearAudit, listAudit, type AuditEntry, type AuditType } from '../lib/audit';
 import type { Session } from '../lib/session';

@@ -60,29 +60,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
-name = "api-workbench"
-version = "0.1.15"
-dependencies = [
- "base64 0.22.1",
- "chrono",
- "futures-util",
- "if-addrs",
- "reqwest 0.12.28",
- "rusqlite",
- "rustls",
- "rustls-native-certs",
- "rustls-pemfile",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-process",
- "tauri-plugin-updater",
- "tokio",
- "tokio-tungstenite",
-]
-
-[[package]]
 name = "atk"
 version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1647,6 +1624,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f4200d433cbd5178df7797c9c2e75b348b728e39631cf14520d1e2fc424201f4"
 dependencies = [
  "cfb",
+]
+
+[[package]]
+name = "inkline"
+version = "0.1.15"
+dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "futures-util",
+ "if-addrs",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-pemfile",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-process",
+ "tauri-plugin-updater",
+ "tokio",
+ "tokio-tungstenite",
 ]
 
 [[package]]

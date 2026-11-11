@@ -46,7 +46,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           UPDATE_BASE_URL: ${{ format('https://github.com/{0}/releases/latest/download', github.repository) }}
-          UPDATE_ASSET_NAME: api-workbench_x64.msi
+          UPDATE_ASSET_NAME: inkline_x64.msi
         run: pnpm release
 
       - name: 整理发布产物
@@ -55,7 +55,7 @@ jobs:
           $bundle = 'apps/desktop/src-tauri/target/release/bundle'
           $msi = Get-ChildItem "$bundle/msi/*.msi" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
           if (-not $msi) { throw '未找到 MSI' }
-          Copy-Item $msi.FullName "$bundle/api-workbench_x64.msi" -Force
+          Copy-Item $msi.FullName "$bundle/inkline_x64.msi" -Force
           Get-ChildItem $bundle -File | Where-Object { $_.Name -match '\.(msi|sig|json)$' } | Select-Object Name, Length
 
       - name: 发布 GitHub Release
@@ -67,7 +67,7 @@ jobs:
           $msi = Get-ChildItem "$bundle/msi/*.msi" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
           gh release create $env:GITHUB_REF_NAME `
             "$($msi.FullName)" `
-            "$bundle/api-workbench_x64.msi" `
+            "$bundle/inkline_x64.msi" `
             "$bundle/latest.json" `
-            --title "API Workbench $env:GITHUB_REF_NAME" `
-            --notes "API Workbench $env:GITHUB_REF_NAME"
+            --title "Inkline $env:GITHUB_REF_NAME" `
+            --notes "Inkline $env:GITHUB_REF_NAME"

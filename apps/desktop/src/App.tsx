@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { App as AntApp, Button, Input, Modal } from 'antd';
-import { AntProvider, type Density, type ThemeMode } from '@api-workbench/ui';
+import { AntProvider, type Density, type ThemeMode } from '@inkline/ui';
 import type { ApiFolder, ApiRequest, DataLevel, HttpMethod, NetworkMode } from './data/types';
 import {
   clearHistory as apiClearHistory,

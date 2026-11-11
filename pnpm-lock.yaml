@@ -19,7 +19,7 @@ importers:
       '@ant-design/x':
         specifier: ^1
         version: 1.6.1(antd@5.29.3(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
-      '@api-workbench/ui':
+      '@inkline/ui':
         specifier: workspace:*
         version: link:../../packages/ui
       '@tauri-apps/api':

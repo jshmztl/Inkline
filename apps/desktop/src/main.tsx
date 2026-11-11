@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom/client';
 import '@ant-design/v5-patch-for-react-19';
 import 'antd/dist/reset.css';
 import './styles.css';
-import { getCssVars, type ThemeMode } from '@api-workbench/ui';
+import { getCssVars, type ThemeMode } from '@inkline/ui';
 import { App } from './App';
 import { initKv, kvGet } from './lib/kv';
 

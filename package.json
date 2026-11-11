@@ -1,12 +1,12 @@
 {
-  "name": "api-workbench",
+  "name": "inkline",
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "dev": "pnpm --filter @api-workbench/desktop dev",
-    "build": "pnpm --filter @api-workbench/desktop build",
-    "release": "pnpm --filter @api-workbench/desktop release",
-    "tauri": "pnpm --filter @api-workbench/desktop tauri",
-    "typecheck:ui": "pnpm --filter @api-workbench/ui typecheck"
+    "dev": "pnpm --filter @inkline/desktop dev",
+    "build": "pnpm --filter @inkline/desktop build",
+    "release": "pnpm --filter @inkline/desktop release",
+    "tauri": "pnpm --filter @inkline/desktop tauri",
+    "typecheck:ui": "pnpm --filter @inkline/ui typecheck"
   }
 }

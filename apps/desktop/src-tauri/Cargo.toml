@@ -1,12 +1,12 @@
 [package]
-name = "api-workbench"
+name = "inkline"
 version = "0.1.15"
 description = "Inkline · 内网 API 工作台"
 authors = ["Inkline"]
 edition = "2021"
 
 [lib]
-name = "api_workbench_lib"
+name = "inkline_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
