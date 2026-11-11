@@ -1,0 +1,54 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "apps/desktop/src-tauri -> target"
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 类型检查与单元测试
+        run: |
+          pnpm --filter @inkline/desktop lint
+          pnpm --filter @inkline/desktop test
+
+      - name: 构建未签名安装包
+        run: pnpm tauri build
+
+      - name: 上传安装包
+        uses: actions/upload-artifact@v4
+        with:
+          name: inkline-msi
+          path: apps/desktop/src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error

@@ -1,11 +1,15 @@
 ﻿param(
-  [string]$KeyPath = "$env:USERPROFILE\.tauri\api-workbench.key",
-  [string]$BaseUrl = 'https://gitee.com/LeonAmour/api-workbench/releases/download/latest',
+  [string]$KeyPath = "$env:USERPROFILE\.tauri\inkline.key",
+  [string]$BaseUrl = 'https://github.com/jshmztl/Inkline/releases/latest/download',
   [string]$AssetName = ''
 )
 
 $ErrorActionPreference = 'Stop'
 $appDir = Split-Path -Parent $PSScriptRoot
+$legacyKeyPath = "$env:USERPROFILE\.tauri\api-workbench.key"
+if (-not (Test-Path $KeyPath) -and (Test-Path $legacyKeyPath)) {
+  $KeyPath = $legacyKeyPath
+}
 
 if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
   if (-not (Test-Path $KeyPath)) {
@@ -56,4 +60,4 @@ Write-Host "  安装包  $($msi.FullName)"
 Write-Host "  签名    $sigPath"
 Write-Host "  清单    $manifestPath"
 Write-Host ''
-Write-Host '将上述 MSI 与 latest.json 上传到 Gitee 发行版（标签 latest）即可发布更新。'
+Write-Host '将上述 MSI 与 latest.json 上传到 GitHub Releases（标签 latest）即可发布更新。'

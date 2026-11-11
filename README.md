@@ -82,14 +82,14 @@ pnpm release
 
 - 启动后约 2.5 秒自动检查一次，发现新版本时在右下角提示；失败静默，不打扰使用
 - 也可随时在「账户菜单 → 检查更新」手动检查
-- 清单地址：`https://github.com/LeonAmour/api-workbench/releases/latest/download/latest.json`
-- 更新源只使用 GitHub Releases：Gitee 的下载接口会拦截非浏览器 TLS 指纹的请求（返回 404），Tauri 客户端无法直接拉取
+- 清单地址：`https://github.com/jshmztl/Inkline/releases/latest/download/latest.json`
+- 更新源使用 GitHub Releases（仓库需公开，客户端才能匿名拉取清单与安装包）
 - 公钥：写在 `apps/desktop/src-tauri/tauri.conf.json` 的 `plugins.updater.pubkey`
-- 私钥：默认 `%USERPROFILE%\.tauri\api-workbench.key`，不进入仓库
+- 私钥：默认 `%USERPROFILE%\.tauri\inkline.key`，旧版 `api-workbench.key` 仍兼容，不进入仓库
 
 ### 标签触发的流水线（GitHub Actions）
 
-推送 `v*` 标签会自动在 `windows-latest` 上构建签名 MSI 并创建 GitHub Release，清单里的下载地址指向该 Release 的稳定文件名 `api-workbench_x64.msi`。
+推送 `v*` 标签会自动在 `windows-latest` 上构建签名 MSI 并创建 GitHub Release，清单里的下载地址指向该 Release 的稳定文件名 `inkline_x64.msi`。
 
 需要先在 GitHub 仓库的 Secrets 中配置：
 
@@ -120,7 +120,7 @@ pnpm release
 
 脚本会输出 MSI、`<msi>.sig` 与 `latest.json`，均位于 `apps/desktop/src-tauri/target/release/bundle/`。
 
-3. 把 MSI 重命名为 `api-workbench_x64.msi`，连同 `latest.json` 一起上传到 GitHub Releases，并将该发布设为 latest。
+3. 把 MSI 重命名为 `inkline_x64.msi`，连同 `latest.json` 一起上传到 GitHub Releases，并将该发布设为 latest。
 4. 客户端在「账户菜单 → 检查更新」中检查、下载并安装。
 
 注意事项：
@@ -140,7 +140,7 @@ pnpm release
 
 ## 数据与存储
 
-- SQLite 数据库：系统应用数据目录下的 `api-workbench.db`，包含 `requests` 与 `history` 表。
+- SQLite 数据库：系统应用数据目录下的 `inkline.db`，包含 `requests`、`history`、`settings`、`audit_logs` 等表。
 - 浏览器预览的本地键：`aw-session`、`aw-doc-draft:{requestId}`、`aw-team-remote`、`aw-team-base`、`aw-audit`、`aw-offline-queue`。
 - 出网预检默认识别 `token`、`secret`、`password`、`authorization`、`api-key`、`tenant` 等敏感字段并脱敏。
 
