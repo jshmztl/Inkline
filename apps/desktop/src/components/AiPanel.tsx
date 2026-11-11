@@ -205,17 +205,28 @@ export function AiPanel({
   }, [activeRequest.id]);
 
   useEffect(() => {
-    if (!requestId) {
-      setDraft([]);
-      return;
+    function loadDraft() {
+      if (!requestId) {
+        setDraft([]);
+        return;
+      }
+      try {
+        const raw = kvGet(`aw-doc-draft:${requestId}`);
+        const parsed = raw ? JSON.parse(raw) : [];
+        setDraft(Array.isArray(parsed) ? (parsed as DraftField[]) : []);
+      } catch {
+        setDraft([]);
+      }
     }
-    try {
-      const raw = kvGet(`aw-doc-draft:${requestId}`);
-      const parsed = raw ? JSON.parse(raw) : [];
-      setDraft(Array.isArray(parsed) ? (parsed as DraftField[]) : []);
-    } catch {
-      setDraft([]);
+
+    loadDraft();
+
+    if (!requestId) return;
+    function handleDraftUpdated(event: Event) {
+      if ((event as CustomEvent<string>).detail === requestId) loadDraft();
     }
+    window.addEventListener('aw-doc-draft-updated', handleDraftUpdated);
+    return () => window.removeEventListener('aw-doc-draft-updated', handleDraftUpdated);
   }, [requestId, syncNonce]);
 
   async function startTask() {

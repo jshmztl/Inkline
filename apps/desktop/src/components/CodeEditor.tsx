@@ -105,6 +105,7 @@ interface CodeEditorProps {
   language?: CodeLanguage;
   ariaLabel?: string;
   placeholder?: string;
+  onScrollTopChange?: (scrollTop: number) => void;
 }
 
 export function CodeEditor({
@@ -113,6 +114,7 @@ export function CodeEditor({
   language = 'text',
   ariaLabel,
   placeholder,
+  onScrollTopChange,
 }: CodeEditorProps) {
   const preRef = useRef<HTMLPreElement>(null);
   const tokens = useMemo(() => {
@@ -133,9 +135,12 @@ export function CodeEditor({
         onChange={(event) => onChange(event.target.value)}
         onScroll={(event) => {
           const pre = preRef.current;
-          if (!pre) return;
-          pre.scrollTop = event.currentTarget.scrollTop;
-          pre.scrollLeft = event.currentTarget.scrollLeft;
+          const scrollTop = event.currentTarget.scrollTop;
+          if (pre) {
+            pre.scrollTop = scrollTop;
+            pre.scrollLeft = event.currentTarget.scrollLeft;
+          }
+          onScrollTopChange?.(scrollTop);
         }}
         spellCheck={false}
         wrap="off"

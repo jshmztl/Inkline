@@ -2,153 +2,180 @@ import type { DraftField, GlossaryEntry } from './docTask';
 
 export type BodyFieldMode = 'json' | 'xml' | 'text' | 'form' | 'multipart';
 
-export interface BodyField {
+export interface BodyLineField {
+  /** 0 基行号，与编辑器行一一对应 */
+  line: number;
   path: string;
   name: string;
-  type: string;
-  depth: number;
-  sample: string;
 }
 
-export interface BodyFieldNote extends BodyField {
+export interface BodyLineNote extends BodyLineField {
   description: string;
 }
 
-const MAX_FIELDS = 400;
-
-/** 把请求体解析成可映射的字段列表，JSON 与 XML 支持嵌套路径。 */
-export function extractBodyFields(body: string, mode: BodyFieldMode): BodyField[] {
+/**
+ * 提取请求体中每个字段所在的行与路径，用于在编辑器右侧按行对齐展示注释。
+ * JSON 采用容错扫描，输入到一半（如缺右括号）也能尽量给出映射。
+ */
+export function extractBodyLineFields(
+  body: string,
+  mode: BodyFieldMode,
+): BodyLineField[] {
   if (!body.trim()) return [];
-  if (mode === 'json') return extractJsonFields(body);
-  if (mode === 'xml') return extractXmlFields(body);
+  if (mode === 'json') return jsonLineFields(body);
+  if (mode === 'xml') return xmlLineFields(body);
   return [];
 }
 
-/**
- * 为字段补充说明：优先使用 AI 文档草稿中已应用的说明，
- * 其次按字段名匹配字段术语表。
- */
-export function describeBodyFields(
-  fields: BodyField[],
+/** 为每行字段补充说明：优先 AI 文档草稿，其次字段术语表。 */
+export function describeBodyLines(
+  body: string,
+  mode: BodyFieldMode,
   draft: DraftField[],
   glossary: GlossaryEntry[],
-): BodyFieldNote[] {
+): BodyLineNote[] {
   const draftByPath = new Map(
     draft
       .filter((entry) => entry.source === '请求')
       .map((entry) => [entry.path, entry.description.trim()] as const),
   );
 
-  return fields.map((field) => {
+  return extractBodyLineFields(body, mode).map((field) => {
     const fromDraft = draftByPath.get(field.path) ?? '';
-    if (fromDraft) return { ...field, description: fromDraft };
-
     const entry = glossary.find((item) => item.term === field.name);
     return {
       ...field,
-      description: entry ? `${entry.label}：${entry.description}` : '',
+      description: fromDraft || (entry ? `${entry.label}：${entry.description}` : ''),
     };
   });
 }
 
-function fieldType(value: unknown) {
-  if (Array.isArray(value)) return 'array';
-  if (value === null) return 'null';
-  if (typeof value === 'number') return Number.isInteger(value) ? 'integer' : 'number';
-  return typeof value;
+interface JsonFrame {
+  kind: 'object' | 'array';
+  path: string;
+  keyPath: string | null;
 }
 
-function lastSegment(path: string) {
-  const clean = path.replace(/\[\]$/, '');
-  const index = clean.lastIndexOf('.');
-  return index === -1 ? clean : clean.slice(index + 1);
-}
+function jsonLineFields(source: string): BodyLineField[] {
+  const out: BodyLineField[] = [];
+  const stack: JsonFrame[] = [];
+  let line = 0;
+  let index = 0;
 
-function sampleOf(value: unknown) {
-  if (typeof value === 'string') return value.length > 24 ? `${value.slice(0, 24)}…` : value;
-  return String(value);
-}
+  while (index < source.length) {
+    const char = source[index];
 
-function extractJsonFields(body: string): BodyField[] {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(body);
-  } catch {
-    return [];
-  }
-
-  const out: BodyField[] = [];
-  walkJson(parsed, '', 0, out);
-  return out.slice(0, MAX_FIELDS);
-}
-
-function walkJson(value: unknown, path: string, depth: number, out: BodyField[]) {
-  if (out.length >= MAX_FIELDS) return;
-
-  if (Array.isArray(value)) {
-    if (!path) {
-      const first = value.find((item) => item !== null && typeof item === 'object');
-      if (first !== undefined) walkJson(first, '', depth, out);
-      return;
+    if (char === '\n') {
+      line += 1;
+      index += 1;
+      continue;
     }
-    out.push({
-      path,
-      name: lastSegment(path),
-      type: 'array',
-      depth,
-      sample: `[${value.length}]`,
-    });
-    const first = value.find((item) => item !== null && typeof item === 'object');
-    if (first !== undefined) walkJson(first, `${path}[]`, depth + 1, out);
-    return;
-  }
+    if (char === ' ' || char === '\t' || char === '\r') {
+      index += 1;
+      continue;
+    }
 
-  if (value && typeof value === 'object') {
-    if (path) {
-      out.push({
+    if (char === '"') {
+      const startLine = line;
+      let cursor = index + 1;
+      let raw = '';
+      while (cursor < source.length) {
+        const current = source[cursor];
+        if (current === '\\') {
+          raw += source.slice(cursor, cursor + 2);
+          cursor += 2;
+          continue;
+        }
+        if (current === '"') break;
+        if (current === '\n') line += 1;
+        raw += current;
+        cursor += 1;
+      }
+      const end = cursor + 1;
+
+      let probe = end;
+      while (probe < source.length && /\s/.test(source[probe])) probe += 1;
+      const parent = stack[stack.length - 1];
+      const isKey =
+        source[probe] === ':' && parent !== undefined && parent.kind === 'object';
+
+      if (isKey) {
+        let name = raw;
+        try {
+          name = JSON.parse(`"${raw}"`) as string;
+        } catch {
+          // 保留原始文本
+        }
+        const path = parent.path ? `${parent.path}.${name}` : name;
+        out.push({ line: startLine, path, name });
+        parent.keyPath = path;
+      } else if (parent) {
+        parent.keyPath = null;
+      }
+
+      index = end;
+      continue;
+    }
+
+    if (char === '{' || char === '[') {
+      const parent = stack[stack.length - 1];
+      let path = '';
+      if (parent) {
+        if (parent.kind === 'array') {
+          path = parent.path ? `${parent.path}[]` : '';
+        } else {
+          path = parent.keyPath ?? parent.path;
+        }
+        parent.keyPath = null;
+      }
+      stack.push({
+        kind: char === '{' ? 'object' : 'array',
         path,
-        name: lastSegment(path),
-        type: 'object',
-        depth,
-        sample: `{${Object.keys(value as Record<string, unknown>).length}}`,
+        keyPath: null,
       });
+      index += 1;
+      continue;
     }
-    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-      walkJson(child, path ? `${path}.${key}` : key, path ? depth + 1 : depth, out);
+
+    if (char === '}' || char === ']') {
+      stack.pop();
+      index += 1;
+      continue;
     }
-    return;
+
+    if (char !== ':' && char !== ',') {
+      const parent = stack[stack.length - 1];
+      if (parent) parent.keyPath = null;
+    }
+    index += 1;
   }
 
-  if (!path) return;
-  out.push({
-    path,
-    name: lastSegment(path),
-    type: fieldType(value),
-    depth,
-    sample: sampleOf(value),
-  });
+  return out;
 }
 
-function extractXmlFields(body: string): BodyField[] {
-  if (typeof DOMParser === 'undefined') return [];
-  const doc = new DOMParser().parseFromString(body, 'application/xml');
-  if (doc.getElementsByTagName('parsererror').length > 0) return [];
+const XML_TAG = /<(\/?)([\w:.-]+)([^>]*)>/g;
 
-  const out: BodyField[] = [];
-  const walk = (element: Element, path: string, depth: number) => {
-    if (out.length >= MAX_FIELDS) return;
-    const nextPath = path ? `${path}.${element.tagName}` : element.tagName;
-    const children = Array.from(element.children);
-    out.push({
-      path: nextPath,
-      name: element.tagName,
-      type: children.length > 0 ? 'element' : 'text',
-      depth,
-      sample: children.length > 0 ? `${children.length} 子节点` : (element.textContent ?? '').slice(0, 24),
-    });
-    for (const child of children) walk(child, nextPath, depth + 1);
-  };
+function xmlLineFields(body: string): BodyLineField[] {
+  const out: BodyLineField[] = [];
+  const stack: string[] = [];
 
-  if (doc.documentElement) walk(doc.documentElement, '', 0);
+  body.split('\n').forEach((text, line) => {
+    for (const match of text.matchAll(XML_TAG)) {
+      const closing = match[1] === '/';
+      const name = match[2];
+      const rest = match[3] ?? '';
+
+      if (closing) {
+        const at = stack.lastIndexOf(name);
+        if (at >= 0) stack.length = at;
+        continue;
+      }
+
+      const path = stack.length > 0 ? `${stack.join('.')}.${name}` : name;
+      out.push({ line, path, name });
+      if (!/\/\s*$/.test(rest)) stack.push(name);
+    }
+  });
+
   return out;
 }

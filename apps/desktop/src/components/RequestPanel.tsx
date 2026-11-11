@@ -15,7 +15,6 @@ import {
   MoreOutlined,
   PlusOutlined,
   ProfileOutlined,
-  RightOutlined,
   SaveOutlined,
   SearchOutlined,
   SendOutlined,
@@ -35,7 +34,7 @@ import {
   type SendResponse,
 } from '../lib/api';
 import type { DraftField, RequestContext } from '../lib/docTask';
-import { describeBodyFields, extractBodyFields } from '../lib/bodyFields';
+import { describeBodyLines, type BodyLineNote } from '../lib/bodyFields';
 import { readGlossary } from '../lib/glossary';
 import {
   nextEventId,
@@ -306,6 +305,7 @@ export function RequestPanel({
   const [feedback, setFeedback] = useState<string | null>(null);
   const [requestName, setRequestName] = useState(activeRequest.name);
   const appliedKey = useRef<string | null>(null);
+  const bodyNotesScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setRequestName(saved?.name ?? activeRequest.name);
@@ -472,14 +472,56 @@ export function RequestPanel({
     [requestTab, headers, params],
   );
 
-  const bodyFields = useMemo(() => {
-    if (bodyMode !== 'json' && bodyMode !== 'xml') return [];
-    return describeBodyFields(
-      extractBodyFields(body, bodyMode),
-      docDraft,
-      readGlossary(),
+  const bodyLineNotes = useMemo(() => {
+    if (!bodyNotesOpen || (bodyMode !== 'json' && bodyMode !== 'xml')) return [];
+    return describeBodyLines(body, bodyMode, docDraft, readGlossary());
+  }, [body, bodyMode, bodyNotesOpen, docDraft]);
+
+  const bodyLineCount = useMemo(() => body.split('\n').length, [body]);
+
+  const lineNoteMap = useMemo(() => {
+    const map = new Map<number, BodyLineNote>();
+    for (const note of bodyLineNotes) {
+      if (!map.has(note.line)) map.set(note.line, note);
+    }
+    return map;
+  }, [bodyLineNotes]);
+
+  function commitBodyNote(path: string, description: string) {
+    if (!activeRequest.id) return;
+    const key = `请求:${path}`;
+    const text = description.trim();
+    const now = new Date().toISOString();
+    const existing = docDraft.find((entry) => entry.key === key);
+
+    let next = docDraft;
+    if (existing) {
+      next = text
+        ? docDraft.map((entry) =>
+            entry.key === key ? { ...entry, description: text, updatedAt: now } : entry,
+          )
+        : docDraft.filter((entry) => entry.key !== key);
+    } else if (text) {
+      next = [
+        ...docDraft,
+        {
+          key,
+          path,
+          type: 'string',
+          source: '请求',
+          description: text,
+          updatedAt: now,
+        },
+      ];
+    }
+
+    if (next === docDraft) return;
+    setDocDraft(next);
+    kvSet(`aw-doc-draft:${activeRequest.id}`, JSON.stringify(next));
+    window.dispatchEvent(
+      new CustomEvent('aw-doc-draft-updated', { detail: activeRequest.id }),
     );
-  }, [body, bodyMode, docDraft]);
+  }
 
   function toggleBodyNotes() {
     setBodyNotesOpen((current) => {
@@ -1811,53 +1853,46 @@ export function RequestPanel({
                         ? '<root>\n  <key>value</key>\n</root>'
                         : '请输入请求体…'
                   }
+                  onScrollTopChange={(scrollTop) => {
+                    const node = bodyNotesScrollRef.current;
+                    if (node) node.scrollTop = scrollTop;
+                  }}
                 />
                 {bodyNotesOpen && (bodyMode === 'json' || bodyMode === 'xml') && (
                   <aside className="body-notes" aria-label="字段注释">
-                    <div className="body-notes-head">
-                      <strong>字段注释</strong>
-                      <span>{bodyFields.length} 个字段</span>
-                      <Tooltip title="收起字段注释">
-                        <Button
-                          type="text"
-                          size="small"
-                          icon={<RightOutlined />}
-                          onClick={toggleBodyNotes}
-                          aria-label="收起字段注释"
-                        />
-                      </Tooltip>
-                    </div>
-                    <div className="body-notes-list">
-                      {bodyFields.length === 0 ? (
-                        <div className="body-notes-empty">
-                          {body.trim()
-                            ? '当前请求体没有可映射的字段，或语法有误。'
-                            : '请求体为空，暂无可映射字段。'}
-                        </div>
-                      ) : (
-                        bodyFields.map((field) => (
-                          <div className="body-note-row" key={field.path}>
-                            <div
-                              className="body-note-path"
-                              title={field.path}
-                              style={{ paddingLeft: field.depth * 12 }}
-                            >
-                              <code>{field.name}</code>
-                              <em>{field.type}</em>
+                    <div className="body-notes-scroll" ref={bodyNotesScrollRef}>
+                      <div className="body-notes-lines">
+                        {Array.from({ length: bodyLineCount }, (_, line) => {
+                          const note = lineNoteMap.get(line);
+                          return (
+                            <div className="body-notes-line" key={line}>
+                              {note && (
+                                <>
+                                  <span className="body-note-mark">//</span>
+                                  <input
+                                    key={`${note.path}:${note.description}`}
+                                    className="body-note-input"
+                                    defaultValue={note.description}
+                                    placeholder="添加说明"
+                                    title={note.path}
+                                    aria-label={`${note.path} 字段说明`}
+                                    spellCheck={false}
+                                    onBlur={(event) =>
+                                      commitBodyNote(note.path, event.target.value)
+                                    }
+                                    onKeyDown={(event) => {
+                                      if (event.key === 'Enter') {
+                                        event.preventDefault();
+                                        event.currentTarget.blur();
+                                      }
+                                    }}
+                                  />
+                                </>
+                              )}
                             </div>
-                            <div
-                              className={`body-note-text${field.description ? '' : ' empty'}`}
-                            >
-                              {field.description || '暂无说明'}
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                    <div className="body-notes-foot">
-                      {bodyFields.some((field) => field.description)
-                        ? '说明来自 AI 文档草稿与字段术语表，修改请求体后自动刷新。'
-                        : '在右侧 AI 面板生成字段说明并应用后，会自动同步到这里。'}
+                          );
+                        })}
+                      </div>
                     </div>
                   </aside>
                 )}

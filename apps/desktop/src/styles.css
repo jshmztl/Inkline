@@ -1488,7 +1488,7 @@ html[data-theme='dark'] .method-option.method-delete {
   background-clip: content-box;
 }
 
-/* ---------- body field notes ---------- */
+/* ---------- body line notes ---------- */
 
 .body-split {
   display: flex;
@@ -1504,101 +1504,71 @@ html[data-theme='dark'] .method-option.method-delete {
 
 .body-notes {
   display: flex;
-  flex: 0 0 264px;
+  flex: 0 0 288px;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
   border-left: 1px solid var(--aw-line);
-  background: var(--aw-surface);
+  background: var(--aw-code-bg);
 }
 
-.body-notes-head {
-  display: flex;
-  flex: 0 0 34px;
-  align-items: center;
-  gap: 6px;
-  padding: 0 6px 0 12px;
-  border-bottom: 1px solid var(--aw-line);
-}
-
-.body-notes-head strong {
-  color: var(--aw-ink-2);
-  font-size: 12px;
-}
-
-.body-notes-head span {
-  flex: 1;
-  color: var(--aw-faint);
-  font-size: 11px;
-  text-align: right;
-}
-
-.body-notes-list {
+.body-notes-scroll {
   flex: 1;
   min-height: 0;
-  padding: 4px 0;
-  overflow: auto;
-}
-
-.body-note-row {
-  padding: 5px 10px;
-}
-
-.body-note-row:hover {
-  background: var(--aw-surface-2);
-}
-
-.body-note-path {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  min-width: 0;
-}
-
-.body-note-path code {
   overflow: hidden;
-  color: var(--aw-ink-2);
+}
+
+.body-notes-lines {
+  padding: 14px 0 20px;
+}
+
+.body-notes-line {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 23.625px;
+  padding: 0 10px 0 6px;
+  line-height: 23.625px;
+}
+
+.body-note-mark {
+  flex: 0 0 auto;
+  color: var(--aw-code-ink);
   font-family: var(--aw-font-code);
   font-size: 12px;
+  opacity: 0.35;
+}
+
+.body-note-input {
+  flex: 1;
+  min-width: 0;
+  height: 23.625px;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--aw-code-ink);
+  font-family: var(--aw-font-code);
+  font-size: 12.5px;
+  line-height: 23.625px;
+  outline: none;
+  opacity: 0.8;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.body-note-path em {
-  flex: 0 0 auto;
-  margin-left: auto;
-  color: var(--aw-faint);
-  font-family: var(--aw-font-code);
-  font-size: 10.5px;
-  font-style: normal;
+.body-note-input:hover {
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--aw-code-ink) 8%, transparent);
 }
 
-.body-note-text {
-  margin-top: 2px;
-  color: var(--aw-muted);
-  font-size: 12px;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
+.body-note-input:focus {
+  border-radius: 3px;
+  background: var(--aw-accent-soft);
+  opacity: 1;
 }
 
-.body-note-text.empty {
-  color: var(--aw-faint);
-}
-
-.body-notes-empty {
-  padding: 12px;
-  color: var(--aw-faint);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.body-notes-foot {
-  flex: 0 0 auto;
-  padding: 8px 12px;
-  border-top: 1px solid var(--aw-line);
-  color: var(--aw-faint);
-  font-size: 11px;
-  line-height: 1.5;
+.body-note-input::placeholder {
+  color: var(--aw-code-ink);
+  opacity: 0.35;
 }
 
 .tok-key {

@@ -1,76 +1,83 @@
 import { describe, expect, it } from 'vitest';
-import { describeBodyFields, extractBodyFields } from './bodyFields';
+import { describeBodyLines, extractBodyLineFields } from './bodyFields';
 import { glossary } from './docTask';
 
-describe('extractBodyFields', () => {
-  it('解析嵌套对象、数组与字段层级', () => {
-    const body = JSON.stringify({
-      orderId: 'A1',
-      amount: 100,
-      items: [{ sku: 'sku-1', count: 2 }],
-      meta: { note: '' },
-    });
+describe('extractBodyLineFields', () => {
+  it('把 JSON 字段映射到所在行并保留嵌套路径', () => {
+    const body = [
+      '{',
+      '  "orderId": "A1",',
+      '  "items": [',
+      '    {',
+      '      "sku": "sku-1",',
+      '      "count": 2',
+      '    }',
+      '  ],',
+      '  "meta": {',
+      '    "note": ""',
+      '  }',
+      '}',
+    ].join('\n');
 
-    const fields = extractBodyFields(body, 'json');
-    expect(fields.map((field) => field.path)).toEqual([
-      'orderId',
-      'amount',
-      'items',
-      'items[]',
-      'items[].sku',
-      'items[].count',
-      'meta',
-      'meta.note',
+    expect(extractBodyLineFields(body, 'json')).toEqual([
+      { line: 1, path: 'orderId', name: 'orderId' },
+      { line: 2, path: 'items', name: 'items' },
+      { line: 4, path: 'items[].sku', name: 'sku' },
+      { line: 5, path: 'items[].count', name: 'count' },
+      { line: 8, path: 'meta', name: 'meta' },
+      { line: 9, path: 'meta.note', name: 'note' },
     ]);
-    expect(fields.find((field) => field.path === 'items')?.type).toBe('array');
-    expect(fields.find((field) => field.path === 'items[].sku')?.depth).toBe(2);
-    expect(fields.find((field) => field.path === 'items[].sku')?.name).toBe('sku');
-    expect(fields.find((field) => field.path === 'amount')?.type).toBe('integer');
   });
 
-  it('非法 JSON 与非结构化模式返回空列表', () => {
-    expect(extractBodyFields('{bad', 'json')).toEqual([]);
-    expect(extractBodyFields('a=1', 'form')).toEqual([]);
-    expect(extractBodyFields('', 'json')).toEqual([]);
+  it('非法 JSON 也尽量给出字段行', () => {
+    expect(extractBodyLineFields('{\n  "type": 1,\n}', 'json')).toEqual([
+      { line: 1, path: 'type', name: 'type' },
+    ]);
+  });
+
+  it('XML 按标签行映射', () => {
+    const body = ['<root>', '  <order>', '    <amount>100</amount>', '  </order>', '</root>'].join(
+      '\n',
+    );
+
+    expect(extractBodyLineFields(body, 'xml')).toEqual([
+      { line: 0, path: 'root', name: 'root' },
+      { line: 1, path: 'root.order', name: 'order' },
+      { line: 2, path: 'root.order.amount', name: 'amount' },
+    ]);
+  });
+
+  it('文本与空请求体返回空列表', () => {
+    expect(extractBodyLineFields('plain text', 'text')).toEqual([]);
+    expect(extractBodyLineFields('', 'json')).toEqual([]);
   });
 });
 
-describe('describeBodyFields', () => {
-  it('优先使用 AI 草稿说明，其次匹配术语表', () => {
-    const fields = extractBodyFields(JSON.stringify({ orderId: 'A1', amount: 100 }), 'json');
-    const notes = describeBodyFields(
-      fields,
-      [
-        {
-          key: '请求:orderId',
-          path: 'orderId',
-          type: 'string',
-          source: '请求',
-          description: '订单编号，调用方生成',
-          updatedAt: '2026-01-01T00:00:00.000Z',
-        },
-      ],
-      glossary,
-    );
+describe('describeBodyLines', () => {
+  const draft = [
+    {
+      key: '请求:orderId',
+      path: 'orderId',
+      type: 'string',
+      source: '请求' as const,
+      description: '订单编号，调用方生成',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    },
+  ];
 
-    expect(notes[0].description).toBe('订单编号，调用方生成');
-    expect(notes[1].description).toBe('金额：最小货币单位（分）');
+  it('优先使用 AI 草稿说明，其次匹配术语表', () => {
+    const body = '{\n  "orderId": "A1",\n  "amount": 100\n}';
+    const notes = describeBodyLines(body, 'json', draft, glossary);
+
+    expect(notes[0]).toMatchObject({ path: 'orderId', description: '订单编号，调用方生成' });
+    expect(notes[1]).toMatchObject({ path: 'amount', description: '金额：最小货币单位（分）' });
   });
 
-  it('响应字段的草稿不会套用到请求体', () => {
-    const fields = extractBodyFields(JSON.stringify({ status: 1 }), 'json');
-    const notes = describeBodyFields(
-      fields,
-      [
-        {
-          key: '响应:status',
-          path: 'status',
-          type: 'integer',
-          source: '响应',
-          description: '响应里的状态',
-          updatedAt: '',
-        },
-      ],
+  it('响应来源的草稿不会套用到请求体', () => {
+    const notes = describeBodyLines(
+      '{\n  "status": 1\n}',
+      'json',
+      [{ ...draft[0], key: '响应:status', path: 'status', source: '响应' }],
       glossary,
     );
 
