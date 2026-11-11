@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import {
   CheckCircleFilled,
   CloseCircleOutlined,
@@ -263,6 +263,18 @@ export function RequestPanel({
   const [bodyNotesOpen, setBodyNotesOpen] = useState(
     () => kvGet('aw-body-notes-open') !== '0',
   );
+  const [bodyNotesWidth, setBodyNotesWidth] = useState(() => {
+    const stored = Number(kvGet('aw-body-notes-width'));
+    return Number.isFinite(stored) && stored >= 180 ? Math.min(stored, 720) : 288;
+  });
+  const [resizingNotes, setResizingNotes] = useState(false);
+  const bodySplitRef = useRef<HTMLDivElement>(null);
+  const bodyNotesWidthRef = useRef(bodyNotesWidth);
+  const notesResizeRef = useRef<{
+    startX: number;
+    startWidth: number;
+    maxWidth: number;
+  } | null>(null);
   const [docDraft, setDocDraft] = useState<DraftField[]>([]);
   const [formRows, setFormRows] = useState<KvRow[]>(defaultMeta.formRows);
   const [fileRows, setFileRows] = useState<FileRow[]>(defaultMeta.fileRows);
@@ -521,6 +533,56 @@ export function RequestPanel({
     window.dispatchEvent(
       new CustomEvent('aw-doc-draft-updated', { detail: activeRequest.id }),
     );
+  }
+
+  function clampBodyNotesWidth(width: number) {
+    const container = bodySplitRef.current;
+    const max = container
+      ? Math.min(720, Math.max(240, container.getBoundingClientRect().width - 360))
+      : 720;
+    return Math.min(max, Math.max(180, width));
+  }
+
+  function startNotesResize(event: PointerEvent<HTMLDivElement>) {
+    const container = bodySplitRef.current;
+    if (!container) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    notesResizeRef.current = {
+      startX: event.clientX,
+      startWidth: bodyNotesWidth,
+      maxWidth: Math.min(
+        720,
+        Math.max(240, container.getBoundingClientRect().width - 360),
+      ),
+    };
+    setResizingNotes(true);
+  }
+
+  function moveNotesResize(event: PointerEvent<HTMLDivElement>) {
+    const drag = notesResizeRef.current;
+    if (!drag) return;
+    const next = Math.min(
+      drag.maxWidth,
+      Math.max(180, drag.startWidth - (event.clientX - drag.startX)),
+    );
+    bodyNotesWidthRef.current = next;
+    setBodyNotesWidth(next);
+  }
+
+  function endNotesResize(event: PointerEvent<HTMLDivElement>) {
+    if (!notesResizeRef.current) return;
+    notesResizeRef.current = null;
+    setResizingNotes(false);
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    kvSet('aw-body-notes-width', String(Math.round(bodyNotesWidthRef.current)));
+  }
+
+  function nudgeNotesWidth(delta: number) {
+    const next = clampBodyNotesWidth(bodyNotesWidthRef.current + delta);
+    bodyNotesWidthRef.current = next;
+    setBodyNotesWidth(next);
+    kvSet('aw-body-notes-width', String(Math.round(next)));
   }
 
   function toggleBodyNotes() {
@@ -1838,7 +1900,10 @@ export function RequestPanel({
                 )}
               </div>
             ) : (
-              <div className="body-split">
+              <div
+                className={`body-split${resizingNotes ? ' resizing' : ''}`}
+                ref={bodySplitRef}
+              >
                 <CodeEditor
                   value={body}
                   onChange={setBody}
@@ -1859,42 +1924,70 @@ export function RequestPanel({
                   }}
                 />
                 {bodyNotesOpen && (bodyMode === 'json' || bodyMode === 'xml') && (
-                  <aside className="body-notes" aria-label="字段注释">
-                    <div className="body-notes-scroll" ref={bodyNotesScrollRef}>
-                      <div className="body-notes-lines">
-                        {Array.from({ length: bodyLineCount }, (_, line) => {
-                          const note = lineNoteMap.get(line);
-                          return (
-                            <div className="body-notes-line" key={line}>
-                              {note && (
-                                <>
-                                  <span className="body-note-mark">//</span>
-                                  <input
-                                    key={`${note.path}:${note.description}`}
-                                    className="body-note-input"
-                                    defaultValue={note.description}
-                                    placeholder="添加说明"
-                                    title={note.path}
-                                    aria-label={`${note.path} 字段说明`}
-                                    spellCheck={false}
-                                    onBlur={(event) =>
-                                      commitBodyNote(note.path, event.target.value)
-                                    }
-                                    onKeyDown={(event) => {
-                                      if (event.key === 'Enter') {
-                                        event.preventDefault();
-                                        event.currentTarget.blur();
+                  <>
+                    <div
+                      className="body-split-handle"
+                      role="separator"
+                      aria-orientation="vertical"
+                      aria-label="调整字段注释宽度"
+                      aria-valuemin={180}
+                      aria-valuenow={Math.round(bodyNotesWidth)}
+                      tabIndex={0}
+                      onPointerDown={startNotesResize}
+                      onPointerMove={moveNotesResize}
+                      onPointerUp={endNotesResize}
+                      onPointerCancel={endNotesResize}
+                      onKeyDown={(event) => {
+                        if (event.key === 'ArrowLeft') {
+                          event.preventDefault();
+                          nudgeNotesWidth(16);
+                        } else if (event.key === 'ArrowRight') {
+                          event.preventDefault();
+                          nudgeNotesWidth(-16);
+                        }
+                      }}
+                    />
+                    <aside
+                      className="body-notes"
+                      aria-label="字段注释"
+                      style={{ flex: `0 0 ${bodyNotesWidth}px` }}
+                    >
+                      <div className="body-notes-scroll" ref={bodyNotesScrollRef}>
+                        <div className="body-notes-lines">
+                          {Array.from({ length: bodyLineCount }, (_, line) => {
+                            const note = lineNoteMap.get(line);
+                            return (
+                              <div className="body-notes-line" key={line}>
+                                {note && (
+                                  <>
+                                    <span className="body-note-mark">//</span>
+                                    <input
+                                      key={`${note.path}:${note.description}`}
+                                      className="body-note-input"
+                                      defaultValue={note.description}
+                                      placeholder="添加说明"
+                                      title={note.path}
+                                      aria-label={`${note.path} 字段说明`}
+                                      spellCheck={false}
+                                      onBlur={(event) =>
+                                        commitBodyNote(note.path, event.target.value)
                                       }
-                                    }}
-                                  />
-                                </>
-                              )}
-                            </div>
-                          );
-                        })}
+                                      onKeyDown={(event) => {
+                                        if (event.key === 'Enter') {
+                                          event.preventDefault();
+                                          event.currentTarget.blur();
+                                        }
+                                      }}
+                                    />
+                                  </>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
-                  </aside>
+                    </aside>
+                  </>
                 )}
               </div>
             )}

@@ -1502,13 +1502,44 @@ html[data-theme='dark'] .method-option.method-delete {
   min-width: 0;
 }
 
+.body-split.resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.body-split-handle {
+  position: relative;
+  flex: 0 0 7px;
+  background: transparent;
+  cursor: col-resize;
+  outline: none;
+  touch-action: none;
+}
+
+.body-split-handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 1px;
+  background: var(--aw-line);
+  transition: background 120ms ease, width 120ms ease;
+}
+
+.body-split-handle:hover::after,
+.body-split-handle:focus-visible::after,
+.body-split.resizing .body-split-handle::after {
+  width: 2px;
+  background: var(--aw-accent);
+}
+
 .body-notes {
   display: flex;
   flex: 0 0 288px;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  border-left: 1px solid var(--aw-line);
   background: var(--aw-code-bg);
 }
 
