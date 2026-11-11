@@ -3,7 +3,7 @@ import { getVersion } from '@tauri-apps/api/app';
 import { check, type Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 
-export const APP_VERSION = '0.1.0';
+export const APP_VERSION = __APP_VERSION__;
 
 export interface UpdateInfo {
   current: string;
