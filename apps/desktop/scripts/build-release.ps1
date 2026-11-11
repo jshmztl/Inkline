@@ -1,5 +1,6 @@
 ﻿param(
   [string]$KeyPath = "$env:USERPROFILE\.tauri\inkline.key",
+  [string]$KeyPassword = $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD,
   [string]$BaseUrl = 'https://github.com/jshmztl/Inkline/releases/latest/download',
   [string]$AssetName = ''
 )
@@ -16,7 +17,9 @@ if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
     throw "未找到签名私钥：$KeyPath。请先执行 pnpm tauri signer generate -w <路径> 生成密钥。"
   }
   $env:TAURI_SIGNING_PRIVATE_KEY = $KeyPath
-  $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ''
+}
+if ($KeyPassword) {
+  $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = $KeyPassword
 }
 
 Push-Location $appDir
