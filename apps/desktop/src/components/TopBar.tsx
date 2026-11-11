@@ -200,7 +200,7 @@ export function TopBar({
           <i />
         </div>
         <div className="brand-text">
-          <strong>API Workbench</strong>
+          <strong>墨线 Inkline</strong>
           <span>{session.workspace} · 私有部署</span>
         </div>
       </div>

@@ -1,8 +1,8 @@
 [package]
 name = "api-workbench"
-version = "0.1.14"
-description = "Offline-first API workbench"
-authors = ["API Workbench"]
+version = "0.1.15"
+description = "Inkline · 内网 API 工作台"
+authors = ["Inkline"]
 edition = "2021"
 
 [lib]

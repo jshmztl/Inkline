@@ -35,7 +35,7 @@ export function LoginScreen({ onSignedIn }: LoginScreenProps) {
             <i />
           </div>
           <div className="brand-text">
-            <strong>API Workbench</strong>
+            <strong>墨线 Inkline</strong>
             <span>本机 · 私有部署</span>
           </div>
         </div>

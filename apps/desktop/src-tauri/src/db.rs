@@ -81,7 +81,10 @@ pub fn open(app: &AppHandle) -> Result<Connection, Box<dyn std::error::Error>> {
     let dir = app.path().app_data_dir()?;
     std::fs::create_dir_all(&dir)?;
 
-    let connection = Connection::open(dir.join("api-workbench.db"))?;
+    let db_path = dir.join("inkline.db");
+    migrate_legacy_database(&db_path);
+
+    let connection = Connection::open(db_path)?;
     connection.execute_batch(SCHEMA)?;
 
     if !column_exists(&connection, "requests", "collection_id")? {
@@ -100,6 +103,25 @@ pub fn open(app: &AppHandle) -> Result<Connection, Box<dyn std::error::Error>> {
 
     cleanup_legacy_seed(&connection)?;
     Ok(connection)
+}
+
+fn migrate_legacy_database(target: &std::path::Path) {
+    if target.exists() {
+        return;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let Ok(appdata) = std::env::var("APPDATA") else {
+            return;
+        };
+        let legacy = std::path::Path::new(&appdata)
+            .join("com.apiworkbench.desktop")
+            .join("api-workbench.db");
+        if legacy.exists() {
+            let _ = std::fs::copy(&legacy, target);
+        }
+    }
 }
 
 fn column_exists(
