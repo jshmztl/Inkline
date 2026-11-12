@@ -291,6 +291,10 @@
     .entity-diff { width: 100%; border-collapse: collapse; table-layout: fixed; }
     .entity-diff th { text-align: left; padding: 7px 10px; background: #f8fafc; color: var(--muted); font-weight: 500; font-size: 11px; border-bottom: 1px solid var(--line); }
     .entity-diff td { width: 50%; padding: 7px 10px; border-bottom: 1px solid #eef2f7; font-size: 13px; vertical-align: top; word-break: break-all; }
+    .entity-diff thead th { position: sticky; top: 0; z-index: 3; box-shadow: inset 0 -1px 0 var(--line); }
+    .entity-diff td:nth-child(1) { background: #fbfcfd; }
+    .entity-diff td:nth-child(2) { background: #f3f8ff; }
+    .entity-diff th:nth-child(2), .entity-diff td:nth-child(2) { border-left: 2px solid #c3cedd; }
     .entity-diff td.side-remove { background: #fef2f2; color: #991b1b; }
     .entity-diff td.side-add { background: #e8f7ef; color: #0f5c35; }
     .side-diff { width: 100%; border-collapse: collapse; table-layout: fixed; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
@@ -341,15 +345,22 @@
     }
     .diff-outline-item:hover { background: #eef2ff; }
     .diff-outline-item.active { background: var(--accent-soft); color: #1d4ed8; font-weight: 600; }
-    .diff-outline-item.sub { padding-left: 10px; font-size: 12px; }
+    .diff-outline-item.sub { padding-left: 22px; font-size: 12px; }
+    .diff-outline-item.collection { font-weight: 600; color: #0f172a; }
     .diff-outline-item .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .diff-outline-item .count { margin-left: auto; color: var(--muted); font-size: 11px; }
     .diff-outline-empty { padding: 4px 8px; color: var(--muted); font-size: 12px; }
     .doc-diff tr.diff-focus td,
     .entity-diff tr.diff-focus td { outline: 2px solid #f59e0b; outline-offset: -2px; }
     .doc-diff { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    #diff-body .table-wrap { overflow: visible; }
+    #diff-body .doc-diff, #diff-body .entity-diff { border-collapse: separate; border-spacing: 0; }
     .doc-diff th { text-align: left; padding: 8px 14px; background: #f8fafc; color: var(--muted); font-weight: 500; font-size: 11px; border-bottom: 1px solid var(--line); }
     .doc-diff td { width: 50%; vertical-align: top; padding: 8px 14px; border-bottom: 1px solid #eef2f7; }
+    .doc-diff thead th { position: sticky; top: 0; z-index: 3; box-shadow: inset 0 -1px 0 var(--line); }
+    .doc-diff td:nth-child(1) { background: #fbfcfd; }
+    .doc-diff td:nth-child(2) { background: #f3f8ff; }
+    .doc-diff th:nth-child(2), .doc-diff td:nth-child(2) { border-left: 2px solid #c3cedd; }
     .doc-diff td.diff-remove { background: #fef2f2; box-shadow: inset 3px 0 0 #dc2626; }
     .doc-diff td.diff-add { background: #e8f7ef; box-shadow: inset 3px 0 0 #0f9d58; }
     .doc-diff td.diff-change-left { background: #fef2f2; box-shadow: inset 3px 0 0 #dc2626; }
@@ -370,6 +381,7 @@
     .diff-ln { flex: 0 0 26px; width: 26px; padding-right: 7px; color: #94a3b8; font-size: 11px; line-height: 1.7; text-align: right; user-select: none; }
     .diff-content { flex: 1; min-width: 0; }
     .doc-diff td.code-cell { padding: 0; border-bottom: 0; background: #f6f8fa; color: #1e293b; }
+    .doc-diff td.code-cell:nth-child(2) { background: #f1f7fd; }
     .doc-diff td.code-cell .diff-ln { color: #94a3b8; line-height: 1.6; }
     .doc-diff td.code-cell.diff-add,
     .doc-diff td.code-cell.diff-change-right { background: #e8f7ef; box-shadow: inset 3px 0 0 #0f9d58; }
@@ -642,7 +654,7 @@
       const diffSummary = $('#diff-summary');
       const diffOutline = $('#diff-outline');
       const diffNavPos = $('#diff-nav-pos');
-      const diffState = { targets: [], outline: [], index: -1, jumpUntil: 0, focusTimer: 0, scrollRaf: 0 };
+      const diffState = { blocks: [], outline: [], index: -1, jumpUntil: 0, focusTimer: 0, scrollRaf: 0 };
       const teamDialog = $('#team-dialog');
       const memberDialog = $('#member-dialog');
       const passwordDialog = $('#password-dialog');
@@ -2962,7 +2974,7 @@ ${body}
       }
 
       function resetDiffNav() {
-        diffState.targets = [];
+        diffState.blocks = [];
         diffState.outline = [];
         diffState.index = -1;
         diffState.jumpUntil = 0;
@@ -2973,40 +2985,68 @@ ${body}
         diffOutline.replaceChildren();
       }
 
-      function buildDiffOutline(collections, requests, changedRequests) {
+      function buildDiffOutline(diff, currentCollections, currentRequests, removedRequests, sectionOf, collectionTargets) {
         diffState.outline = [];
         diffOutline.replaceChildren(h('div', { class: 'diff-outline-title', text: '大纲' }));
-        const group = (title, entries) => {
-          diffOutline.append(h('div', { class: 'diff-outline-title', text: title }));
-          if (!entries.length) {
-            diffOutline.append(h('div', { class: 'diff-outline-empty', text: '无' }));
-            return;
-          }
-          const list = h('div', { class: 'diff-outline-group' });
-          for (const entry of entries) {
-            const button = h('button', {
-              class: 'diff-outline-item' + (entry.sub ? ' sub' : ''),
-              type: 'button',
-              'data-target': entry.target,
-            },
-              ...(entry.tag ? [entry.tag] : []),
-              h('span', { class: 'name', text: entry.label }),
-            );
-            list.append(button);
-            diffState.outline.push({ id: entry.target, button });
-          }
-          diffOutline.append(list);
+
+        const appendItem = (list, entry) => {
+          const button = h('button', {
+            class: 'diff-outline-item' + (entry.sub ? ' sub' : '') + (entry.collection ? ' collection' : ''),
+            type: 'button',
+            'data-target': entry.target,
+          },
+            ...(entry.tag ? [entry.tag] : []),
+            h('span', { class: 'name', text: entry.label }),
+            ...(entry.count === undefined ? [] : [h('span', { class: 'count', text: String(entry.count) })]),
+          );
+          list.append(button);
+          diffState.outline.push({ id: entry.target, button });
         };
-        group('概览', [
-          { label: `集合 · ${collections.length}`, target: 'diff-sec-collections' },
-          { label: `接口 · ${requests.length}`, target: 'diff-sec-requests' },
-        ]);
-        group(`变更接口 · ${changedRequests.length}`, changedRequests.map((row, index) => ({
+        const requestEntry = (row) => ({
           label: row.name,
           tag: h('span', { class: `method ${row.method}`, text: row.method }),
-          target: `diff-sec-req-${index}`,
+          target: sectionOf.get(row.id),
           sub: true,
-        })));
+        });
+
+        const overview = h('div', { class: 'diff-outline-group' });
+        appendItem(overview, { label: `集合 · ${currentCollections.length}`, target: 'diff-sec-collections' });
+        appendItem(overview, { label: `接口 · ${currentRequests.length}`, target: 'diff-sec-requests' });
+        diffOutline.append(h('div', { class: 'diff-outline-title', text: '概览' }), overview);
+
+        const byCollection = new Map();
+        const loose = [];
+        for (const row of currentRequests) {
+          const collectionId = row.right?.collectionId;
+          if (collectionId && collectionTargets.has(collectionId)) {
+            if (!byCollection.has(collectionId)) byCollection.set(collectionId, []);
+            byCollection.get(collectionId).push(row);
+          } else {
+            loose.push(row);
+          }
+        }
+        for (const row of currentCollections) {
+          const list = h('div', { class: 'diff-outline-group' });
+          const items = byCollection.get(row.right.id) || [];
+          appendItem(list, {
+            label: row.right.name || row.id,
+            target: collectionTargets.get(row.right.id),
+            collection: true,
+            count: items.length,
+          });
+          for (const item of items) appendItem(list, requestEntry(item));
+          diffOutline.append(list);
+        }
+        if (loose.length) {
+          const list = h('div', { class: 'diff-outline-group' });
+          diffOutline.append(h('div', { class: 'diff-outline-title', text: '未分组接口' }), list);
+          for (const row of loose) appendItem(list, requestEntry(row));
+        }
+        if (removedRequests.length) {
+          const list = h('div', { class: 'diff-outline-group' });
+          diffOutline.append(h('div', { class: 'diff-outline-title', text: `已删除接口 · ${removedRequests.length}` }), list);
+          for (const row of removedRequests) appendItem(list, requestEntry(row));
+        }
       }
 
       function setOutlineActive(id) {
@@ -3029,37 +3069,61 @@ ${body}
         setOutlineActive(id);
       }
 
+      function collectDiffBlocks() {
+        const blocks = [];
+        for (const table of diffBody.querySelectorAll('.doc-diff, .entity-diff')) {
+          let current = null;
+          for (const row of table.querySelectorAll('tbody tr')) {
+            const changed = Boolean(row.querySelector(
+              'td.side-add, td.side-remove, td.diff-add, td.diff-remove, td.diff-change-left, td.diff-change-right',
+            ));
+            if (!changed) {
+              current = null;
+              continue;
+            }
+            if (current) current.rows.push(row);
+            else {
+              current = { rows: [row], anchor: row };
+              blocks.push(current);
+            }
+          }
+        }
+        return blocks;
+      }
+
       function diffCurrentIndex() {
         const bodyTop = diffBody.getBoundingClientRect().top;
         let index = -1;
-        diffState.targets.forEach((row, i) => {
-          if (row.getBoundingClientRect().top - bodyTop <= 96) index = i;
+        diffState.blocks.forEach((block, i) => {
+          if (block.anchor.getBoundingClientRect().top - bodyTop <= 96) index = i;
         });
         return index;
       }
 
       function setDiffPosition(index) {
-        const total = diffState.targets.length;
+        const total = diffState.blocks.length;
         diffState.index = index;
         diffNavPos.textContent = total ? `${index >= 0 ? index + 1 : 0} / ${total}` : '0 / 0';
       }
 
       function focusDiffChange(index) {
-        const row = diffState.targets[index];
-        if (!row) return;
-        diffState.targets.forEach((item) => item.classList.remove('diff-focus'));
-        row.classList.add('diff-focus');
+        const block = diffState.blocks[index];
+        if (!block) return;
+        diffState.blocks.forEach((item) => item.rows.forEach((row) => row.classList.remove('diff-focus')));
+        block.rows.forEach((row) => row.classList.add('diff-focus'));
         clearTimeout(diffState.focusTimer);
-        diffState.focusTimer = setTimeout(() => row.classList.remove('diff-focus'), 1600);
+        diffState.focusTimer = setTimeout(() => {
+          block.rows.forEach((row) => row.classList.remove('diff-focus'));
+        }, 1600);
         diffState.jumpUntil = Date.now() + 600;
-        scrollDiffTo(row, 110);
+        scrollDiffTo(block.anchor, 110);
         setDiffPosition(index);
-        const section = row.closest('.diff-section');
+        const section = block.anchor.closest('.diff-section');
         if (section?.id) setOutlineActive(section.id);
       }
 
       function jumpDiffChange(delta) {
-        const total = diffState.targets.length;
+        const total = diffState.blocks.length;
         if (!total) return;
         const current = diffState.index;
         let next;
@@ -3076,9 +3140,15 @@ ${body}
           setDiffPosition(diffCurrentIndex());
           const bodyTop = diffBody.getBoundingClientRect().top;
           let active = '';
+          let best = -Infinity;
           for (const entry of diffState.outline) {
             const section = document.getElementById(entry.id);
-            if (section && section.getBoundingClientRect().top - bodyTop <= 80) active = entry.id;
+            if (!section) continue;
+            const top = section.getBoundingClientRect().top - bodyTop;
+            if (top <= 80 && top > best) {
+              best = top;
+              active = entry.id;
+            }
           }
           if (active) setOutlineActive(active);
         });
@@ -3103,26 +3173,46 @@ ${body}
           return;
         }
 
-        const changedRequests = diff.requests.filter((row) => row.status !== 'same');
+        const currentCollections = diff.collections
+          .filter((row) => row.right)
+          .sort((a, b) => (a.right.sort ?? 0) - (b.right.sort ?? 0));
+        const collectionIndex = new Map(currentCollections.map((row, index) => [row.right.id, index]));
+        const currentRequests = diff.requests
+          .filter((row) => row.right)
+          .sort((a, b) => {
+            const left = collectionIndex.get(a.right.collectionId) ?? 999;
+            const right = collectionIndex.get(b.right.collectionId) ?? 999;
+            return left - right || (a.right.sort ?? 0) - (b.right.sort ?? 0);
+          });
+        const removedRequests = diff.requests.filter((row) => !row.right && row.left);
+        const displayRequests = [...currentRequests, ...removedRequests];
+
         const collectionsSection = renderEntityDiff('集合', diff.collections, (item) => item.name || item.id);
         collectionsSection.id = 'diff-sec-collections';
+        const collectionTargets = new Map();
+        [...collectionsSection.querySelectorAll('tbody tr')].forEach((row, index) => {
+          row.id = `diff-col-${index}`;
+          const collection = diff.collections[index];
+          if (collection?.right) collectionTargets.set(collection.right.id, row.id);
+        });
         const requestsSection = renderEntityDiff('接口', diff.requests, (item) => `${item.method} ${item.name}`);
         requestsSection.id = 'diff-sec-requests';
-        const blocks = changedRequests.map((row, index) => {
+
+        const sectionOf = new Map();
+        const contentSections = displayRequests.map((row, index) => {
           const section = h('div', { class: 'diff-section' },
             h('h4', { text: `接口内容 · ${row.method} ${row.name}` }),
             renderDocDiff(row.leftBlocks, row.rightBlocks),
           );
           section.id = `diff-sec-req-${index}`;
+          sectionOf.set(row.id, section.id);
           return section;
         });
 
-        diffBody.replaceChildren(collectionsSection, requestsSection, ...blocks);
-        buildDiffOutline(diff.collections, diff.requests, changedRequests);
+        diffBody.replaceChildren(collectionsSection, requestsSection, ...contentSections);
+        buildDiffOutline(diff, currentCollections, currentRequests, removedRequests, sectionOf, collectionTargets);
         diffBody.scrollTop = 0;
-        diffState.targets = [...diffBody.querySelectorAll('.entity-diff tr, .doc-diff tr')].filter((row) =>
-          row.querySelector('td.side-add, td.side-remove, td.diff-add, td.diff-remove, td.diff-change-left, td.diff-change-right'),
-        );
+        diffState.blocks = collectDiffBlocks();
         $('#diff-prev').disabled = false;
         $('#diff-next').disabled = false;
         setDiffPosition(-1);
