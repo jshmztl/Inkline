@@ -286,6 +286,20 @@
     .diff-before { color: #b91c1c; background: #fef2f2; padding: 0 4px; border-radius: 4px; text-decoration: line-through; word-break: break-all; }
     .diff-after { color: #0f7a46; background: #e8f7ef; padding: 0 4px; border-radius: 4px; word-break: break-all; }
     .diff-empty { color: var(--muted); font-size: 12px; padding: 4px 0; }
+
+    /* 左右对照 diff */
+    .entity-diff { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    .entity-diff th { text-align: left; padding: 7px 10px; background: #f8fafc; color: var(--muted); font-weight: 500; font-size: 11px; border-bottom: 1px solid var(--line); }
+    .entity-diff td { width: 50%; padding: 7px 10px; border-bottom: 1px solid #eef2f7; font-size: 13px; vertical-align: top; word-break: break-all; }
+    .entity-diff td.side-remove { background: #fef2f2; color: #991b1b; }
+    .entity-diff td.side-add { background: #e8f7ef; color: #0f5c35; }
+    .side-diff { width: 100%; border-collapse: collapse; table-layout: fixed; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
+    .side-diff th { padding: 6px 8px; background: #f8fafc; color: var(--muted); font-weight: 500; font-size: 11px; text-align: left; border-bottom: 1px solid var(--line); }
+    .side-diff td { padding: 2px 8px; vertical-align: top; border-bottom: 1px solid #f8fafc; white-space: pre-wrap; word-break: break-all; line-height: 1.55; }
+    .side-diff td.ln { width: 40px; text-align: right; color: #94a3b8; background: #f8fafc; user-select: none; }
+    .side-diff td.code { width: calc(50% - 40px); }
+    .side-diff td.side-add { background: #e8f7ef; color: #0f5c35; }
+    .side-diff td.side-remove { background: #fef2f2; color: #991b1b; }
     @media (max-width: 1280px) {
       .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     }
@@ -2380,6 +2394,253 @@ ${body}
         diffDialog.showModal();
       }
 
+      function requestContentLines(payload, request) {
+        const docs = payload?.documents?.[request.id];
+        const fields = Array.isArray(docs) ? docs : [];
+        const headers = Array.isArray(request.headers) ? request.headers : [];
+        return [
+          `${request.method || 'GET'} ${request.url ?? request.path ?? ''}`,
+          `名称: ${request.name || ''}`,
+          `集合: ${collectionName(payload, request.collectionId)}`,
+          `数据分级: ${dataLevelText(request.dataLevel || 'L1')}`,
+          '',
+          '请求头:',
+          ...(headers.length
+            ? headers.map((header) => `  ${header.name}: ${header.value}`)
+            : ['  （无）']),
+          '',
+          '请求体:',
+          ...(request.body
+            ? String(request.body).split('\n').map((line) => `  ${line}`)
+            : ['  （无）']),
+          '',
+          '字段文档:',
+          ...(fields.length
+            ? fields.map((field) => `  ${field.key || '-'} | ${field.path || '-'} | ${field.type || '-'} | ${field.source || '-'} | ${field.description || '-'}`)
+            : ['  （无）']),
+        ];
+      }
+
+      function buildSideDiff(before, after) {
+        const beforeCollections = new Map((before.collections || []).map((item) => [item.id, item]));
+        const afterCollections = new Map((after.collections || []).map((item) => [item.id, item]));
+        const collectionIds = [...new Set([...beforeCollections.keys(), ...afterCollections.keys()])];
+        const collections = collectionIds.map((id) => {
+          const left = beforeCollections.get(id) || null;
+          const right = afterCollections.get(id) || null;
+          let status = 'same';
+          if (!left) status = 'add';
+          else if (!right) status = 'remove';
+          else if (left.name !== right.name || (left.sort ?? 0) !== (right.sort ?? 0)) {
+            status = 'change';
+          }
+          return { id, left, right, status };
+        });
+
+        const beforeRequests = new Map((before.requests || []).map((item) => [item.id, item]));
+        const afterRequests = new Map((after.requests || []).map((item) => [item.id, item]));
+        const requestIds = [...new Set([...beforeRequests.keys(), ...afterRequests.keys()])];
+        const requests = requestIds.map((id) => {
+          const left = beforeRequests.get(id) || null;
+          const right = afterRequests.get(id) || null;
+          const leftLines = left ? requestContentLines(before, left) : [];
+          const rightLines = right ? requestContentLines(after, right) : [];
+          let status = 'same';
+          if (!left) status = 'add';
+          else if (!right) status = 'remove';
+          else if (leftLines.join('\n') !== rightLines.join('\n')) status = 'change';
+          return {
+            id,
+            left,
+            right,
+            leftLines,
+            rightLines,
+            status,
+            name: right?.name ?? left?.name ?? id,
+            method: right?.method ?? left?.method ?? 'GET',
+          };
+        });
+
+        const count = (rows) => ({
+          add: rows.filter((row) => row.status === 'add').length,
+          remove: rows.filter((row) => row.status === 'remove').length,
+          change: rows.filter((row) => row.status === 'change').length,
+        });
+
+        return {
+          collections,
+          requests,
+          collectionCount: count(collections),
+          requestCount: count(requests),
+        };
+      }
+
+      function computeLineDiff(beforeText, afterText) {
+        const left = String(beforeText ?? '').split('\n');
+        const right = String(afterText ?? '').split('\n');
+        const rows = [];
+
+        if (left.length * right.length > 250000) {
+          for (const line of left) rows.push({ type: 'remove', left: line, right: '' });
+          for (const line of right) rows.push({ type: 'add', left: '', right: line });
+          return rows;
+        }
+
+        const table = Array.from({ length: left.length + 1 }, () =>
+          new Uint16Array(right.length + 1),
+        );
+        for (let i = left.length - 1; i >= 0; i -= 1) {
+          for (let j = right.length - 1; j >= 0; j -= 1) {
+            table[i][j] = left[i] === right[j]
+              ? table[i + 1][j + 1] + 1
+              : Math.max(table[i + 1][j], table[i][j + 1]);
+          }
+        }
+
+        const ops = [];
+        let i = 0;
+        let j = 0;
+        while (i < left.length && j < right.length) {
+          if (left[i] === right[j]) {
+            ops.push({ type: 'same', left: left[i], right: right[j] });
+            i += 1;
+            j += 1;
+          } else if (table[i + 1][j] >= table[i][j + 1]) {
+            ops.push({ type: 'remove', left: left[i], right: '' });
+            i += 1;
+          } else {
+            ops.push({ type: 'add', left: '', right: right[j] });
+            j += 1;
+          }
+        }
+        while (i < left.length) {
+          ops.push({ type: 'remove', left: left[i], right: '' });
+          i += 1;
+        }
+        while (j < right.length) {
+          ops.push({ type: 'add', left: '', right: right[j] });
+          j += 1;
+        }
+
+        let index = 0;
+        while (index < ops.length) {
+          if (ops[index].type === 'same') {
+            rows.push(ops[index]);
+            index += 1;
+            continue;
+          }
+          const removes = [];
+          const adds = [];
+          while (index < ops.length && ops[index].type === 'remove') {
+            removes.push(ops[index].left);
+            index += 1;
+          }
+          while (index < ops.length && ops[index].type === 'add') {
+            adds.push(ops[index].right);
+            index += 1;
+          }
+          const size = Math.max(removes.length, adds.length);
+          for (let offset = 0; offset < size; offset += 1) {
+            const hasLeft = removes[offset] !== undefined;
+            const hasRight = adds[offset] !== undefined;
+            rows.push({
+              type: hasLeft && hasRight ? 'change' : hasLeft ? 'remove' : 'add',
+              left: hasLeft ? removes[offset] : '',
+              right: hasRight ? adds[offset] : '',
+            });
+          }
+        }
+        return rows;
+      }
+
+      function renderSideBySide(rows) {
+        const body = h('tbody');
+        let leftNo = 0;
+        let rightNo = 0;
+        for (const row of rows) {
+          const hasLeft = row.type === 'same' || row.type === 'remove' || row.type === 'change';
+          const hasRight = row.type === 'same' || row.type === 'add' || row.type === 'change';
+          if (hasLeft) leftNo += 1;
+          if (hasRight) rightNo += 1;
+          body.append(h('tr', {},
+            h('td', { class: 'ln', text: hasLeft ? String(leftNo) : '' }),
+            h('td', {
+              class: `code${row.type === 'remove' || row.type === 'change' ? ' side-remove' : ''}`,
+              text: hasLeft ? row.left : '',
+            }),
+            h('td', { class: 'ln', text: hasRight ? String(rightNo) : '' }),
+            h('td', {
+              class: `code${row.type === 'add' || row.type === 'change' ? ' side-add' : ''}`,
+              text: hasRight ? row.right : '',
+            }),
+          ));
+        }
+        return h('div', { class: 'table-wrap' },
+          h('table', { class: 'side-diff' },
+            h('thead', {}, h('tr', {},
+              h('th', { colspan: '2', text: '上一版本' }),
+              h('th', { colspan: '2', text: '当前版本' }),
+            )),
+            body,
+          ),
+        );
+      }
+
+      function renderEntityDiff(title, rows, label) {
+        return h('div', { class: 'diff-section' },
+          h('h4', { text: `${title} · ${rows.length}` }),
+          h('div', { class: 'table-wrap' },
+            h('table', { class: 'entity-diff' },
+              h('thead', {}, h('tr', {},
+                h('th', { text: '上一版本' }),
+                h('th', { text: '当前版本' }),
+              )),
+              h('tbody', {}, ...rows.map((row) => {
+                const leftTone = row.status === 'remove' || row.status === 'change' ? 'side-remove' : '';
+                const rightTone = row.status === 'add' || row.status === 'change' ? 'side-add' : '';
+                return h('tr', {},
+                  h('td', { class: leftTone, text: row.left ? label(row.left) : '' }),
+                  h('td', { class: rightTone, text: row.right ? label(row.right) : '' }),
+                );
+              })),
+            ),
+          ),
+        );
+      }
+
+      function renderSideDiff(diff, fromRevision, toRevision) {
+        diffTitle.textContent = `版本对比 · #${fromRevision} → #${toRevision}`;
+        const { collectionCount, requestCount } = diff;
+        const total =
+          collectionCount.add + collectionCount.remove + collectionCount.change +
+          requestCount.add + requestCount.remove + requestCount.change;
+
+        const summary = h('div', { class: 'summary-line' },
+          h('span', { class: 'badge team', text: `接口 +${requestCount.add} / -${requestCount.remove} / 改 ${requestCount.change}` }),
+          h('span', { class: 'badge', text: `集合 +${collectionCount.add} / -${collectionCount.remove} / 改 ${collectionCount.change}` }),
+        );
+
+        if (total === 0) {
+          diffBody.replaceChildren(summary, h('p', { class: 'section-note', text: '两个版本内容一致。' }));
+          diffDialog.showModal();
+          return;
+        }
+
+        const changedRequests = diff.requests.filter((row) => row.status !== 'same');
+        const blocks = changedRequests.map((row) => h('div', { class: 'diff-section' },
+          h('h4', { text: `接口内容 · ${row.method} ${row.name}` }),
+          renderSideBySide(computeLineDiff(row.leftLines.join('\n'), row.rightLines.join('\n'))),
+        ));
+
+        diffBody.replaceChildren(
+          summary,
+          renderEntityDiff('集合', diff.collections, (item) => item.name || item.id),
+          renderEntityDiff('接口', diff.requests, (item) => `${item.method} ${item.name}`),
+          ...blocks,
+        );
+        diffDialog.showModal();
+      }
+
       async function openDiff(fromRevision, toRevision) {
         if (!fromRevision || !toRevision || fromRevision === toRevision) {
           showToast('请选择两个不同的版本', 'error');
@@ -2390,7 +2651,7 @@ ${body}
             api(`/v1/teams/${state.team.id}/snapshots/${fromRevision}`),
             api(`/v1/teams/${state.team.id}/snapshots/${toRevision}`),
           ]);
-          renderDiff(buildSnapshotDiff(before, after), fromRevision, toRevision);
+          renderSideDiff(buildSideDiff(before, after), fromRevision, toRevision);
         } catch (error) {
           showToast(error.message, 'error');
         }
