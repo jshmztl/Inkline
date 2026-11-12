@@ -85,10 +85,17 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | `owner` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `admin` | ✓ | ✓ | ✓ | ✓ |  | ✓ |
-| `member` | ✓ | ✓ |  |  |  |  |
-| `viewer`（预留） | ✓ | pull |  |  |  |  |
+| `member` | 受资源权限约束 | ✓ |  |  |  |  |
+| `viewer`（预留） | 受资源权限约束 | pull |  |  |  |  |
 
 一个团队至少保留一名 `owner`。
+
+资源级权限叠加在角色之上：
+
+- 所有者与管理员始终可见全部资源，并可配置权限。
+- 成员与只读角色只看到「团队可见」或被明确授权的集合 / 接口。
+- 集合级授权默认作用于其下接口；接口策略优先于集合策略。
+- 只读角色永远不能获得编辑权限。
 
 ## 5. 数据模型
 
@@ -136,7 +143,8 @@ snapshots (
   revision bigint not null,
   payload jsonb,               -- 小快照；大快照存对象存储时为 null
   object_key text,             -- 对象存储 key
-  payload_hash text not null,  -- SHA-256(未压缩 payload)
+  payload_hash text not null,  -- SHA-256(服务端合并后的完整 payload)
+  source_hash text,            -- SHA-256(客户端原始提交 payload)，用于幂等判断
   size_bytes bigint not null,
   schema_version int not null,
   base_revision bigint,
@@ -145,6 +153,28 @@ snapshots (
   idempotency_key text,
   primary key (team_id, revision),
   unique (team_id, idempotency_key)
+);
+
+resource_policies (
+  team_id uuid references teams(id) on delete cascade,
+  resource_type text not null check (resource_type in ('collection','request')),
+  resource_id text not null,
+  visibility text not null check (visibility in ('team','restricted')),
+  updated_by uuid references users(id),
+  updated_at timestamptz not null default now(),
+  primary key (team_id, resource_type, resource_id)
+);
+
+resource_grants (
+  team_id uuid not null,
+  resource_type text not null,
+  resource_id text not null,
+  subject_type text not null check (subject_type in ('user','role')),
+  subject_id text not null,    -- user_id 或 member / viewer
+  permission text not null check (permission in ('view','edit')),
+  primary key (team_id, resource_type, resource_id, subject_type, subject_id),
+  foreign key (team_id, resource_type, resource_id)
+    references resource_policies(team_id, resource_type, resource_id) on delete cascade
 );
 
 audit_logs (
@@ -320,15 +350,105 @@ refresh_tokens (
 }
 ```
 
+#### POST /v1/teams/{teamId}/members
+
+```json
+{
+  "mode": "create",
+  "account": "lisi",
+  "displayName": "李四",
+  "password": "Passw0rd!2026",
+  "role": "member"
+}
+```
+
+- `mode = create`：账号不存在时创建服务账号并加入团队；需要 10–128 位初始口令。
+- `mode = existing`：按账号添加已有用户，沿用原口令。
+- 仅 `owner` / `admin`；`admin` 不能授予 `admin`，`owner` 角色不能通过成员接口授予。
+
 #### PATCH /v1/teams/{teamId}/members/{userId}
 
 ```json
 { "role": "admin" }
 ```
 
+- `owner` 可调整管理员及以下角色；`admin` 只能调整成员 / 只读。
+- 不能修改所有者角色。
+
 #### DELETE /v1/teams/{teamId}/members/{userId}
 
-删除成员；不能移除最后一名 `owner`。
+删除成员；不能移除最后一名 `owner`，不能移除自己。移除成员会同时清理其在本团队的资源授权。
+
+#### POST /v1/teams/{teamId}/members/{userId}/reset-password
+
+```json
+{ "newPassword": "NewPassw0rd!2026" }
+```
+
+重置口令并撤销该账号全部刷新令牌；`admin` 只能重置成员 / 只读账号。
+
+#### GET /v1/teams/{teamId}/permissions
+
+返回资源树与权限配置（仅 `owner` / `admin`）：
+
+```json
+{
+  "revision": 3,
+  "collections": [
+    { "id": "col-1", "name": "订单服务", "requestCount": 2, "visibility": "team", "grants": [] }
+  ],
+  "requests": [
+    {
+      "id": "req-1",
+      "name": "创建订单",
+      "method": "POST",
+      "collectionId": "col-1",
+      "dataLevel": "L1",
+      "hasDocument": true,
+      "visibility": "inherit",
+      "grants": []
+    }
+  ]
+}
+```
+
+- `visibility`：集合为 `team` / `restricted`；接口额外支持 `inherit`（跟随集合）。
+- `grants`：`[{ "subjectType": "user|role", "subjectId": "...", "permission": "view|edit" }]`。
+
+#### PUT /v1/teams/{teamId}/permissions/{type}/{resourceId}
+
+`type` 为 `collection` / `request`：
+
+```json
+{
+  "visibility": "restricted",
+  "grants": [
+    { "subjectType": "user", "subjectId": "u2", "permission": "view" },
+    { "subjectType": "role", "subjectId": "member", "permission": "edit" }
+  ]
+}
+```
+
+- 资源必须存在于最新快照；否则返回 `404`。
+- 角色授权只支持 `member` / `viewer`，只读角色不能获得 `edit`。
+- `visibility = team` 时会清空 grants。
+
+#### DELETE /v1/teams/{teamId}/permissions/{type}/{resourceId}
+
+删除策略：集合恢复团队可见，接口恢复继承集合。`204`。
+
+#### POST /v1/teams/{teamId}/permissions/batch
+
+```json
+{
+  "items": [
+    { "resourceType": "collection", "resourceId": "col-1", "visibility": "restricted", "grants": [] },
+    { "resourceType": "request", "resourceId": "req-1", "visibility": "restricted", "grants": [] }
+  ]
+}
+```
+
+单次最多 200 项；用于「把集合权限应用到其下全部接口」。
 
 #### POST /v1/teams/{teamId}/invites
 
@@ -375,6 +495,12 @@ refresh_tokens (
 
 返回快照 Payload（`application/json`，可 gzip）。
 
+按查看者权限裁剪：
+
+- `owner` / `admin`：返回完整快照。
+- `member` / `viewer`：只返回可见集合、可见接口及其文档；被隐藏的资源不会出现在任何字段中。
+- 历史版本同样按当前权限策略裁剪，避免通过旧版本绕过限制。
+
 #### POST /v1/teams/{teamId}/snapshots
 
 提交新快照。请求头：
@@ -414,6 +540,13 @@ refresh_tokens (
   }
 }
 ```
+
+按权限合并：
+
+- 服务端保存完整权威快照；客户端提交的是其可见子集。
+- 推送时只应用查看者有编辑权的集合、接口与文档；不可见或只读的资源保留服务端版本，不会被整包覆盖删除。
+- 删除集合时，只要集合内存在查看者无权编辑的接口，删除会被忽略，避免误删隐藏资源。
+- `payload_hash` 为合并后完整快照的 hash；`source_hash` 记录客户端原始内容，用于幂等重试判断。
 
 #### GET /v1/teams/{teamId}/snapshots?limit=20&before=13
 
@@ -483,7 +616,7 @@ sequenceDiagram
 
 - **定位**：运维与排障入口，不替代桌面客户端，也不新增管理特权接口。
 - **权限**：直接使用 `/v1/auth/login` 登录，页面内所有操作都走既有 `/v1` 接口，复用团队成员角色校验。
-- **能力**：团队列表与新建、概览统计、最新快照查看 / 下载、历史版本分页、成员列表、审计日志、团队设置（名称 / 数据分级上限 / 保留天数）。
+- **能力**：团队列表与新建、概览统计、最新快照查看 / 下载、历史版本分页、成员增删与角色调整、口令重置、资源权限树与成员授权矩阵、审计日志、团队设置（名称 / 数据分级上限 / 保留天数）。
 - **交付形态**：`admin/index.html` 通过 `include_str!` 编入二进制，无外部依赖，便于离线内网部署。
 - **安全**：响应头带 CSP、`X-Frame-Options: DENY`、`nosniff`、`Referrer-Policy: no-referrer`；令牌仅存 `sessionStorage`；口令错误与令牌失效统一回到登录页。
 

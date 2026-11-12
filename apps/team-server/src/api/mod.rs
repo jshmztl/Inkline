@@ -1,11 +1,13 @@
 pub mod admin;
 pub mod audit;
 pub mod auth;
+pub mod members;
 pub mod meta;
+pub mod permissions;
 pub mod snapshots;
 pub mod teams;
 
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post, put};
 use axum::Router;
 
 use crate::state::AppState;
@@ -27,7 +29,26 @@ pub fn router(state: AppState) -> Router {
             "/v1/teams/{team_id}",
             get(teams::get_team).patch(teams::update_team),
         )
-        .route("/v1/teams/{team_id}/members", get(teams::list_members))
+        .route(
+            "/v1/teams/{team_id}/members",
+            get(teams::list_members).post(members::add_member),
+        )
+        .route(
+            "/v1/teams/{team_id}/members/{user_id}",
+            patch(members::update_member_role).delete(members::remove_member),
+        )
+        .route(
+            "/v1/teams/{team_id}/members/{user_id}/reset-password",
+            post(members::reset_password),
+        )
+        .route(
+            "/v1/teams/{team_id}/permissions",
+            get(permissions::list_permissions).post(permissions::batch_update_permissions),
+        )
+        .route(
+            "/v1/teams/{team_id}/permissions/{resource_type}/{resource_id}",
+            put(permissions::update_permission).delete(permissions::reset_permission),
+        )
         .route(
             "/v1/teams/{team_id}/snapshots",
             get(snapshots::list_snapshots).post(snapshots::push_snapshot),

@@ -15,7 +15,7 @@ use crate::auth::AuthUser;
 use crate::db;
 use crate::error::AppError;
 use crate::models::SnapshotMetaRow;
-use crate::policy::validate_snapshot_levels;
+use crate::policy::{self, Viewer};
 use crate::state::AppState;
 
 const BASE_REVISION_HEADER: &str = "x-inkline-base-revision";
@@ -125,7 +125,8 @@ pub async fn get_snapshot(
     user: AuthUser,
     Path((team_id, revision)): Path<(Uuid, i64)>,
 ) -> Result<Json<Value>, AppError> {
-    crate::api::teams::require_membership(&state.pool, team_id, user.0).await?;
+    let role = crate::api::teams::require_membership(&state.pool, team_id, user.0).await?;
+    let viewer = Viewer::new(user.0, &role);
 
     let payload: Option<Value> =
         sqlx::query_scalar("SELECT payload FROM snapshots WHERE team_id = $1 AND revision = $2")
@@ -134,9 +135,16 @@ pub async fn get_snapshot(
             .fetch_optional(&state.pool)
             .await?;
 
-    payload
-        .map(Json)
-        .ok_or_else(|| AppError::not_found("快照版本不存在"))
+    let Some(payload) = payload else {
+        return Err(AppError::not_found("快照版本不存在"));
+    };
+
+    if viewer.is_manager() {
+        return Ok(Json(payload));
+    }
+
+    let policies = policy::load_policies(&state.pool, team_id).await?;
+    Ok(Json(policy::filter_payload(&payload, &viewer, &policies)))
 }
 
 pub async fn push_snapshot(
@@ -189,7 +197,7 @@ pub async fn push_snapshot(
         .get("requests")
         .and_then(Value::as_array)
         .ok_or_else(|| AppError::validation("快照缺少 requests 数组"))?;
-    validate_snapshot_levels(requests, &max_data_level)?;
+    policy::validate_snapshot_levels(requests, &max_data_level)?;
 
     let header_base = headers
         .get(BASE_REVISION_HEADER)
@@ -222,10 +230,11 @@ pub async fn push_snapshot(
         return Err(AppError::validation("Idempotency-Key 不能超过 128 个字符"));
     }
 
-    let payload_hash = format!("sha256:{}", hex::encode(Sha256::digest(&decoded)));
+    let viewer = Viewer::new(user.0, &role);
+    let source_hash = format!("sha256:{}", hex::encode(Sha256::digest(&decoded)));
 
-    let existing: Option<(i64, String, DateTime<Utc>)> = sqlx::query_as(
-        "SELECT revision, payload_hash, created_at FROM snapshots
+    let existing: Option<(i64, String, Option<String>, DateTime<Utc>)> = sqlx::query_as(
+        "SELECT revision, payload_hash, source_hash, created_at FROM snapshots
          WHERE team_id = $1 AND idempotency_key = $2",
     )
     .bind(team_id)
@@ -233,8 +242,9 @@ pub async fn push_snapshot(
     .fetch_optional(&state.pool)
     .await?;
 
-    if let Some((revision, hash, created_at)) = existing {
-        if hash == payload_hash {
+    if let Some((revision, hash, stored_source, created_at)) = existing {
+        let stored_source = stored_source.unwrap_or_else(|| hash.clone());
+        if stored_source == source_hash {
             return Ok((
                 StatusCode::CREATED,
                 Json(json!({
@@ -250,6 +260,8 @@ pub async fn push_snapshot(
             json!({ "revision": revision }),
         ));
     }
+
+    let policies = policy::load_policies(&state.pool, team_id).await?;
 
     let mut tx = state.pool.begin().await?;
     let revision: Option<i64> = sqlx::query_scalar(
@@ -286,17 +298,30 @@ pub async fn push_snapshot(
         ));
     };
 
+    let full_payload: Option<Value> = sqlx::query_scalar(
+        "SELECT payload FROM snapshots WHERE team_id = $1 ORDER BY revision DESC LIMIT 1",
+    )
+    .bind(team_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let merged = policy::merge_payload(full_payload.as_ref(), &value, &viewer, &policies);
+    let merged_bytes = serde_json::to_vec(&merged.payload)
+        .map_err(|error| AppError::internal(format!("快照合并序列化失败：{error}")))?;
+    let payload_hash = format!("sha256:{}", hex::encode(Sha256::digest(&merged_bytes)));
+
     let created_at = Utc::now();
     let insert_result = sqlx::query(
         "INSERT INTO snapshots
-            (team_id, revision, payload, payload_hash, size_bytes, schema_version, base_revision, created_by, idempotency_key)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+            (team_id, revision, payload, payload_hash, source_hash, size_bytes, schema_version, base_revision, created_by, idempotency_key)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
     )
     .bind(team_id)
     .bind(revision)
-    .bind(&value)
+    .bind(&merged.payload)
     .bind(&payload_hash)
-    .bind(decoded.len() as i64)
+    .bind(&source_hash)
+    .bind(merged_bytes.len() as i64)
     .bind(schema_version as i32)
     .bind(base_revision)
     .bind(user.0)
@@ -308,8 +333,8 @@ pub async fn push_snapshot(
         let is_unique = matches!(&error, sqlx::Error::Database(db) if db.is_unique_violation());
         if is_unique {
             tx.rollback().await.ok();
-            let existing: Option<(i64, String, DateTime<Utc>)> = sqlx::query_as(
-                "SELECT revision, payload_hash, created_at FROM snapshots
+            let existing: Option<(i64, String, Option<String>, DateTime<Utc>)> = sqlx::query_as(
+                "SELECT revision, payload_hash, source_hash, created_at FROM snapshots
                  WHERE team_id = $1 AND idempotency_key = $2",
             )
             .bind(team_id)
@@ -317,8 +342,9 @@ pub async fn push_snapshot(
             .fetch_optional(&state.pool)
             .await?;
 
-            if let Some((revision, hash, created_at)) = existing {
-                if hash == payload_hash {
+            if let Some((revision, hash, stored_source, created_at)) = existing {
+                let stored_source = stored_source.unwrap_or_else(|| hash.clone());
+                if stored_source == source_hash {
                     return Ok((
                         StatusCode::CREATED,
                         Json(json!({
@@ -338,6 +364,27 @@ pub async fn push_snapshot(
         return Err(error.into());
     }
 
+    if !merged.removed_requests.is_empty() {
+        sqlx::query(
+            "DELETE FROM resource_policies
+             WHERE team_id = $1 AND resource_type = 'request' AND resource_id = ANY($2)",
+        )
+        .bind(team_id)
+        .bind(&merged.removed_requests)
+        .execute(&mut *tx)
+        .await?;
+    }
+    if !merged.removed_collections.is_empty() {
+        sqlx::query(
+            "DELETE FROM resource_policies
+             WHERE team_id = $1 AND resource_type = 'collection' AND resource_id = ANY($2)",
+        )
+        .bind(team_id)
+        .bind(&merged.removed_collections)
+        .execute(&mut *tx)
+        .await?;
+    }
+
     tx.commit().await?;
 
     let _ = db::write_audit(
@@ -349,7 +396,8 @@ pub async fn push_snapshot(
         json!({
             "revision": revision,
             "baseRevision": base_revision,
-            "sizeBytes": decoded.len(),
+            "sizeBytes": merged_bytes.len(),
+            "sourceSizeBytes": decoded.len(),
         }),
     )
     .await;

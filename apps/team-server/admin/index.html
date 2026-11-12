@@ -69,6 +69,7 @@
       padding: 0 12px; background: #fff; color: var(--ink); outline: none;
     }
     .field input:focus, .field select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .field .hint { color: var(--muted); font-size: 12px; }
     .btn {
       height: 38px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--line);
       background: #fff; color: var(--ink); display: inline-flex; align-items: center; gap: 6px;
@@ -76,6 +77,8 @@
     .btn:hover { border-color: #cbd5e1; background: #f8fafc; }
     .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
     .btn.primary:hover { background: #244bd0; }
+    .btn.danger { color: var(--danger); border-color: #fecaca; background: #fff5f5; }
+    .btn.danger:hover { background: #fee2e2; }
     .btn.small { height: 30px; padding: 0 10px; font-size: 12px; border-radius: 8px; }
     .btn.ghost { border-color: transparent; background: transparent; }
     .btn:disabled { opacity: .55; cursor: not-allowed; }
@@ -115,11 +118,13 @@
     .empty { height: 60vh; display: grid; place-items: center; color: var(--muted); }
     .page-head { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
     .page-head h1 { margin: 0; font-size: 24px; }
-    .pill { display: inline-flex; align-items: center; height: 24px; padding: 0 9px; border-radius: 999px; font-size: 12px; background: #f1f5f9; color: #475569; }
+    .page-head .spacer { flex: 1; }
+    .pill { display: inline-flex; align-items: center; height: 24px; padding: 0 9px; border-radius: 999px; font-size: 12px; background: #f1f5f9; color: #475569; white-space: nowrap; }
     .pill.accent { background: var(--accent-soft); color: #1d4ed8; }
     .pill.ok { background: #e8f7ef; color: #0f7a46; }
     .pill.warn { background: #fff7ed; color: var(--warn); }
-    .stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+    .pill.danger { background: #fef2f2; color: #b91c1c; }
+    .stats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
     .stat { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow); }
     .stat-label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
     .stat-value { font-size: 20px; letter-spacing: -.01em; }
@@ -141,6 +146,7 @@
     .table th, .table td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #eef2f7; font-size: 13px; vertical-align: middle; }
     .table th { background: #f8fafc; color: var(--muted); font-weight: 500; font-size: 12px; }
     .table tr:last-child td { border-bottom: 0; }
+    .table select { height: 30px; border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 0 8px; }
     .settings-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; max-width: 720px; }
     .settings-form .wide { grid-column: 1 / -1; }
     .section-note { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
@@ -160,9 +166,75 @@
     .dialog-body { padding: 16px 18px; }
     .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 18px 16px; }
     dialog pre { margin: 0; padding: 16px 18px; max-height: 60vh; overflow: auto; background: #0b1220; color: #dbeafe; font-size: 12px; }
-    #team-dialog { width: min(420px, calc(100vw - 32px)); }
-    @media (max-width: 1100px) {
+    #team-dialog, #member-dialog, #password-dialog, #confirm-dialog { width: min(460px, calc(100vw - 32px)); }
+    .choice-row { display: flex; gap: 8px; margin-bottom: 14px; }
+    .choice { flex: 1; border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; background: #fff; text-align: left; font-size: 13px; }
+    .choice.active { border-color: var(--accent); background: var(--accent-soft); color: #1d4ed8; font-weight: 600; }
+    .dialog-note { color: var(--muted); font-size: 12px; margin: -4px 0 12px; }
+    .inline-field { display: flex; gap: 8px; }
+    .inline-field input { flex: 1; }
+
+    /* 成员 */
+    .avatar { width: 28px; height: 28px; border-radius: 9px; background: var(--accent-soft); color: #1d4ed8; display: inline-grid; place-items: center; font-weight: 700; font-size: 12px; margin-right: 8px; }
+    .member-cell { display: flex; align-items: center; }
+    .row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+    /* 权限 */
+    .perm-layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 16px; align-items: start; }
+    .tree-pane { border: 1px solid var(--line); border-radius: 12px; background: #fff; padding: 12px; max-height: 620px; display: flex; flex-direction: column; }
+    .tree-toolbar { display: flex; gap: 8px; margin-bottom: 10px; }
+    .tree-toolbar input { flex: 1; height: 34px; border: 1px solid var(--line); border-radius: 9px; padding: 0 10px; outline: none; }
+    .tree-toolbar input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .tree-scroll { overflow: auto; margin: 0 -4px; padding: 0 4px; }
+    .tree-group { margin-bottom: 4px; }
+    .tree-item {
+      width: 100%; display: flex; align-items: center; gap: 8px; text-align: left;
+      border: 1px solid transparent; background: transparent; border-radius: 9px;
+      padding: 8px 9px; color: var(--ink);
+    }
+    .tree-item:hover { background: #f8fafc; }
+    .tree-item.active { background: var(--accent-soft); border-color: #c7d2fe; }
+    .tree-item .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+    .tree-item .count { color: var(--muted); font-size: 11px; }
+    .tree-children { margin-left: 10px; border-left: 1px dashed #e2e8f0; padding-left: 6px; }
+    .tree-child { padding: 6px 8px; }
+    .method { font-size: 10px; font-weight: 700; letter-spacing: .03em; padding: 1px 5px; border-radius: 5px; background: #eef2ff; color: #3730a3; }
+    .method.POST { background: #e8f7ef; color: #0f7a46; }
+    .method.PUT, .method.PATCH { background: #fff7ed; color: #b45309; }
+    .method.DELETE { background: #fef2f2; color: #b91c1c; }
+    .badge { font-size: 10px; padding: 1px 6px; border-radius: 999px; background: #f1f5f9; color: #64748b; white-space: nowrap; }
+    .badge.team { background: #e8f7ef; color: #0f7a46; }
+    .badge.restricted { background: #fff7ed; color: #b45309; }
+    .badge.inherit { background: #f1f5f9; color: #64748b; }
+    .perm-editor { border: 1px solid var(--line); border-radius: 12px; background: #fff; padding: 18px; min-height: 320px; }
+    .perm-editor h3 { margin: 0 0 4px; font-size: 16px; }
+    .perm-sub { color: var(--muted); font-size: 12px; margin: 0 0 16px; }
+    .vis-options { display: flex; flex-direction: column; gap: 8px; margin: 14px 0 18px; }
+    .vis-option { display: flex; gap: 9px; align-items: flex-start; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: #fff; cursor: pointer; }
+    .vis-option.active { border-color: #c7d2fe; background: #f8faff; }
+    .vis-option input { margin-top: 4px; }
+    .vis-option strong { display: block; font-size: 13px; }
+    .vis-option small { color: var(--muted); font-size: 12px; }
+    .grant-section { border-top: 1px solid var(--line); padding-top: 14px; margin-top: 14px; }
+    .grant-section h4 { margin: 0 0 4px; font-size: 13px; }
+    .grant-section .section-note { margin-bottom: 10px; }
+    .grant-row { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-bottom: 1px solid #f1f5f9; }
+    .grant-row:last-child { border-bottom: 0; }
+    .grant-row .who { flex: 1; min-width: 0; }
+    .grant-row .who strong { display: block; font-size: 13px; font-weight: 600; }
+    .grant-row .who small { color: var(--muted); font-size: 11px; }
+    .grant-row select { height: 32px; border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 0 8px; min-width: 96px; }
+    .grant-toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+    .perm-footer { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border-top: 1px solid var(--line); margin-top: 18px; padding-top: 14px; }
+    .perm-footer .spacer { flex: 1; }
+    .checkline { display: inline-flex; align-items: center; gap: 6px; color: #334155; font-size: 13px; }
+    .summary-line { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+    @media (max-width: 1280px) {
       .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+    @media (max-width: 1100px) {
+      .perm-layout { grid-template-columns: 1fr; }
+      .tree-pane { max-height: 360px; }
     }
     @media (max-width: 820px) {
       .layout { grid-template-columns: 1fr; }
@@ -174,6 +246,7 @@
       .kv-grid { grid-template-columns: 1fr; }
       .settings-form { grid-template-columns: 1fr; }
       .top-actions .server, .top-actions #user-label { display: none; }
+      .page-head h1 { font-size: 20px; }
     }
   </style>
 </head>
@@ -188,7 +261,7 @@
         </div>
       </div>
       <h1>登录管理台</h1>
-      <p>使用团队服务账号登录，管理团队、快照与审计记录。</p>
+      <p>使用团队服务账号登录，管理成员、资源权限、快照与审计。</p>
       <form id="login-form">
         <div class="field">
           <label for="account">账号</label>
@@ -237,20 +310,26 @@
           <div class="page-head">
             <h1 id="team-name"></h1>
             <span id="team-role" class="pill"></span>
+            <span class="spacer"></span>
+            <span id="team-revision" class="muted"></span>
           </div>
           <section id="stats" class="stats"></section>
 
           <nav class="tabs" id="tabs">
             <button type="button" data-tab="overview" class="active">概览</button>
-            <button type="button" data-tab="snapshots">快照历史</button>
             <button type="button" data-tab="members">成员</button>
+            <button type="button" data-tab="permissions">权限</button>
+            <button type="button" data-tab="snapshots">快照历史</button>
             <button type="button" data-tab="audit">审计</button>
+            <button type="button" data-tab="settings">设置</button>
           </nav>
 
           <section id="tab-overview" class="tab"></section>
-          <section id="tab-snapshots" class="tab hidden"></section>
           <section id="tab-members" class="tab hidden"></section>
+          <section id="tab-permissions" class="tab hidden"></section>
+          <section id="tab-snapshots" class="tab hidden"></section>
           <section id="tab-audit" class="tab hidden"></section>
+          <section id="tab-settings" class="tab hidden"></section>
         </div>
       </main>
     </div>
@@ -285,6 +364,84 @@
     </form>
   </dialog>
 
+  <dialog id="member-dialog">
+    <form id="member-form">
+      <div class="dialog-head">
+        <h2>添加成员</h2>
+      </div>
+      <div class="dialog-body">
+        <div class="choice-row">
+          <button id="mode-create" class="choice active" type="button">新建账号</button>
+          <button id="mode-existing" class="choice" type="button">添加已有账号</button>
+        </div>
+        <div class="field">
+          <label for="member-account">账号</label>
+          <input id="member-account" maxlength="32" placeholder="3–32 位字母、数字、点、下划线或短横线" required>
+        </div>
+        <div class="field" id="display-field">
+          <label for="member-display">显示名称</label>
+          <input id="member-display" maxlength="40" placeholder="留空则使用账号">
+        </div>
+        <div class="field" id="password-field">
+          <label for="member-password">初始口令</label>
+          <div class="inline-field">
+            <input id="member-password" minlength="10" maxlength="128" autocomplete="new-password" placeholder="至少 10 个字符">
+            <button id="member-generate" class="btn" type="button">生成</button>
+          </div>
+          <span class="hint">创建后请通过安全渠道告知成员。</span>
+        </div>
+        <div class="field">
+          <label for="member-role">团队角色</label>
+          <select id="member-role">
+            <option value="member">成员</option>
+            <option value="viewer">只读</option>
+            <option value="admin" id="role-admin-option">管理员</option>
+          </select>
+        </div>
+        <p class="dialog-note" id="member-mode-note">新建账号会同时创建服务账号并加入当前团队。</p>
+      </div>
+      <div class="dialog-actions">
+        <button id="member-cancel" class="btn" type="button">取消</button>
+        <button class="btn primary" type="submit">添加</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="password-dialog">
+    <form id="password-form">
+      <div class="dialog-head">
+        <h2 id="password-title">重置口令</h2>
+      </div>
+      <div class="dialog-body">
+        <div class="field">
+          <label for="reset-password">新口令</label>
+          <div class="inline-field">
+            <input id="reset-password" minlength="10" maxlength="128" autocomplete="new-password" placeholder="至少 10 个字符" required>
+            <button id="password-generate" class="btn" type="button">生成</button>
+          </div>
+        </div>
+        <p class="dialog-note">重置后该账号的刷新令牌会立即失效，需要重新登录。</p>
+      </div>
+      <div class="dialog-actions">
+        <button id="password-cancel" class="btn" type="button">取消</button>
+        <button class="btn primary" type="submit">确认重置</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="confirm-dialog">
+    <div class="dialog-head">
+      <h2 id="confirm-title">确认操作</h2>
+    </div>
+    <div class="dialog-body">
+      <p id="confirm-text" style="margin:0;color:#334155"></p>
+    </div>
+    <div class="dialog-actions">
+      <button id="confirm-cancel" class="btn" type="button">取消</button>
+      <button id="confirm-ok" class="btn danger" type="button">确认</button>
+    </div>
+  </dialog>
+
   <script>
     (() => {
       const TOKEN_KEY = 'inkline_admin_access';
@@ -302,6 +459,12 @@
       const payloadBody = $('#payload-body');
       const payloadTitle = $('#payload-title');
       const teamDialog = $('#team-dialog');
+      const memberDialog = $('#member-dialog');
+      const passwordDialog = $('#password-dialog');
+      const confirmDialog = $('#confirm-dialog');
+
+      const roleLabels = { owner: '所有者', admin: '管理员', member: '成员', viewer: '只读' };
+      const tabNames = ['overview', 'members', 'permissions', 'snapshots', 'audit', 'settings'];
 
       const state = {
         access: '',
@@ -314,10 +477,15 @@
         history: [],
         historyCursor: null,
         audit: null,
+        permission: null,
         tab: 'overview',
+        memberMode: 'create',
+        memberTarget: null,
+        permSelected: null,
+        permDraft: null,
+        permApplyAll: false,
+        auditType: '',
       };
-
-      const roleLabels = { owner: '所有者', admin: '管理员', member: '成员', viewer: '只读' };
 
       function h(tag, props = {}, ...children) {
         const el = document.createElement(tag);
@@ -327,8 +495,10 @@
           else if (key === 'text') el.textContent = value;
           else if (key.startsWith('on') && typeof value === 'function') {
             el.addEventListener(key.slice(2).toLowerCase(), value);
+          } else if (key === 'checked' || key === 'selected' || key === 'disabled') {
+            if (value) el.setAttribute(key, '');
           } else {
-            el.setAttribute(key, value === true ? '' : String(value));
+            el.setAttribute(key, String(value));
           }
         }
         for (const child of children.flat(Infinity)) {
@@ -342,7 +512,7 @@
         toast.textContent = message;
         toast.className = 'toast' + (tone === 'error' ? ' error' : '');
         clearTimeout(showToast.timer);
-        showToast.timer = setTimeout(() => toast.classList.add('hidden'), 3200);
+        showToast.timer = setTimeout(() => toast.classList.add('hidden'), 3600);
       }
 
       function fmtTime(value) {
@@ -367,6 +537,15 @@
       function shortHash(hash) {
         if (!hash) return '-';
         return hash.length > 22 ? hash.slice(0, 18) + '…' : hash;
+      }
+
+      function randomPassword() {
+        const alphabet = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#%';
+        const bytes = new Uint32Array(16);
+        crypto.getRandomValues(bytes);
+        let out = '';
+        for (let i = 0; i < 16; i += 1) out += alphabet[bytes[i] % alphabet.length];
+        return out;
       }
 
       function saveTokens() {
@@ -456,6 +635,10 @@
         return h('span', { class: 'pill ' + tone, text: roleLabels[role] || role || '-' });
       }
 
+      function isManager() {
+        return state.team && ['owner', 'admin'].includes(state.team.role);
+      }
+
       function renderTeamList() {
         teamList.replaceChildren();
         if (!state.teams.length) {
@@ -464,7 +647,7 @@
         }
         for (const team of state.teams) {
           const active = state.team && state.team.id === team.id;
-          const item = h('button', { class: 'team-item' + (active ? ' active' : ''), type: 'button' },
+          const item = h('button', { class: `team-item${active ? ' active' : ''}`, type: 'button' },
             h('strong', { text: team.name }),
             h('span', {
               class: 'muted',
@@ -483,14 +666,23 @@
         );
       }
 
+      function restrictedCount() {
+        if (!state.permission) return '—';
+        const collections = state.permission.collections.filter((item) => item.visibility === 'restricted').length;
+        const requests = state.permission.requests.filter((item) => item.visibility === 'restricted').length;
+        return collections + requests;
+      }
+
       function renderStats(team) {
         $('#stats').replaceChildren(
           stat('当前版本', '#' + team.revision),
+          stat('成员数', team.memberCount),
           stat('数据分级上限', team.maxDataLevel),
           stat('快照保留', team.snapshotRetentionDays + ' 天'),
           stat('审计保留', team.auditRetentionDays + ' 天'),
-          stat('成员数', team.memberCount),
+          stat('受限资源', restrictedCount()),
         );
+        $('#team-revision').textContent = '当前版本 #' + team.revision;
       }
 
       function kv(label, value) {
@@ -500,7 +692,7 @@
         return h('div', { class: 'kv' }, h('label', { text: label }), strong);
       }
 
-      function snapshotCard(team) {
+      function snapshotCard() {
         const card = h('div', { class: 'card' });
         card.append(h('div', { class: 'card-head' },
           h('h3', { text: '最新快照' }),
@@ -583,9 +775,656 @@
         return card;
       }
 
-      function renderOverview(team) {
-        $('#tab-overview').replaceChildren(snapshotCard(team), settingsCard(team));
+      function recentAuditCard() {
+        const card = h('div', { class: 'card' });
+        card.append(h('div', { class: 'card-head' },
+          h('h3', { text: '最近动态' }),
+          h('button', { class: 'btn small', type: 'button', text: '查看全部', onclick: () => switchTab('audit') }),
+        ));
+        if (state.audit === null) {
+          card.append(h('p', { class: 'section-note', text: '当前角色不可查看审计日志。' }));
+          return card;
+        }
+        if (!state.audit.length) {
+          card.append(h('p', { class: 'section-note', text: '暂无记录。' }));
+          return card;
+        }
+        const list = h('div', {});
+        for (const entry of state.audit.slice(0, 5)) {
+          list.append(h('div', { class: 'grant-row' },
+            h('div', { class: 'who' },
+              h('strong', { text: entry.action }),
+              h('small', { text: `${fmtTime(entry.at)} · ${entry.actor?.displayName || '系统'} · ${entry.type}` }),
+            ),
+            h('span', { class: 'badge', text: entry.type }),
+          ));
+        }
+        card.append(list);
+        return card;
       }
+
+      function renderOverview() {
+        $('#tab-overview').replaceChildren(snapshotCard(), recentAuditCard());
+      }
+
+      function renderSettings() {
+        $('#tab-settings').replaceChildren(settingsCard(state.team));
+      }
+
+      function canManageMember(target) {
+        const actor = state.team?.role;
+        if (!actor) return false;
+        if (target.userId === state.me?.id) return false;
+        if (actor === 'owner') return target.role !== 'owner';
+        if (actor === 'admin') return target.role === 'member' || target.role === 'viewer';
+        return false;
+      }
+
+      function memberRoleSelect(member) {
+        if (!canManageMember(member)) return rolePill(member.role);
+        const options = state.team.role === 'owner' ? ['admin', 'member', 'viewer'] : ['member', 'viewer'];
+        const select = h('select', {},
+          ...options.map((role) => h('option', { value: role, text: roleLabels[role], selected: role === member.role })),
+        );
+        select.addEventListener('change', async () => {
+          select.disabled = true;
+          try {
+            const result = await api(`/v1/teams/${state.team.id}/members/${member.userId}`, {
+              method: 'PATCH',
+              body: JSON.stringify({ role: select.value }),
+            });
+            const index = state.members.findIndex((item) => item.userId === member.userId);
+            if (index >= 0) state.members[index] = result.member;
+            state.team.memberCount = state.members.length;
+            renderStats(state.team);
+            renderMembers();
+            showToast('角色已更新');
+          } catch (error) {
+            showToast(error.message, 'error');
+            renderMembers();
+          }
+        });
+        return select;
+      }
+
+      function renderMembers() {
+        const container = $('#tab-members');
+        const card = h('div', { class: 'card' });
+        const head = h('div', { class: 'card-head' },
+          h('h3', { text: '团队成员' }),
+          h('div', { class: 'actions' },
+            h('span', { class: 'muted', text: `${state.members.length} 人` }),
+            isManager() ? h('button', {
+              class: 'btn primary small', type: 'button', text: '+ 添加成员', onclick: openMemberDialog,
+            }) : null,
+          ),
+        );
+        card.append(head);
+
+        if (!state.members.length) {
+          card.append(h('p', { class: 'section-note', text: '暂无成员。' }));
+          container.replaceChildren(card);
+          return;
+        }
+
+        const rows = state.members.map((member) => {
+          const actions = [];
+          if (isManager() && (state.team.role === 'owner' || ['member', 'viewer'].includes(member.role))) {
+            actions.push(h('button', {
+              class: 'btn small', type: 'button', text: '重置口令',
+              onclick: () => openPasswordDialog(member),
+            }));
+          }
+          if (canManageMember(member)) {
+            actions.push(h('button', {
+              class: 'btn small danger', type: 'button', text: '移除',
+              onclick: () => removeMember(member),
+            }));
+          }
+          const initial = (member.displayName || member.account || '?').slice(0, 1).toUpperCase();
+          return h('tr', {},
+            h('td', {}, h('div', { class: 'member-cell' }, h('span', { class: 'avatar', text: initial }), h('strong', { text: member.displayName }))),
+            h('td', {}, h('code', { text: member.account })),
+            h('td', {}, memberRoleSelect(member)),
+            h('td', { text: fmtTime(member.joinedAt) }),
+            h('td', {}, actions.length ? h('div', { class: 'row-actions' }, ...actions) : h('span', { class: 'muted', text: '—' })),
+          );
+        });
+
+        card.append(h('div', { class: 'table-wrap' },
+          h('table', { class: 'table' },
+            h('thead', {}, h('tr', {}, ...['成员', '账号', '角色', '加入时间', '操作'].map((text) => h('th', { text })))),
+            h('tbody', {}, ...rows),
+          ),
+        ));
+        card.append(h('p', { class: 'section-note', text: '所有者可管理管理员及以下角色；管理员可管理成员与只读账号；移除成员会同时撤销其资源授权。' }));
+        container.replaceChildren(card);
+      }
+
+      function openMemberDialog() {
+        state.memberMode = 'create';
+        $('#member-account').value = '';
+        $('#member-display').value = '';
+        $('#member-password').value = '';
+        $('#member-role').value = 'member';
+        $('#member-role').querySelectorAll('option').forEach((option) => {
+          option.disabled = option.value === 'admin' && state.team.role !== 'owner';
+        });
+        syncMemberMode();
+        memberDialog.showModal();
+      }
+
+      function syncMemberMode() {
+        const create = state.memberMode === 'create';
+        $('#mode-create').classList.toggle('active', create);
+        $('#mode-existing').classList.toggle('active', !create);
+        $('#display-field').classList.toggle('hidden', !create);
+        $('#password-field').classList.toggle('hidden', !create);
+        $('#member-mode-note').textContent = create
+          ? '新建账号会同时创建服务账号并加入当前团队。'
+          : '填写已存在的服务账号，直接加入当前团队，沿用原口令。';
+      }
+
+      async function submitMember(event) {
+        event.preventDefault();
+        const button = event.target.querySelector('button[type="submit"]');
+        button.disabled = true;
+        try {
+          const payload = {
+            mode: state.memberMode,
+            account: $('#member-account').value.trim(),
+            role: $('#member-role').value,
+          };
+          if (state.memberMode === 'create') {
+            payload.displayName = $('#member-display').value.trim() || payload.account;
+            payload.password = $('#member-password').value;
+          }
+          await api(`/v1/teams/${state.team.id}/members`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          });
+          memberDialog.close();
+          await selectTeam(state.team.id);
+          showToast('成员已添加');
+        } catch (error) {
+          showToast(error.message, 'error');
+        } finally {
+          button.disabled = false;
+        }
+      }
+
+      function openPasswordDialog(member) {
+        state.memberTarget = member;
+        $('#password-title').textContent = `重置口令 · ${member.displayName}`;
+        $('#reset-password').value = '';
+        passwordDialog.showModal();
+      }
+
+      async function submitPassword(event) {
+        event.preventDefault();
+        if (!state.memberTarget) return;
+        const button = event.target.querySelector('button[type="submit"]');
+        button.disabled = true;
+        try {
+          await api(`/v1/teams/${state.team.id}/members/${state.memberTarget.userId}/reset-password`, {
+            method: 'POST',
+            body: JSON.stringify({ newPassword: $('#reset-password').value }),
+          });
+          passwordDialog.close();
+          showToast('口令已重置，请告知成员');
+        } catch (error) {
+          showToast(error.message, 'error');
+        } finally {
+          button.disabled = false;
+        }
+      }
+
+      function removeMember(member) {
+        confirmAction({
+          title: '移除成员',
+          text: `确认将 ${member.displayName}（${member.account}）移出团队？其团队内资源授权会一并撤销。`,
+          onConfirm: async () => {
+            await api(`/v1/teams/${state.team.id}/members/${member.userId}`, { method: 'DELETE' });
+            await selectTeam(state.team.id);
+            showToast('成员已移除');
+          },
+        });
+      }
+
+      function confirmAction({ title, text, onConfirm }) {
+        $('#confirm-title').textContent = title;
+        $('#confirm-text').textContent = text;
+        const ok = $('#confirm-ok');
+        const replacement = ok.cloneNode(true);
+        ok.replaceWith(replacement);
+        replacement.addEventListener('click', async () => {
+          replacement.disabled = true;
+          try {
+            await onConfirm();
+            confirmDialog.close();
+          } catch (error) {
+            showToast(error.message, 'error');
+          } finally {
+            replacement.disabled = false;
+          }
+        });
+        confirmDialog.showModal();
+      }
+
+      // ---------------- 权限 ----------------
+
+      function grantMap(grants) {
+        const map = new Map();
+        for (const grant of grants || []) {
+          map.set(`${grant.subjectType}:${grant.subjectId}`, grant.permission);
+        }
+        return map;
+      }
+
+      function permissionResource(type, id) {
+        if (!state.permission) return null;
+        if (type === 'collection') {
+          return state.permission.collections.find((item) => item.id === id) || null;
+        }
+        return state.permission.requests.find((item) => item.id === id) || null;
+      }
+
+      function selectPermission(type, id) {
+        const resource = permissionResource(type, id);
+        if (!resource) return;
+        state.permSelected = { type, id };
+        state.permDraft = {
+          visibility: resource.visibility === 'inherit' ? 'inherit' : resource.visibility,
+          grants: grantMap(resource.grants),
+        };
+        state.permApplyAll = false;
+        renderPermissions();
+      }
+
+      function badgeFor(resource) {
+        if (resource.visibility === 'inherit') return h('span', { class: 'badge inherit', text: '继承集合' });
+        if (resource.visibility === 'team') return h('span', { class: 'badge team', text: '团队可见' });
+        const count = (resource.grants || []).length;
+        return h('span', { class: 'badge restricted', text: count ? `受限 ${count}` : '受限' });
+      }
+
+      function renderPermissions() {
+        const container = $('#tab-permissions');
+        if (!isManager()) {
+          container.replaceChildren(h('div', { class: 'card' },
+            h('h3', { text: '资源权限' }),
+            h('p', { class: 'section-note', text: '只有团队所有者或管理员可以配置资源权限。' }),
+          ));
+          return;
+        }
+        if (!state.permission) {
+          const card = h('div', { class: 'card' });
+          card.append(h('h3', { text: '资源权限' }));
+          card.append(h('p', { class: 'section-note', text: '团队还没有快照，推送一次后才能配置接口与集合的可见范围。' }));
+          container.replaceChildren(card);
+          return;
+        }
+
+        const collectionRequests = new Map();
+        for (const request of state.permission.requests) {
+          const key = request.collectionId || '';
+          if (!collectionRequests.has(key)) collectionRequests.set(key, []);
+          collectionRequests.get(key).push(request);
+        }
+
+        const treeItems = [];
+        const search = '';
+        for (const collection of state.permission.collections) {
+          const children = collectionRequests.get(collection.id) || [];
+          const active = state.permSelected && state.permSelected.type === 'collection' && state.permSelected.id === collection.id;
+          const group = h('div', { class: 'tree-group' },
+            h('button', {
+              class: `tree-item${active ? ' active' : ''}`,
+              type: 'button',
+              onclick: () => selectPermission('collection', collection.id),
+            },
+              h('span', { class: 'name', text: collection.name }),
+              h('span', { class: 'count', text: `${collection.requestCount}` }),
+              badgeFor(collection),
+            ),
+          );
+          if (children.length) {
+            const childBox = h('div', { class: 'tree-children' });
+            for (const request of children) {
+              const childActive = state.permSelected && state.permSelected.type === 'request' && state.permSelected.id === request.id;
+              childBox.append(h('button', {
+                class: `tree-item tree-child${childActive ? ' active' : ''}`,
+                type: 'button',
+                onclick: () => selectPermission('request', request.id),
+              },
+                h('span', { class: `method ${request.method}`, text: request.method }),
+                h('span', { class: 'name', text: request.name }),
+                badgeFor(request),
+              ));
+            }
+            group.append(childBox);
+          }
+          treeItems.push(group);
+        }
+
+        const ungrouped = collectionRequests.get('') || [];
+        if (ungrouped.length) {
+          const group = h('div', { class: 'tree-group' }, h('div', { class: 'tree-item' }, h('span', { class: 'name muted', text: '未分组接口' })));
+          const childBox = h('div', { class: 'tree-children' });
+          for (const request of ungrouped) {
+            const childActive = state.permSelected && state.permSelected.type === 'request' && state.permSelected.id === request.id;
+            childBox.append(h('button', {
+              class: `tree-item tree-child${childActive ? ' active' : ''}`,
+              type: 'button',
+              onclick: () => selectPermission('request', request.id),
+            },
+              h('span', { class: `method ${request.method}`, text: request.method }),
+              h('span', { class: 'name', text: request.name }),
+              badgeFor(request),
+            ));
+          }
+          group.append(childBox);
+          treeItems.push(group);
+        }
+
+        const treeSearch = h('input', { placeholder: '搜索集合或接口…' });
+        treeSearch.addEventListener('input', () => {
+          const keyword = treeSearch.value.trim().toLowerCase();
+          for (const group of treeItems) {
+            let visible = false;
+            group.querySelectorAll('.tree-item').forEach((item) => {
+              const text = (item.querySelector('.name')?.textContent || '').toLowerCase();
+              const matched = !keyword || text.includes(keyword);
+              item.classList.toggle('hidden', !matched && item.classList.contains('tree-child'));
+              if (matched) visible = true;
+            });
+            const parent = group.querySelector('.tree-item:not(.tree-child)');
+            if (parent) {
+              const parentText = (parent.querySelector('.name')?.textContent || '').toLowerCase();
+              const parentMatched = !keyword || parentText.includes(keyword);
+              parent.classList.toggle('hidden', !parentMatched && !visible);
+            }
+            group.classList.toggle('hidden', !visible && !group.querySelector('.tree-item:not(.hidden):not(.tree-child)'));
+          }
+        });
+
+        const treePane = h('div', { class: 'tree-pane' },
+          h('div', { class: 'tree-toolbar' }, treeSearch),
+          h('div', { class: 'tree-scroll' }, ...treeItems),
+        );
+
+        const layout = h('div', { class: 'perm-layout' }, treePane, renderPermissionEditor());
+        container.replaceChildren(h('div', { class: 'card' },
+          h('div', { class: 'card-head' },
+            h('h3', { text: '接口与文档权限' }),
+            h('div', { class: 'actions' },
+              h('button', { class: 'btn small', type: 'button', text: '刷新', onclick: loadPermissions }),
+            ),
+          ),
+          h('p', { class: 'section-note', text: `受限资源只对指定成员可见，所有者与管理员始终可见。当前快照 #${state.permission.revision}。` }),
+          layout,
+        ));
+      }
+
+      function renderPermissionEditor() {
+        if (!state.permSelected || !state.permDraft) {
+          return h('div', { class: 'perm-editor' },
+            h('h3', { text: '选择左侧资源' }),
+            h('p', { class: 'perm-sub', text: '可以先选集合做整体授权，再对单个接口覆盖。' }),
+            h('div', { class: 'summary-line' },
+              h('span', { class: 'badge team', text: `集合 ${state.permission.collections.length}` }),
+              h('span', { class: 'badge', text: `接口 ${state.permission.requests.length}` }),
+              h('span', { class: 'badge restricted', text: `受限 ${restrictedCount()}` }),
+            ),
+          );
+        }
+
+        const resource = permissionResource(state.permSelected.type, state.permSelected.id);
+        if (!resource) {
+          return h('div', { class: 'perm-editor' }, h('p', { class: 'section-note', text: '资源已被删除，请刷新。' }));
+        }
+        const isCollection = state.permSelected.type === 'collection';
+        const visibility = state.permDraft.visibility;
+
+        const header = h('div', {},
+          h('h3', { text: resource.name }),
+          h('p', { class: 'perm-sub', text: isCollection ? '集合级权限会作用于其下接口，单接口可覆盖。' : `${resource.method} · 数据分级 ${resource.dataLevel} · ${resource.hasDocument ? '含文档' : '无文档'}` }),
+        );
+
+        const options = [];
+        if (!isCollection) {
+          options.push(h('label', { class: `vis-option${visibility === 'inherit' ? ' active' : ''}` },
+            h('input', { type: 'radio', name: 'visibility', value: 'inherit', checked: visibility === 'inherit', onchange: () => setVisibility('inherit') }),
+            h('div', {}, h('strong', { text: '跟随集合' }), h('small', { text: '不单独设置，完全继承所属集合的可见范围。' })),
+          ));
+        }
+        options.push(h('label', { class: `vis-option${visibility === 'team' ? ' active' : ''}` },
+          h('input', { type: 'radio', name: 'visibility', value: 'team', checked: visibility === 'team', onchange: () => setVisibility('team') }),
+          h('div', {}, h('strong', { text: '团队可见' }), h('small', { text: '所有团队成员都可以查看；成员可编辑，只读成员仅查看。' })),
+        ));
+        options.push(h('label', { class: `vis-option${visibility === 'restricted' ? ' active' : ''}` },
+          h('input', { type: 'radio', name: 'visibility', value: 'restricted', checked: visibility === 'restricted', onchange: () => setVisibility('restricted') }),
+          h('div', {}, h('strong', { text: '仅指定成员' }), h('small', { text: '只有被授权的成员或角色可以看到，其他成员完全不可见。' })),
+        ));
+
+        const editor = h('div', { class: 'perm-editor' }, header, h('div', { class: 'vis-options' }, ...options));
+
+        if (visibility === 'restricted') {
+          editor.append(renderGrantSection());
+        }
+
+        const footer = h('div', { class: 'perm-footer' });
+        if (isCollection) {
+          const check = h('input', { type: 'checkbox', checked: state.permApplyAll });
+          check.addEventListener('change', () => { state.permApplyAll = check.checked; });
+          footer.append(h('label', { class: 'checkline' }, check, `同时应用到集合内 ${resource.requestCount} 个接口`));
+        }
+        footer.append(h('span', { class: 'spacer' }));
+        if (!isCollection) {
+          footer.append(h('button', {
+            class: 'btn small', type: 'button', text: '恢复继承',
+            onclick: () => savePermission('inherit'),
+          }));
+        }
+        footer.append(h('button', {
+          class: 'btn primary', type: 'button', text: '保存权限',
+          onclick: () => savePermission(state.permDraft.visibility),
+        }));
+        editor.append(footer);
+        return editor;
+      }
+
+      function renderGrantSection() {
+        const draft = state.permDraft;
+        const section = h('div', { class: 'grant-section' },
+          h('h4', { text: '授权范围' }),
+          h('p', { class: 'section-note', text: '按角色授权会覆盖后续新加入的成员；单个成员授权可用于例外调整。' }),
+        );
+
+        const roleMember = draft.grants.get('role:member') || 'none';
+        const roleViewer = draft.grants.get('role:viewer') || 'none';
+
+        const roleRow = (role, value) => {
+          const select = h('select', {},
+            h('option', { value: 'none', text: '不可见', selected: value === 'none' }),
+            h('option', { value: 'view', text: '可查看', selected: value === 'view' }),
+            role === 'member' ? h('option', { value: 'edit', text: '可编辑', selected: value === 'edit' }) : null,
+          );
+          select.addEventListener('change', () => {
+            if (select.value === 'none') draft.grants.delete('role:' + role);
+            else draft.grants.set('role:' + role, select.value);
+          });
+          return h('div', { class: 'grant-row' },
+            h('div', { class: 'who' },
+              h('strong', { text: role === 'member' ? '所有成员' : '所有只读成员' }),
+              h('small', { text: role === 'member' ? '角色为“成员”的账号' : '角色为“只读”的账号' }),
+            ),
+            select,
+          );
+        };
+
+        section.append(h('div', { class: 'grant-toolbar' },
+          h('button', {
+            class: 'btn small', type: 'button', text: '全部成员可查看',
+            onclick: () => {
+              draft.grants.set('role:member', 'view');
+              draft.grants.set('role:viewer', 'view');
+              refreshPermissionEditor();
+            },
+          }),
+          h('button', {
+            class: 'btn small', type: 'button', text: '清空授权',
+            onclick: () => { draft.grants.clear(); refreshPermissionEditor(); },
+          }),
+        ));
+        section.append(roleRow('member', roleMember), roleRow('viewer', roleViewer));
+
+        const memberSearch = h('input', { placeholder: '搜索成员…', style: 'height:32px;border:1px solid var(--line);border-radius:8px;padding:0 9px;width:180px' });
+        const memberRows = [];
+        const manageable = state.members.filter((member) => member.role === 'member' || member.role === 'viewer');
+        for (const member of manageable) {
+          const key = `user:${member.userId}`;
+          const value = draft.grants.get(key) || 'none';
+          const select = h('select', {},
+            h('option', { value: 'none', text: '不可见', selected: value === 'none' }),
+            h('option', { value: 'view', text: '可查看', selected: value === 'view' }),
+            member.role === 'member' ? h('option', { value: 'edit', text: '可编辑', selected: value === 'edit' }) : null,
+          );
+          select.addEventListener('change', () => {
+            if (select.value === 'none') draft.grants.delete(key);
+            else draft.grants.set(key, select.value);
+          });
+          const row = h('div', { class: 'grant-row' },
+            h('div', { class: 'who' },
+              h('strong', { text: member.displayName }),
+              h('small', { text: `${member.account} · ${roleLabels[member.role]}` }),
+            ),
+            select,
+          );
+          row.dataset.search = `${member.displayName} ${member.account}`.toLowerCase();
+          memberRows.push(row);
+        }
+
+        memberSearch.addEventListener('input', () => {
+          const keyword = memberSearch.value.trim().toLowerCase();
+          for (const row of memberRows) row.classList.toggle('hidden', !!keyword && !row.dataset.search.includes(keyword));
+        });
+
+        section.append(h('div', { class: 'grant-section' },
+          h('h4', { text: '指定成员' }),
+          h('p', { class: 'section-note', text: '所有者与管理员始终可见，不需要单独授权。' }),
+          h('div', { class: 'grant-toolbar' }, memberSearch),
+          ...(memberRows.length ? memberRows : [h('p', { class: 'section-note', text: '团队中还没有成员或只读账号。' })]),
+        ));
+        return section;
+      }
+
+      function refreshPermissionEditor() {
+        const editor = $('.perm-editor');
+        if (!editor) return;
+        const parent = editor.parentElement;
+        const fresh = renderPermissionEditor();
+        parent.replaceChild(fresh, editor);
+      }
+
+      function setVisibility(value) {
+        state.permDraft.visibility = value;
+        renderPermissions();
+      }
+
+      function draftGrants() {
+        const grants = [];
+        for (const [key, permission] of state.permDraft.grants) {
+          const index = key.indexOf(':');
+          grants.push({
+            subjectType: key.slice(0, index),
+            subjectId: key.slice(index + 1),
+            permission,
+          });
+        }
+        return grants;
+      }
+
+      async function savePermission(explicitVisibility) {
+        if (!state.permSelected) return;
+        const visibility = explicitVisibility || state.permDraft.visibility;
+        const isCollection = state.permSelected.type === 'collection';
+        try {
+          if (visibility === 'inherit') {
+            await api(`/v1/teams/${state.team.id}/permissions/request/${state.permSelected.id}`, { method: 'DELETE' });
+            showToast('已恢复继承集合权限');
+          } else if (isCollection && state.permApplyAll) {
+            const requests = state.permission.requests.filter((item) => item.collectionId === state.permSelected.id);
+            const grants = visibility === 'restricted' ? draftGrants() : [];
+            if (!requests.length) {
+              await api(`/v1/teams/${state.team.id}/permissions/collection/${state.permSelected.id}`, {
+                method: 'PUT',
+                body: JSON.stringify({ visibility, grants }),
+              });
+            } else {
+              const items = requests.map((request) => ({
+                resourceType: 'request',
+                resourceId: request.id,
+                visibility,
+                grants,
+              }));
+              items.push({
+                resourceType: 'collection',
+                resourceId: state.permSelected.id,
+                visibility,
+                grants,
+              });
+              await api(`/v1/teams/${state.team.id}/permissions/batch`, {
+                method: 'POST',
+                body: JSON.stringify({ items }),
+              });
+            }
+            showToast(`已应用到集合与 ${requests.length} 个接口`);
+          } else {
+            const grants = visibility === 'restricted' ? draftGrants() : [];
+            await api(`/v1/teams/${state.team.id}/permissions/${state.permSelected.type}/${state.permSelected.id}`, {
+              method: 'PUT',
+              body: JSON.stringify({ visibility, grants }),
+            });
+            showToast('权限已保存');
+          }
+          await loadPermissions();
+          renderTeamList();
+          renderStats(state.team);
+        } catch (error) {
+          showToast(error.message, 'error');
+        }
+      }
+
+      async function loadPermissions() {
+        if (!isManager()) {
+          state.permission = null;
+          renderPermissions();
+          return;
+        }
+        try {
+          state.permission = await api(`/v1/teams/${state.team.id}/permissions`);
+          if (state.permSelected) {
+            const still = permissionResource(state.permSelected.type, state.permSelected.id);
+            if (!still) {
+              state.permSelected = null;
+              state.permDraft = null;
+            } else {
+              state.permDraft = {
+                visibility: still.visibility === 'inherit' ? 'inherit' : still.visibility,
+                grants: grantMap(still.grants),
+              };
+            }
+          }
+        } catch (error) {
+          state.permission = null;
+          if (error.status !== 404) showToast(error.message, 'error');
+        }
+        renderPermissions();
+        renderStats(state.team);
+      }
+
+      // ---------------- 快照 / 审计 ----------------
 
       function renderSnapshots() {
         const container = $('#tab-snapshots');
@@ -646,41 +1485,19 @@
         }
       }
 
-      function renderMembers() {
-        const card = h('div', { class: 'card' });
-        card.append(h('div', { class: 'card-head' },
-          h('h3', { text: '成员' }),
-          h('span', { class: 'muted', text: `${state.members.length} 人` }),
-        ));
-
-        if (!state.members.length) {
-          card.append(h('p', { class: 'section-note', text: '暂无成员。' }));
-          $('#tab-members').replaceChildren(card);
-          return;
-        }
-
-        const rows = state.members.map((member) => h('tr', {},
-          h('td', {}, h('strong', { text: member.displayName })),
-          h('td', { text: member.account }),
-          h('td', {}, rolePill(member.role)),
-          h('td', { text: fmtTime(member.joinedAt) }),
-        ));
-
-        card.append(h('div', { class: 'table-wrap' },
-          h('table', { class: 'table' },
-            h('thead', {}, h('tr', {}, ...['成员', '账号', '角色', '加入时间'].map((text) => h('th', { text })))),
-            h('tbody', {}, ...rows),
-          ),
-        ));
-        card.append(h('p', { class: 'section-note', text: '邀请与角色变更属于 M2 功能，当前版本只读展示。' }));
-        $('#tab-members').replaceChildren(card);
-      }
-
       function renderAudit() {
         const card = h('div', { class: 'card' });
+        const filter = h('select', {},
+          ...[['', '全部类型'], ['sync', '同步'], ['member', '成员'], ['permission', '权限'], ['team', '团队'], ['auth', '认证']].map(([value, label]) =>
+            h('option', { value, text: label, selected: value === state.auditType })),
+        );
+        filter.addEventListener('change', async () => {
+          state.auditType = filter.value;
+          await loadAudit();
+        });
         card.append(h('div', { class: 'card-head' },
           h('h3', { text: '审计日志' }),
-          h('span', { class: 'muted', text: state.audit ? `${state.audit.length} 条` : '' }),
+          h('div', { class: 'actions' }, filter, h('span', { class: 'muted', text: state.audit ? `${state.audit.length} 条` : '' })),
         ));
 
         if (state.audit === null) {
@@ -697,7 +1514,7 @@
 
         const rows = state.audit.map((entry) => h('tr', {},
           h('td', { text: fmtTime(entry.at) }),
-          h('td', { text: entry.type }),
+          h('td', {}, h('span', { class: 'badge', text: entry.type })),
           h('td', { text: entry.action }),
           h('td', { text: entry.actor?.displayName || '-' }),
           h('td', {}, h('code', { text: JSON.stringify(entry.detail || {}).slice(0, 120) })),
@@ -710,6 +1527,21 @@
           ),
         ));
         $('#tab-audit').replaceChildren(card);
+      }
+
+      async function loadAudit() {
+        if (!isManager()) {
+          state.audit = null;
+          renderAudit();
+          return;
+        }
+        try {
+          const query = state.auditType ? `&type=${encodeURIComponent(state.auditType)}` : '';
+          state.audit = (await api(`/v1/teams/${state.team.id}/audit?limit=100${query}`)).entries || [];
+        } catch {
+          state.audit = null;
+        }
+        renderAudit();
       }
 
       function renderTeam() {
@@ -726,10 +1558,12 @@
         role.id = 'team-role';
         $('#team-role').replaceWith(role);
         renderStats(team);
-        renderOverview(team);
-        renderSnapshots();
+        renderOverview();
         renderMembers();
+        renderPermissions();
+        renderSnapshots();
         renderAudit();
+        renderSettings();
         switchTab(state.tab);
       }
 
@@ -738,9 +1572,11 @@
         for (const button of document.querySelectorAll('#tabs button')) {
           button.classList.toggle('active', button.dataset.tab === tab);
         }
-        for (const name of ['overview', 'snapshots', 'members', 'audit']) {
+        for (const name of tabNames) {
           $('#tab-' + name).classList.toggle('hidden', name !== tab);
         }
+        if (tab === 'permissions' && isManager() && !state.permission) void loadPermissions();
+        if (tab === 'audit' && isManager() && state.audit === null) void loadAudit();
       }
 
       async function selectTeam(id) {
@@ -758,14 +1594,15 @@
           state.history = history.entries || [];
           state.historyCursor = history.nextCursor;
           state.audit = null;
+          state.permission = null;
+          state.permSelected = null;
+          state.permDraft = null;
+          state.permApplyAll = false;
+          state.auditType = '';
           state.tab = 'overview';
 
-          if (['owner', 'admin'].includes(state.team.role)) {
-            try {
-              state.audit = (await api(`/v1/teams/${id}/audit?limit=50`)).entries || [];
-            } catch {
-              state.audit = null;
-            }
+          if (isManager()) {
+            await Promise.all([loadPermissions(), loadAudit()]);
           }
 
           const index = state.teams.findIndex((item) => item.id === id);
@@ -863,6 +1700,8 @@
         showLogin();
         state.team = null;
         state.teams = [];
+        state.members = [];
+        state.permission = null;
         sessionStorage.removeItem(TEAM_KEY);
         if (refreshToken) {
           fetch('/v1/auth/logout', {
@@ -906,7 +1745,7 @@
 
       $('#login-form').addEventListener('submit', handleLogin);
       $('#logout').addEventListener('click', handleLogout);
-      $('#refresh').addEventListener('click', boot);
+      $('#refresh').addEventListener('click', () => (state.team ? selectTeam(state.team.id) : boot()));
       $('#new-team').addEventListener('click', () => teamDialog.showModal());
       $('#team-cancel').addEventListener('click', () => teamDialog.close());
       $('#team-form').addEventListener('submit', createTeam);
@@ -914,6 +1753,16 @@
       payloadDialog.addEventListener('click', (event) => {
         if (event.target === payloadDialog) payloadDialog.close();
       });
+
+      $('#mode-create').addEventListener('click', () => { state.memberMode = 'create'; syncMemberMode(); });
+      $('#mode-existing').addEventListener('click', () => { state.memberMode = 'existing'; syncMemberMode(); });
+      $('#member-generate').addEventListener('click', () => { $('#member-password').value = randomPassword(); });
+      $('#password-generate').addEventListener('click', () => { $('#reset-password').value = randomPassword(); });
+      $('#member-cancel').addEventListener('click', () => memberDialog.close());
+      $('#member-form').addEventListener('submit', submitMember);
+      $('#password-cancel').addEventListener('click', () => passwordDialog.close());
+      $('#password-form').addEventListener('submit', submitPassword);
+      $('#confirm-cancel').addEventListener('click', () => confirmDialog.close());
 
       for (const button of document.querySelectorAll('#tabs button')) {
         button.addEventListener('click', () => switchTab(button.dataset.tab));

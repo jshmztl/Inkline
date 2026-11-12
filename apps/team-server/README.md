@@ -6,10 +6,11 @@ Rust + axum + PostgreSQL 实现的团队同步服务，对应设计文档 `outpu
 
 - 账号登录、刷新令牌、登出、当前用户信息
 - 团队创建、列表、详情、设置（名称 / 数据分级上限 / 保留天数）
-- 成员列表（邀请与角色管理在 M2）
-- 快照最新版本、历史列表、指定版本、推送（乐观锁 + 幂等键 + gzip）
+- 成员管理：新建账号 / 添加已有账号、调整角色、移除成员、重置口令
+- 资源级权限：集合与单接口的「团队可见 / 仅指定成员」，按成员或角色授权查看 / 编辑
+- 快照最新版本、历史列表、指定版本、推送（乐观锁 + 幂等键 + gzip + 按权限裁剪与合并）
 - 审计日志查询（owner / admin）
-- 内置管理台（团队 / 快照历史 / 成员 / 审计 / 设置）
+- 内置管理台（团队 / 成员 / 权限 / 快照历史 / 审计 / 设置）
 - 健康检查与元信息
 
 ## 环境要求
@@ -67,6 +68,14 @@ docker compose up -d --build
 | GET | `/v1/teams/{id}` | 团队详情 |
 | PATCH | `/v1/teams/{id}` | 修改名称 / 数据分级上限 / 保留天数（owner） |
 | GET | `/v1/teams/{id}/members` | 成员列表 |
+| POST | `/v1/teams/{id}/members` | 新建账号或添加已有账号（owner / admin） |
+| PATCH | `/v1/teams/{id}/members/{userId}` | 调整成员角色 |
+| DELETE | `/v1/teams/{id}/members/{userId}` | 移除成员（同时撤销其资源授权） |
+| POST | `/v1/teams/{id}/members/{userId}/reset-password` | 重置口令并撤销刷新令牌 |
+| GET | `/v1/teams/{id}/permissions` | 资源树与当前权限配置（owner / admin） |
+| PUT | `/v1/teams/{id}/permissions/{type}/{resourceId}` | 设置集合 / 接口可见性 |
+| DELETE | `/v1/teams/{id}/permissions/{type}/{resourceId}` | 恢复默认（接口回到继承集合） |
+| POST | `/v1/teams/{id}/permissions/batch` | 批量设置（集合整体授权） |
 | GET | `/v1/teams/{id}/snapshots` | 快照历史列表（`limit` / `before` 分页） |
 | POST | `/v1/teams/{id}/snapshots` | 推送快照 |
 | GET | `/v1/teams/{id}/snapshots/latest` | 最新快照元信息 |
@@ -84,10 +93,38 @@ http://<服务器地址>:8080/admin/
 访问根路径 `/` 会自动跳转到 `/admin/`。页面以 `include_str!` 编进二进制，无需单独部署静态资源。
 
 - 登录账号：使用 `BOOTSTRAP_ACCOUNT` 创建的账号（部署时口令写在 `/opt/inkline-team/admin-password.txt`）。
-- 功能：团队列表与新建、概览统计、最新快照查看 / 下载、快照历史分页、成员列表、审计日志、团队设置（名称 / 数据分级上限 / 保留天数）。
+- 功能：团队列表与新建、概览统计、最新快照查看 / 下载、快照历史分页、成员增删与角色调整、口令重置、资源权限树、审计日志、团队设置（名称 / 数据分级上限 / 保留天数）。
 - 令牌保存在 `sessionStorage`，关闭标签页即失效；访问令牌过期时用刷新令牌自动续期。
 - 页面返回 CSP、`X-Frame-Options: DENY`、`nosniff` 等安全响应头，不加载外部资源。
 - 管理台只调用已有的 `/v1` 接口，没有额外的管理特权接口；权限仍由团队成员角色决定。
+
+## 成员与资源权限
+
+### 成员规则
+
+- 角色：`owner`（所有者）、`admin`（管理员）、`member`（成员）、`viewer`（只读）。
+- 所有者可以管理管理员及以下角色；管理员只能管理成员与只读账号。
+- 不能修改或移除团队所有者；不能将自己移出团队。
+- 新建账号需要设置 10–128 位初始口令；添加已有账号沿用原口令。
+- 重置口令会撤销该账号的全部刷新令牌，需要重新登录。
+- 移除成员会删除其团队成员关系，并清理其在本团队的资源授权。
+
+### 权限规则
+
+- 权限对象是快照中的集合（`collection`）与接口（`request`）；接口文档跟随所属接口，不单独配置。
+- 每个资源有两种可见性：`team`（团队可见）或 `restricted`（仅指定成员）。
+- 接口未单独设置时继承所属集合；接口策略优先于集合策略。
+- `restricted` 支持按成员（`user`）或按角色（`role`）授权，权限为 `view` / `edit`。
+- 角色授权只支持 `member` / `viewer`；只读角色永远不能获得编辑权限。
+- 所有者与管理员始终可见全部资源，便于管理与排障；限制只作用于成员与只读账号。
+
+### 同步语义
+
+- 拉取最新或指定版本快照时，服务端按查看者权限裁剪集合、接口与文档；成员看不到被隐藏的资源。
+- 推送时服务端把客户端提交的可见子集合并进完整快照：只应用查看者有编辑权的资源，保留其看不到或只读的资源，避免整包覆盖误删。
+- 成员对只读资源提交的修改会被忽略；只读角色不能推送快照。
+- 服务端保存的 `payload_hash` 是合并后完整快照的 hash；`source_hash` 记录客户端原始提交内容，用于幂等重试判断。
+- 删除集合时会保留其中不可见的接口：只要集合内存在查看者无权编辑的接口，集合删除会被忽略，避免误删隐藏资源。
 
 ## 快速验证
 
@@ -117,6 +154,18 @@ curl -s http://127.0.0.1:8080/v1/teams/<teamId>/snapshots \
 # 拉取最新
 curl -s http://127.0.0.1:8080/v1/teams/<teamId>/snapshots/latest \
   -H "Authorization: Bearer $TOKEN"
+
+# 新建成员并加入团队
+curl -s http://127.0.0.1:8080/v1/teams/<teamId>/members \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"mode":"create","account":"zhangsan","displayName":"张三","password":"Passw0rd!2026","role":"member"}'
+
+# 把集合设为仅指定成员可见
+curl -s -X PUT http://127.0.0.1:8080/v1/teams/<teamId>/permissions/collection/<collectionId> \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"visibility":"restricted","grants":[{"subjectType":"user","subjectId":"<userId>","permission":"view"}]}'
 ```
 
 版本冲突时接口返回 `409 revision_conflict`，客户端应拉取最新版本、完成三方合并后携带新的 `baseRevision` 重试。
@@ -158,10 +207,11 @@ curl -s http://127.0.0.1:8080/v1/teams/<teamId>/snapshots/latest \
 - M1 为桌面客户端使用 `CorsLayer::permissive()`，上线前应改为固定来源白名单。
 - 令牌由客户端保存，桌面端应存操作系统凭据库；当前客户端适配尚未接入。
 - 审计日志保留期与查询权限按团队角色控制。
+- 资源权限由服务端裁剪快照，但所有者与管理员始终可见全部内容；如需对管理员也保密，需要额外拆分管理权限与内容权限。
 
 ## 尚未实现（M2+）
 
-- 邀请码、成员增删与角色变更
+- 邀请码与自助注册
 - 快照回滚、定时清理
 - 增量同步、单请求级协作、评论
 - 企业 SSO、端到端加密
