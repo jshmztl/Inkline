@@ -634,6 +634,207 @@ pub fn merge_payload(
     }
 }
 
+#[derive(Debug, Default)]
+pub struct PartialDeletions {
+    pub collections: Vec<String>,
+    pub requests: Vec<String>,
+    pub documents: Vec<String>,
+}
+
+fn request_access_in(
+    requests: &[Value],
+    policies: &PolicyMap,
+    collection_accesses: &HashMap<String, Access>,
+    viewer: &Viewer,
+    request_id: &str,
+) -> Option<Access> {
+    let request = requests
+        .iter()
+        .find(|item| value_id(item) == Some(request_id))?;
+    let collection_id = collection_id_of(request);
+    let level = resolve_collection_access(policies, collection_accesses, collection_id, viewer);
+    Some(request_access(policies, level, request_id, viewer))
+}
+
+/// 单接口级增量推送：只合并客户端提交的资源，未提交的资源保持不变。
+pub fn merge_partial_payload(
+    full: Option<&Value>,
+    incoming: &Value,
+    deletions: &PartialDeletions,
+    viewer: &Viewer,
+    policies: &PolicyMap,
+) -> MergeResult {
+    let mut merged = full.cloned().unwrap_or_else(|| {
+        json!({
+            "schemaVersion": 2,
+            "collections": [],
+            "requests": [],
+            "documents": {}
+        })
+    });
+
+    let mut collections = merged
+        .get("collections")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut requests = merged
+        .get("requests")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut documents = merged
+        .get("documents")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+
+    let incoming_collections = incoming
+        .get("collections")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let incoming_requests = incoming
+        .get("requests")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let incoming_documents = incoming
+        .get("documents")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+
+    for collection in incoming_collections {
+        let Some(id) = value_id(&collection).map(str::to_string) else {
+            continue;
+        };
+        if collection_access(policies, &id, viewer) != Access::Edit {
+            continue;
+        }
+        if let Some(existing) = collections
+            .iter_mut()
+            .find(|item| value_id(item) == Some(id.as_str()))
+        {
+            *existing = collection;
+        } else {
+            collections.push(collection);
+        }
+    }
+
+    let mut collection_accesses: HashMap<String, Access> = HashMap::new();
+    for collection in &collections {
+        if let Some(id) = value_id(collection) {
+            collection_accesses.insert(id.to_string(), collection_access(policies, id, viewer));
+        }
+    }
+
+    for request in incoming_requests {
+        let Some(id) = value_id(&request).map(str::to_string) else {
+            continue;
+        };
+        let collection_id = collection_id_of(&request).to_string();
+        let level = resolve_collection_access(policies, &collection_accesses, &collection_id, viewer);
+        if request_access(policies, level, &id, viewer) != Access::Edit {
+            continue;
+        }
+        if let Some(existing) = requests
+            .iter_mut()
+            .find(|item| value_id(item) == Some(id.as_str()))
+        {
+            *existing = request;
+        } else {
+            requests.push(request);
+        }
+    }
+
+    for (request_id, fields) in incoming_documents {
+        if request_access_in(&requests, policies, &collection_accesses, viewer, &request_id)
+            != Some(Access::Edit)
+        {
+            continue;
+        }
+        if is_empty_array(&fields) {
+            documents.remove(&request_id);
+        } else {
+            documents.insert(request_id, fields);
+        }
+    }
+
+    let mut removed_requests = Vec::new();
+    for request_id in &deletions.requests {
+        if request_access_in(&requests, policies, &collection_accesses, viewer, request_id)
+            != Some(Access::Edit)
+        {
+            continue;
+        }
+        requests.retain(|item| value_id(item) != Some(request_id.as_str()));
+        documents.remove(request_id);
+        removed_requests.push(request_id.clone());
+    }
+
+    let mut removed_collections = Vec::new();
+    for collection_id in &deletions.collections {
+        let access = collection_accesses
+            .get(collection_id)
+            .copied()
+            .unwrap_or_else(|| collection_access(policies, collection_id, viewer));
+        if access != Access::Edit {
+            continue;
+        }
+
+        let request_ids: Vec<String> = requests
+            .iter()
+            .filter(|item| collection_id_of(item) == collection_id.as_str())
+            .filter_map(value_id)
+            .map(str::to_string)
+            .collect();
+        let all_editable = request_ids.iter().all(|request_id| {
+            request_access_in(&requests, policies, &collection_accesses, viewer, request_id)
+                == Some(Access::Edit)
+        });
+        if !all_editable {
+            continue;
+        }
+
+        collections.retain(|item| value_id(item) != Some(collection_id.as_str()));
+        for request_id in &request_ids {
+            requests.retain(|item| value_id(item) != Some(request_id.as_str()));
+            documents.remove(request_id);
+            if !removed_requests.contains(request_id) {
+                removed_requests.push(request_id.clone());
+            }
+        }
+        removed_collections.push(collection_id.clone());
+    }
+
+    for request_id in &deletions.documents {
+        if request_access_in(&requests, policies, &collection_accesses, viewer, request_id)
+            == Some(Access::Edit)
+        {
+            documents.remove(request_id);
+        }
+    }
+
+    if let Some(object) = merged.as_object_mut() {
+        if let Some(value) = incoming.get("schemaVersion") {
+            object.insert("schemaVersion".into(), value.clone());
+        }
+        if let Some(value) = incoming.get("baseRevision") {
+            object.insert("baseRevision".into(), value.clone());
+        }
+        object.insert("collections".into(), Value::Array(collections));
+        object.insert("requests".into(), Value::Array(requests));
+        object.insert("documents".into(), Value::Object(documents));
+    }
+
+    MergeResult {
+        payload: merged,
+        removed_collections,
+        removed_requests,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -900,5 +1101,143 @@ mod tests {
         assert_eq!(result.removed_collections.len(), 0);
         assert_eq!(result.payload["collections"].as_array().unwrap().len(), 1);
         assert!(result.removed_requests.iter().any(|id| id == "r1"));
+    }
+
+    #[test]
+    fn partial_upsert_keeps_unsubmitted_resources() {
+        let member = viewer("member");
+        let full = payload();
+        let incoming = json!({
+            "schemaVersion": 2,
+            "baseRevision": 1,
+            "partial": true,
+            "requests": [{ "id": "r1", "name": "公开接口（增量改名）", "collectionId": "c1" }],
+            "documents": {}
+        });
+
+        let result = merge_partial_payload(
+            Some(&full),
+            &incoming,
+            &PartialDeletions::default(),
+            &member,
+            &PolicyMap::new(),
+        );
+        let ids: Vec<&str> = result.payload["requests"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|item| item.get("id").and_then(Value::as_str))
+            .collect();
+        assert!(ids.contains(&"secret"));
+        assert!(ids.contains(&"r3"));
+        assert!(result.payload["requests"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item.get("name").and_then(Value::as_str) == Some("公开接口（增量改名）")));
+        assert!(result.removed_requests.is_empty());
+    }
+
+    #[test]
+    fn partial_deletion_removes_only_editable_requests() {
+        let member = viewer("member");
+        let mut policies = PolicyMap::new();
+        policies.insert(
+            policy_key("request", "secret"),
+            ResourcePolicy {
+                visibility: Visibility::Restricted,
+                grants: vec![],
+            },
+        );
+        let deletions = PartialDeletions {
+            collections: vec![],
+            requests: vec!["r1".into(), "secret".into()],
+            documents: vec![],
+        };
+
+        let result = merge_partial_payload(
+            Some(&payload()),
+            &json!({ "schemaVersion": 2, "partial": true }),
+            &deletions,
+            &member,
+            &policies,
+        );
+        let ids: Vec<&str> = result.payload["requests"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|item| item.get("id").and_then(Value::as_str))
+            .collect();
+        assert!(!ids.contains(&"r1"));
+        assert!(ids.contains(&"secret"));
+        assert_eq!(result.removed_requests, vec!["r1"]);
+        assert!(result.payload["documents"].get("secret").is_some());
+    }
+
+    #[test]
+    fn partial_upsert_view_only_resource_is_ignored() {
+        let member = viewer("member");
+        let mut policies = PolicyMap::new();
+        policies.insert(
+            policy_key("collection", "c2"),
+            ResourcePolicy {
+                visibility: Visibility::Restricted,
+                grants: vec![PolicyGrant {
+                    subject_type: "user".into(),
+                    subject_id: member.user_id.to_string(),
+                    permission: GrantPermission::View,
+                }],
+            },
+        );
+        let incoming = json!({
+            "schemaVersion": 2,
+            "partial": true,
+            "requests": [{ "id": "r3", "name": "偷偷改名", "collectionId": "c2" }],
+            "documents": {}
+        });
+
+        let result = merge_partial_payload(
+            Some(&payload()),
+            &incoming,
+            &PartialDeletions::default(),
+            &member,
+            &policies,
+        );
+        let request = result.payload["requests"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item.get("id").and_then(Value::as_str) == Some("r3"))
+            .unwrap();
+        assert_eq!(request.get("name").and_then(Value::as_str), Some("受限集合接口"));
+    }
+
+    #[test]
+    fn partial_collection_deletion_blocked_by_hidden_request() {
+        let member = viewer("member");
+        let mut policies = PolicyMap::new();
+        policies.insert(
+            policy_key("request", "secret"),
+            ResourcePolicy {
+                visibility: Visibility::Restricted,
+                grants: vec![],
+            },
+        );
+        let deletions = PartialDeletions {
+            collections: vec!["c1".into()],
+            requests: vec![],
+            documents: vec![],
+        };
+
+        let result = merge_partial_payload(
+            Some(&payload()),
+            &json!({ "schemaVersion": 2, "partial": true }),
+            &deletions,
+            &member,
+            &policies,
+        );
+        assert!(result.removed_collections.is_empty());
+        assert!(result.removed_requests.is_empty());
+        assert_eq!(result.payload["collections"].as_array().unwrap().len(), 2);
     }
 }

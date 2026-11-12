@@ -260,6 +260,32 @@
     .content-request { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 8px; border: 1px solid transparent; background: transparent; width: 100%; text-align: left; }
     .content-request:hover { background: #f8fafc; border-color: var(--line); }
     .content-request .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* 语法高亮 */
+    .code-block .tok-key { color: #93c5fd; }
+    .code-block .tok-string { color: #86efac; }
+    .code-block .tok-number { color: #fca5a5; }
+    .code-block .tok-bool { color: #fcd34d; }
+    .code-block .tok-null { color: #c4b5fd; }
+
+    /* 版本对比 */
+    .diff-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+    .diff-toolbar select { height: 32px; border: 1px solid var(--line); border-radius: 8px; padding: 0 8px; background: #fff; }
+    .diff-section { margin-bottom: 18px; }
+    .diff-section h4 { margin: 0 0 8px; font-size: 13px; }
+    .diff-item { display: flex; align-items: flex-start; gap: 8px; padding: 7px 0; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+    .diff-item:last-child { border-bottom: 0; }
+    .diff-item .diff-name { flex: 1; min-width: 0; word-break: break-all; }
+    .diff-tag { font-size: 11px; padding: 1px 7px; border-radius: 999px; white-space: nowrap; }
+    .diff-tag.add { background: #e8f7ef; color: #0f7a46; }
+    .diff-tag.remove { background: #fef2f2; color: #b91c1c; }
+    .diff-tag.change { background: #fff7ed; color: #b45309; }
+    .diff-field { padding: 6px 0 6px 18px; border-bottom: 1px dashed #eef2f7; font-size: 12px; }
+    .diff-field:last-child { border-bottom: 0; }
+    .diff-field-name { color: var(--muted); margin-right: 6px; }
+    .diff-before { color: #b91c1c; background: #fef2f2; padding: 0 4px; border-radius: 4px; text-decoration: line-through; word-break: break-all; }
+    .diff-after { color: #0f7a46; background: #e8f7ef; padding: 0 4px; border-radius: 4px; word-break: break-all; }
+    .diff-empty { color: var(--muted); font-size: 12px; padding: 4px 0; }
     @media (max-width: 1280px) {
       .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     }
@@ -378,6 +404,14 @@
     <pre id="payload-body"></pre>
   </dialog>
 
+  <dialog id="diff-dialog">
+    <div class="dialog-head">
+      <h2 id="diff-title">版本对比</h2>
+      <button id="diff-close" class="btn small" type="button">关闭</button>
+    </div>
+    <div class="dialog-body" id="diff-body"></div>
+  </dialog>
+
   <dialog id="team-dialog">
     <form id="team-form">
       <div class="dialog-head">
@@ -491,6 +525,9 @@
       const payloadDialog = $('#payload-dialog');
       const payloadBody = $('#payload-body');
       const payloadTitle = $('#payload-title');
+      const diffDialog = $('#diff-dialog');
+      const diffTitle = $('#diff-title');
+      const diffBody = $('#diff-body');
       const teamDialog = $('#team-dialog');
       const memberDialog = $('#member-dialog');
       const passwordDialog = $('#password-dialog');
@@ -1529,6 +1566,40 @@
         return Array.isArray(docs) ? docs : [];
       }
 
+      function codeBlock(text) {
+        const value = String(text ?? '');
+        try {
+          JSON.parse(value);
+        } catch {
+          return h('pre', { class: 'code-block', text: value });
+        }
+
+        const pre = h('pre', { class: 'code-block' });
+        const regex = /"(?:\\.|[^"\\])*"|true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g;
+        let last = 0;
+        let match;
+        while ((match = regex.exec(value))) {
+          if (match.index > last) {
+            pre.append(document.createTextNode(value.slice(last, match.index)));
+          }
+          const token = match[0];
+          let tone = 'tok-number';
+          if (token.startsWith('"')) {
+            tone = /^\s*:/.test(value.slice(regex.lastIndex)) ? 'tok-key' : 'tok-string';
+          } else if (token === 'true' || token === 'false') {
+            tone = 'tok-bool';
+          } else if (token === 'null') {
+            tone = 'tok-null';
+          }
+          pre.append(h('span', { class: tone, text: token }));
+          last = regex.lastIndex;
+        }
+        if (last < value.length) {
+          pre.append(document.createTextNode(value.slice(last)));
+        }
+        return pre;
+      }
+
       async function loadWorkspace() {
         if (!isManager()) {
           state.workspace = null;
@@ -1774,7 +1845,7 @@
         const bodyBlock = h('div', { class: 'detail-section' },
           h('h4', { text: '请求体' }),
           request.body
-            ? h('pre', { class: 'code-block', text: String(request.body) })
+            ? codeBlock(request.body)
             : h('p', { class: 'section-note', text: '无请求体。' }),
         );
 
@@ -2109,6 +2180,222 @@ ${body}
 
       // ---------------- 快照 / 审计 ----------------
 
+      function collectionName(payload, id) {
+        const collection = (payload?.collections || []).find((item) => item.id === id);
+        return collection ? collection.name : (id || '未分组');
+      }
+
+      function buildSnapshotDiff(before, after) {
+        const beforeCollections = new Map((before.collections || []).map((item) => [item.id, item]));
+        const afterCollections = new Map((after.collections || []).map((item) => [item.id, item]));
+        const beforeRequests = new Map((before.requests || []).map((item) => [item.id, item]));
+        const afterRequests = new Map((after.requests || []).map((item) => [item.id, item]));
+        const beforeDocuments = before.documents || {};
+        const afterDocuments = after.documents || {};
+
+        const collectionDiff = { added: [], removed: [], changed: [] };
+        for (const [id, item] of afterCollections) {
+          if (!beforeCollections.has(id)) collectionDiff.added.push({ name: item.name || id });
+        }
+        for (const [id, item] of beforeCollections) {
+          if (!afterCollections.has(id)) collectionDiff.removed.push({ name: item.name || id });
+        }
+        for (const [id, item] of afterCollections) {
+          const previous = beforeCollections.get(id);
+          if (!previous) continue;
+          if (previous.name !== item.name || (previous.sort ?? 0) !== (item.sort ?? 0)) {
+            collectionDiff.changed.push({
+              name: item.name || id,
+              fields: [
+                previous.name !== item.name ? { label: '名称', before: previous.name || '', after: item.name || '' } : null,
+                (previous.sort ?? 0) !== (item.sort ?? 0)
+                  ? { label: '排序', before: String(previous.sort ?? 0), after: String(item.sort ?? 0) }
+                  : null,
+              ].filter(Boolean),
+            });
+          }
+        }
+
+        const requestDiff = { added: [], removed: [], changed: [] };
+        for (const [id, item] of afterRequests) {
+          if (!beforeRequests.has(id)) {
+            requestDiff.added.push({ name: item.name || id, method: item.method || 'GET' });
+          }
+        }
+        for (const [id, item] of beforeRequests) {
+          if (!afterRequests.has(id)) {
+            requestDiff.removed.push({ name: item.name || id, method: item.method || 'GET' });
+          }
+        }
+        for (const [id, item] of afterRequests) {
+          const previous = beforeRequests.get(id);
+          if (!previous) continue;
+          const fields = [];
+          const compare = (label, beforeValue, afterValue) => {
+            const beforeText = String(beforeValue ?? '');
+            const afterText = String(afterValue ?? '');
+            if (beforeText !== afterText) fields.push({ label, before: beforeText, after: afterText });
+          };
+          compare('名称', previous.name, item.name);
+          compare('方法', previous.method, item.method);
+          compare('路径', previous.url ?? previous.path, item.url ?? item.path);
+          compare('数据分级', previous.dataLevel, item.dataLevel);
+          compare(
+            '所属集合',
+            collectionName(before, previous.collectionId),
+            collectionName(after, item.collectionId),
+          );
+          compare('请求头', JSON.stringify(previous.headers || []), JSON.stringify(item.headers || []));
+          compare('请求体', previous.body || '', item.body || '');
+          if (fields.length) {
+            requestDiff.changed.push({ name: item.name || id, method: item.method || 'GET', fields });
+          }
+        }
+
+        const documentDiff = { added: [], removed: [], changed: [] };
+        const documentIds = new Set([...Object.keys(beforeDocuments), ...Object.keys(afterDocuments)]);
+        for (const requestId of documentIds) {
+          const beforeFields = Array.isArray(beforeDocuments[requestId]) ? beforeDocuments[requestId] : [];
+          const afterFields = Array.isArray(afterDocuments[requestId]) ? afterDocuments[requestId] : [];
+          if (!beforeFields.length && afterFields.length) {
+            documentDiff.added.push({
+              name: afterRequests.get(requestId)?.name || requestId,
+              fields: afterFields.map((field) => field.key || field.path || '-'),
+            });
+            continue;
+          }
+          if (beforeFields.length && !afterFields.length) {
+            documentDiff.removed.push({
+              name: beforeRequests.get(requestId)?.name || requestId,
+              fields: beforeFields.map((field) => field.key || field.path || '-'),
+            });
+            continue;
+          }
+          const beforeMap = new Map(beforeFields.map((field, index) => [field.key || field.path || String(index), field]));
+          const afterMap = new Map(afterFields.map((field, index) => [field.key || field.path || String(index), field]));
+          const fields = [];
+          for (const [key, field] of afterMap) {
+            const previous = beforeMap.get(key);
+            if (!previous) {
+              fields.push({ label: key, before: '（新增）', after: field.description || field.type || '' });
+              continue;
+            }
+            const changed = previous.description !== field.description
+              || previous.type !== field.type
+              || previous.path !== field.path
+              || previous.source !== field.source;
+            if (changed) {
+              fields.push({
+                label: key,
+                before: previous.description || '',
+                after: field.description || '',
+              });
+            }
+          }
+          for (const [key, field] of beforeMap) {
+            if (!afterMap.has(key)) {
+              fields.push({ label: key, before: field.description || '', after: '（已删除）' });
+            }
+          }
+          if (fields.length) {
+            documentDiff.changed.push({
+              name: afterRequests.get(requestId)?.name || beforeRequests.get(requestId)?.name || requestId,
+              fields,
+            });
+          }
+        }
+
+        return { collectionDiff, requestDiff, documentDiff };
+      }
+
+      function diffSection(title, entries, renderEntry) {
+        if (!entries.length) return null;
+        return h('div', { class: 'diff-section' },
+          h('h4', { text: `${title} · ${entries.length}` }),
+          ...entries.map(renderEntry),
+        );
+      }
+
+      function renderDiff(diff, fromRevision, toRevision) {
+        diffTitle.textContent = `版本对比 · #${fromRevision} → #${toRevision}`;
+        const { collectionDiff, requestDiff, documentDiff } = diff;
+        const total =
+          collectionDiff.added.length + collectionDiff.removed.length + collectionDiff.changed.length +
+          requestDiff.added.length + requestDiff.removed.length + requestDiff.changed.length +
+          documentDiff.added.length + documentDiff.removed.length + documentDiff.changed.length;
+
+        const summary = h('div', { class: 'summary-line' },
+          h('span', { class: 'badge team', text: `接口 +${requestDiff.added.length} / -${requestDiff.removed.length} / 改 ${requestDiff.changed.length}` }),
+          h('span', { class: 'badge', text: `集合 +${collectionDiff.added.length} / -${collectionDiff.removed.length} / 改 ${collectionDiff.changed.length}` }),
+          h('span', { class: 'badge restricted', text: `文档 +${documentDiff.added.length} / -${documentDiff.removed.length} / 改 ${documentDiff.changed.length}` }),
+        );
+
+        if (total === 0) {
+          diffBody.replaceChildren(summary, h('p', { class: 'section-note', text: '两个版本的集合、接口与字段文档内容一致。' }));
+          diffDialog.showModal();
+          return;
+        }
+
+        const simpleEntry = (tag, tone) => (item) => h('div', { class: 'diff-item' },
+          h('span', { class: `diff-tag ${tone}`, text: tag }),
+          h('span', { class: 'diff-name', text: `${item.method ? `${item.method} ` : ''}${item.name}` }),
+        );
+
+        const changedEntry = (item) => h('div', {},
+          h('div', { class: 'diff-item' },
+            h('span', { class: 'diff-tag change', text: '修改' }),
+            h('span', { class: 'diff-name', text: `${item.method ? `${item.method} ` : ''}${item.name}` }),
+          ),
+          ...item.fields.map((field) => h('div', { class: 'diff-field' },
+            h('span', { class: 'diff-field-name', text: field.label }),
+            h('span', { class: 'diff-before', text: field.before || '（空）' }),
+            h('span', { text: ' → ' }),
+            h('span', { class: 'diff-after', text: field.after || '（空）' }),
+          )),
+        );
+
+        const documentEntry = (tag, tone) => (item) => h('div', { class: 'diff-item' },
+          h('span', { class: `diff-tag ${tone}`, text: tag }),
+          h('span', { class: 'diff-name', text: `${item.name} · ${item.fields.join('、')}` }),
+        );
+
+        diffBody.replaceChildren(
+          summary,
+          diffSection('集合', [...collectionDiff.added.map((item) => ({ ...item, _tag: 'add' })), ...collectionDiff.removed.map((item) => ({ ...item, _tag: 'remove' })), ...collectionDiff.changed], (item) => {
+            if (item._tag === 'add') return simpleEntry('新增', 'add')(item);
+            if (item._tag === 'remove') return simpleEntry('删除', 'remove')(item);
+            return changedEntry({ ...item, method: '' });
+          }) || h('span'),
+          diffSection('接口', [...requestDiff.added, ...requestDiff.removed, ...requestDiff.changed], (item) => {
+            if (requestDiff.added.includes(item)) return simpleEntry('新增', 'add')(item);
+            if (requestDiff.removed.includes(item)) return simpleEntry('删除', 'remove')(item);
+            return changedEntry(item);
+          }) || h('span'),
+          diffSection('字段文档', [...documentDiff.added, ...documentDiff.removed, ...documentDiff.changed], (item) => {
+            if (documentDiff.added.includes(item)) return documentEntry('新增', 'add')(item);
+            if (documentDiff.removed.includes(item)) return documentEntry('删除', 'remove')(item);
+            return changedEntry({ ...item, method: '' });
+          }) || h('span'),
+        );
+        diffDialog.showModal();
+      }
+
+      async function openDiff(fromRevision, toRevision) {
+        if (!fromRevision || !toRevision || fromRevision === toRevision) {
+          showToast('请选择两个不同的版本', 'error');
+          return;
+        }
+        try {
+          const [before, after] = await Promise.all([
+            api(`/v1/teams/${state.team.id}/snapshots/${fromRevision}`),
+            api(`/v1/teams/${state.team.id}/snapshots/${toRevision}`),
+          ]);
+          renderDiff(buildSnapshotDiff(before, after), fromRevision, toRevision);
+        } catch (error) {
+          showToast(error.message, 'error');
+        }
+      }
+
       function renderSnapshots() {
         const container = $('#tab-snapshots');
         const card = h('div', { class: 'card' });
@@ -2123,11 +2410,43 @@ ${body}
           return;
         }
 
+        if (state.history.length >= 2) {
+          const revisions = state.history.map((entry) => entry.revision).sort((left, right) => left - right);
+          const fromSelect = h('select', {},
+            ...revisions.map((revision) => h('option', {
+              value: String(revision),
+              text: '#' + revision,
+              selected: revision === revisions[revisions.length - 2],
+            })),
+          );
+          const toSelect = h('select', {},
+            ...revisions.map((revision) => h('option', {
+              value: String(revision),
+              text: '#' + revision,
+              selected: revision === revisions[revisions.length - 1],
+            })),
+          );
+          card.append(h('div', { class: 'diff-toolbar' },
+            h('span', { class: 'muted', text: '版本对比' }),
+            fromSelect,
+            h('span', { class: 'muted', text: '→' }),
+            toSelect,
+            h('button', {
+              class: 'btn primary small',
+              type: 'button',
+              text: '对比',
+              onclick: () => openDiff(Number(fromSelect.value), Number(toSelect.value)),
+            }),
+          ));
+        }
+
         const rows = state.history.map((entry) => {
           const view = h('button', { class: 'btn small', type: 'button', text: '查看' });
           view.addEventListener('click', () => openPayload(entry.revision));
           const download = h('button', { class: 'btn small', type: 'button', text: '下载' });
           download.addEventListener('click', () => downloadSnapshot(entry.revision));
+          const diff = h('button', { class: 'btn small', type: 'button', text: '对比上一版' });
+          diff.addEventListener('click', () => openDiff(entry.revision - 1, entry.revision));
           return h('tr', {},
             h('td', {}, h('strong', { text: '#' + entry.revision })),
             h('td', { text: fmtTime(entry.createdAt) }),
@@ -2135,7 +2454,7 @@ ${body}
             h('td', { text: fmtBytes(entry.sizeBytes) }),
             h('td', { text: entry.baseRevision === null || entry.baseRevision === undefined ? '-' : '#' + entry.baseRevision }),
             h('td', {}, h('code', { text: shortHash(entry.hash) })),
-            h('td', {}, h('div', { class: 'actions' }, view, download)),
+            h('td', {}, h('div', { class: 'actions' }, view, download, entry.revision > 1 ? diff : null)),
           );
         });
 
@@ -2439,6 +2758,10 @@ ${body}
       $('#payload-close').addEventListener('click', () => payloadDialog.close());
       payloadDialog.addEventListener('click', (event) => {
         if (event.target === payloadDialog) payloadDialog.close();
+      });
+      $('#diff-close').addEventListener('click', () => diffDialog.close());
+      diffDialog.addEventListener('click', (event) => {
+        if (event.target === diffDialog) diffDialog.close();
       });
 
       $('#mode-create').addEventListener('click', () => { state.memberMode = 'create'; syncMemberMode(); });

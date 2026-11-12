@@ -454,11 +454,22 @@ export function Sidebar({
       recordAudit({
         type: 'sync',
         action: `推送团队快照 rev ${snapshot.revision}`,
-        detail: `${snapshot.requests.length} 个请求 · ${Object.keys(snapshot.documents).length} 份文档`,
+        detail:
+          snapshot.deltaChanges != null
+            ? `增量 ${snapshot.deltaChanges} 个变更 · ${snapshot.requests.length} 个请求`
+            : `${snapshot.requests.length} 个请求 · ${Object.keys(snapshot.documents).length} 份文档`,
         actor: session.name,
       });
-      message.success(`已推送 rev ${snapshot.revision} · ${snapshot.requests.length} 个请求`);
+      message.success(
+        snapshot.deltaChanges != null
+          ? `已推送 rev ${snapshot.revision} · ${snapshot.deltaChanges} 个变更（增量）`
+          : `已推送 rev ${snapshot.revision} · ${snapshot.requests.length} 个请求`,
+      );
     } catch (error) {
+      if (error instanceof TeamApiError && error.code === 'no_changes') {
+        message.info('没有需要推送的变更');
+        return;
+      }
       if (error instanceof TeamApiError && error.code === 'revision_conflict') {
         setLastSync('远端有更新，待合并');
         message.warning('团队已有更新版本，已获取远端快照，请先完成三方合并再推送');

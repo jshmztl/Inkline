@@ -23,6 +23,19 @@ export interface TeamSnapshot {
   collections?: Collection[];
   requests: SavedRequest[];
   documents: Record<string, DraftField[]>;
+  deltaChanges?: number;
+}
+
+export interface SnapshotDelta {
+  collections: Collection[];
+  requests: SavedRequest[];
+  documents: Record<string, DraftField[]>;
+  deletions: {
+    collections: string[];
+    requests: string[];
+    documents: string[];
+  };
+  changed: number;
 }
 
 export interface RemoteSnapshotPayload {
@@ -90,6 +103,104 @@ export function buildRemotePayload(snapshot: TeamSnapshot): Record<string, unkno
     })),
     requests: snapshot.requests,
     documents: snapshot.documents,
+  };
+}
+
+function requestSignature(request: SavedRequest) {
+  return JSON.stringify({
+    name: request.name,
+    method: request.method,
+    url: request.url,
+    headers: request.headers,
+    body: request.body,
+    dataLevel: request.dataLevel,
+    collectionId: request.collectionId ?? '',
+    sort: request.sort ?? 0,
+  });
+}
+
+function collectionSignature(collection: Collection) {
+  return JSON.stringify({
+    name: collection.name,
+    sort: collection.sort ?? 0,
+  });
+}
+
+/** 对比上一次同步基准，得到单接口级增量。 */
+export function buildSnapshotDelta(
+  base: TeamSnapshot,
+  collections: Collection[],
+  requests: SavedRequest[],
+  documents: Record<string, DraftField[]>,
+): SnapshotDelta {
+  const baseRequests = new Map((base.requests ?? []).map((request) => [request.id, request]));
+  const baseCollections = new Map(
+    (base.collections ?? []).map((collection) => [collection.id, collection]),
+  );
+  const baseDocuments = base.documents ?? {};
+
+  const currentRequests = new Map(requests.map((request) => [request.id, request]));
+  const currentCollections = new Map(
+    collections.map((collection) => [collection.id, collection]),
+  );
+  const currentDocuments = Object.fromEntries(
+    Object.entries(documents).filter(([, fields]) => Array.isArray(fields) && fields.length > 0),
+  );
+
+  const changedRequests = requests.filter((request) => {
+    const previous = baseRequests.get(request.id);
+    return !previous || requestSignature(previous) !== requestSignature(request);
+  });
+  const changedCollections = collections.filter((collection) => {
+    const previous = baseCollections.get(collection.id);
+    return !previous || collectionSignature(previous) !== collectionSignature(collection);
+  });
+  const changedDocuments = Object.fromEntries(
+    Object.entries(currentDocuments).filter(
+      ([requestId, fields]) =>
+        JSON.stringify(fields) !== JSON.stringify(baseDocuments[requestId] ?? null),
+    ),
+  );
+
+  const deletedRequests = [...baseRequests.keys()].filter((id) => !currentRequests.has(id));
+  const deletedCollections = [...baseCollections.keys()].filter(
+    (id) => !currentCollections.has(id),
+  );
+  const deletedDocuments = Object.keys(baseDocuments).filter(
+    (id) => !(id in currentDocuments),
+  );
+
+  return {
+    collections: changedCollections,
+    requests: changedRequests,
+    documents: changedDocuments,
+    deletions: {
+      collections: deletedCollections,
+      requests: deletedRequests,
+      documents: deletedDocuments,
+    },
+    changed:
+      changedCollections.length +
+      changedRequests.length +
+      Object.keys(changedDocuments).length +
+      deletedCollections.length +
+      deletedRequests.length +
+      deletedDocuments.length,
+  };
+}
+
+export function buildDeltaPayload(
+  delta: SnapshotDelta,
+  baseRevision: number,
+): Record<string, unknown> {
+  return {
+    schemaVersion: 2,
+    partial: true,
+    baseRevision,
+    collections: delta.collections,
+    requests: delta.requests,
+    documents: delta.documents,
+    deletions: delta.deletions,
   };
 }
 

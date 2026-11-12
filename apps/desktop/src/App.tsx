@@ -23,7 +23,9 @@ import { listEnvironments, saveEnvironmentVariables, writeEnvironments } from '.
 import { kvGet, kvSet } from './lib/kv';
 import { parseImport } from './lib/importer';
 import {
+  buildDeltaPayload,
   buildRemotePayload,
+  buildSnapshotDelta,
   collectLocalDocuments,
   pullTeamSnapshot,
   pushTeamSnapshot,
@@ -653,18 +655,32 @@ export function App() {
         throw new TeamApiError(401, 'not_connected', '团队服务连接已失效，请重新登录');
       }
       const local = buildLocalSnapshot();
+      const base = readTeamBase(session.team.id);
+      let payload: Record<string, unknown>;
+      let deltaChanges: number | undefined;
+      if (base) {
+        const delta = buildSnapshotDelta(base, collections, savedRequests, local.documents);
+        if (delta.changed === 0) {
+          throw new TeamApiError(0, 'no_changes', '没有需要推送的变更');
+        }
+        payload = buildDeltaPayload(delta, base.revision);
+        deltaChanges = delta.changed;
+      } else {
+        payload = buildRemotePayload(local);
+      }
       try {
         const result = await pushSnapshotRemote(
           connection,
           session.team.id,
-          buildRemotePayload(local),
-          readTeamBase(session.team.id)?.revision ?? 0,
+          payload,
+          base?.revision ?? 0,
         );
         const snapshot: TeamSnapshot = {
           ...local,
           revision: result.revision,
           updatedAt: result.createdAt,
           pushedBy: session.name,
+          deltaChanges,
         };
         writeTeamSnapshot(snapshot, session.team.id);
         writeTeamBase(snapshot, session.team.id);

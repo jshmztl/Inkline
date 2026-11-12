@@ -567,6 +567,31 @@ refresh_tokens (
 - 删除集合时，只要集合内存在查看者无权编辑的接口，删除会被忽略，避免误删隐藏资源。
 - `payload_hash` 为合并后完整快照的 hash；`source_hash` 记录客户端原始内容，用于幂等重试判断。
 
+#### 单接口级增量推送
+
+同一 `POST /snapshots` 支持增量模式：请求体带 `"partial": true`（或请求头 `X-Inkline-Sync-Mode: partial`）。
+
+```json
+{
+  "schemaVersion": 2,
+  "partial": true,
+  "baseRevision": 12,
+  "collections": [],
+  "requests": [{ "id": "req-1", "name": "创建订单（改名）", "collectionId": "col-1" }],
+  "documents": { "req-1": [] },
+  "deletions": {
+    "collections": [],
+    "requests": ["req-2"],
+    "documents": ["req-3"]
+  }
+}
+```
+
+- 只合并提交的集合、接口与文档；未提交的资源保持服务端现状。
+- `deletions.requests` / `collections` / `documents` 分别表示删除；仍按权限校验，只读或隐藏资源不会被删除。
+- 增量推送同样生成新的完整快照 revision，历史、对比与审计与整包推送一致。
+- 删除集合时若其中存在查看者无权编辑的接口，整个集合删除会被忽略。
+
 #### GET /v1/teams/{teamId}/snapshots?limit=20&before=13
 
 历史版本列表，用于回滚与排障（`member` 以上可读，`viewer` 仅最新）。
@@ -603,10 +628,16 @@ sequenceDiagram
 #### 桌面客户端行为
 
 - 首次接入已有团队时先拉取，再以拉取到的 revision 作为 `baseRevision` 推送。
+- 有本地基准后自动改用增量推送：对比基准与本机集合、接口、文档，只提交变化与删除列表。
 - 收到 `409 revision_conflict` 时拉取最新远端快照，并使用本地基准做三方合并，合并完成后重新推送。
 - 拉取采用增量写入：更新服务端返回的集合、接口与文档，不删除本机额外请求，避免首次接入丢失本地数据。
 - 客户端用 `GET /v1/teams/{teamId}/access` 标记只读集合 / 接口：隐藏重命名、移动、删除等入口；`viewer` 禁用推送按钮。
 - 只读资源的本地修改仅保存在本机，推送时服务端会忽略；被隐藏的资源不会下发到客户端。
+
+管理台另提供：
+
+- 快照历史任选两个版本对比，展示集合、接口与字段文档的新增 / 删除 / 修改。
+- 接口内容页请求体 JSON 语法高亮，并支持单接口 / 集合导出。
 
 ### 6.5 审计
 

@@ -193,11 +193,22 @@ pub async fn push_snapshot(
         )));
     }
 
+    let partial = value.get("partial").and_then(Value::as_bool).unwrap_or(false)
+        || headers
+            .get("x-inkline-sync-mode")
+            .and_then(|value| value.to_str().ok())
+            .map(|value| value.eq_ignore_ascii_case("partial"))
+            .unwrap_or(false);
+
     let requests = value
         .get("requests")
         .and_then(Value::as_array)
-        .ok_or_else(|| AppError::validation("快照缺少 requests 数组"))?;
-    policy::validate_snapshot_levels(requests, &max_data_level)?;
+        .cloned()
+        .unwrap_or_default();
+    if !partial && value.get("requests").is_none() {
+        return Err(AppError::validation("快照缺少 requests 数组"));
+    }
+    policy::validate_snapshot_levels(&requests, &max_data_level)?;
 
     let header_base = headers
         .get(BASE_REVISION_HEADER)
@@ -305,7 +316,36 @@ pub async fn push_snapshot(
     .fetch_optional(&mut *tx)
     .await?;
 
-    let merged = policy::merge_payload(full_payload.as_ref(), &value, &viewer, &policies);
+    let merged = if partial {
+        let deletions_value = value.get("deletions");
+        let list = |key: &str| -> Vec<String> {
+            deletions_value
+                .and_then(|deletions| deletions.get(key))
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let deletions = policy::PartialDeletions {
+            collections: list("collections"),
+            requests: list("requests"),
+            documents: list("documents"),
+        };
+        policy::merge_partial_payload(
+            full_payload.as_ref(),
+            &value,
+            &deletions,
+            &viewer,
+            &policies,
+        )
+    } else {
+        policy::merge_payload(full_payload.as_ref(), &value, &viewer, &policies)
+    };
     let merged_bytes = serde_json::to_vec(&merged.payload)
         .map_err(|error| AppError::internal(format!("快照合并序列化失败：{error}")))?;
     let payload_hash = format!("sha256:{}", hex::encode(Sha256::digest(&merged_bytes)));
@@ -398,6 +438,7 @@ pub async fn push_snapshot(
             "baseRevision": base_revision,
             "sizeBytes": merged_bytes.len(),
             "sourceSizeBytes": decoded.len(),
+            "partial": partial,
         }),
     )
     .await;
