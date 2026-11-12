@@ -326,7 +326,7 @@
     .doc-heading { margin-top: 10px; padding-bottom: 4px; border-bottom: 1px solid var(--line); color: #334155; font-size: 13px; font-weight: 600; }
     .doc-kv { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 10px; font-size: 12.5px; }
     .doc-kv span { word-break: break-all; }
-    .doc-code-line { margin: 0; padding: 1px 12px 1px 0; background: transparent; color: #dbeafe; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all; line-height: 1.6; }
+    .doc-code-line { margin: 0; padding: 1px 12px 1px 0; background: transparent; color: #1e293b; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all; line-height: 1.6; }
     .doc-field { display: grid; grid-template-columns: 1.2fr 1fr 0.7fr 0.6fr 2fr; gap: 8px; padding: 4px 0; border-bottom: 1px solid #f1f5f9; font-size: 12px; }
     .doc-field:last-child { border-bottom: 0; }
     .doc-field code { color: #1d4ed8; }
@@ -335,16 +335,21 @@
     .diff-cell { display: flex; align-items: stretch; min-width: 0; }
     .diff-ln { flex: 0 0 26px; width: 26px; padding-right: 7px; color: #94a3b8; font-size: 11px; line-height: 1.7; text-align: right; user-select: none; }
     .diff-content { flex: 1; min-width: 0; }
-    .doc-diff td.code-cell { padding: 0; border-bottom: 0; background: #0b1220; color: #dbeafe; }
-    .doc-diff td.code-cell .diff-ln { color: #64748b; line-height: 1.6; }
+    .doc-diff td.code-cell { padding: 0; border-bottom: 0; background: #f6f8fa; color: #1e293b; }
+    .doc-diff td.code-cell .diff-ln { color: #94a3b8; line-height: 1.6; }
     .doc-diff td.code-cell.diff-add,
-    .doc-diff td.code-cell.diff-change-right { background: #0e3521; box-shadow: inset 3px 0 0 #0f9d58; }
+    .doc-diff td.code-cell.diff-change-right { background: #e8f7ef; box-shadow: inset 3px 0 0 #0f9d58; }
     .doc-diff td.code-cell.diff-remove,
-    .doc-diff td.code-cell.diff-change-left { background: #3a1417; box-shadow: inset 3px 0 0 #dc2626; }
+    .doc-diff td.code-cell.diff-change-left { background: #fef2f2; box-shadow: inset 3px 0 0 #dc2626; }
     .doc-diff td.code-cell.diff-add .diff-ln,
-    .doc-diff td.code-cell.diff-change-right .diff-ln { color: #6ee7b7; }
+    .doc-diff td.code-cell.diff-change-right .diff-ln { color: #0f7a46; }
     .doc-diff td.code-cell.diff-remove .diff-ln,
-    .doc-diff td.code-cell.diff-change-left .diff-ln { color: #fca5a5; }
+    .doc-diff td.code-cell.diff-change-left .diff-ln { color: #b91c1c; }
+    .doc-diff .tok-key { color: #1d4ed8; }
+    .doc-diff .tok-string { color: #0f7a46; }
+    .doc-diff .tok-number { color: #b45309; }
+    .doc-diff .tok-bool { color: #7c3aed; }
+    .doc-diff .tok-null { color: #64748b; }
     @media (max-width: 1280px) {
       .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     }
@@ -1625,6 +1630,33 @@
         return Array.isArray(docs) ? docs : [];
       }
 
+      function paintJson(target, value) {
+        const text = String(value ?? '');
+        const regex = /"(?:\\.|[^"\\])*"|true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g;
+        let last = 0;
+        let match;
+        while ((match = regex.exec(text))) {
+          if (match.index > last) {
+            target.append(document.createTextNode(text.slice(last, match.index)));
+          }
+          const token = match[0];
+          let tone = 'tok-number';
+          if (token.startsWith('"')) {
+            tone = /^\s*:/.test(text.slice(regex.lastIndex)) ? 'tok-key' : 'tok-string';
+          } else if (token === 'true' || token === 'false') {
+            tone = 'tok-bool';
+          } else if (token === 'null') {
+            tone = 'tok-null';
+          }
+          target.append(h('span', { class: tone, text: token }));
+          last = regex.lastIndex;
+        }
+        if (last < text.length) {
+          target.append(document.createTextNode(text.slice(last)));
+        }
+        return target;
+      }
+
       function codeBlock(text) {
         const value = String(text ?? '');
         try {
@@ -1632,31 +1664,9 @@
         } catch {
           return h('pre', { class: 'code-block', text: value });
         }
-
-        const pre = h('pre', { class: 'code-block' });
-        const regex = /"(?:\\.|[^"\\])*"|true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g;
-        let last = 0;
-        let match;
-        while ((match = regex.exec(value))) {
-          if (match.index > last) {
-            pre.append(document.createTextNode(value.slice(last, match.index)));
-          }
-          const token = match[0];
-          let tone = 'tok-number';
-          if (token.startsWith('"')) {
-            tone = /^\s*:/.test(value.slice(regex.lastIndex)) ? 'tok-key' : 'tok-string';
-          } else if (token === 'true' || token === 'false') {
-            tone = 'tok-bool';
-          } else if (token === 'null') {
-            tone = 'tok-null';
-          }
-          pre.append(h('span', { class: tone, text: token }));
-          last = regex.lastIndex;
-        }
-        if (last < value.length) {
-          pre.append(document.createTextNode(value.slice(last)));
-        }
-        return pre;
+        return h('pre', { class: 'code-block' },
+          paintJson(document.createDocumentFragment(), value),
+        );
       }
 
       async function loadWorkspace() {
@@ -2545,9 +2555,19 @@ ${body}
           blocks.push({ type: 'muted', text: '未配置请求头' });
         }
         blocks.push({ type: 'heading', text: '请求体' });
-        if (request.body) {
-          for (const line of String(request.body).split('\n')) {
-            blocks.push({ type: 'code', text: line });
+        const bodyText = request.body ? String(request.body) : '';
+        let bodyJson = false;
+        if (bodyText.trim()) {
+          try {
+            JSON.parse(bodyText);
+            bodyJson = true;
+          } catch {
+            bodyJson = false;
+          }
+        }
+        if (bodyText) {
+          for (const line of bodyText.split('\n')) {
+            blocks.push({ type: 'code', text: line, json: bodyJson });
           }
         } else {
           blocks.push({ type: 'muted', text: '无请求体' });
@@ -2681,7 +2701,13 @@ ${body}
           );
         }
         if (block.type === 'code') {
-          return h('div', { class: 'doc-code-line', text: block.text || ' ' });
+          const line = h('div', { class: 'doc-code-line' });
+          if (block.json && block.text) {
+            paintJson(line, block.text);
+          } else {
+            line.textContent = block.text || ' ';
+          }
+          return line;
         }
         if (block.type === 'field') {
           const field = block.field || {};
