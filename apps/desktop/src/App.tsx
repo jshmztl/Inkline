@@ -23,13 +23,29 @@ import { listEnvironments, saveEnvironmentVariables, writeEnvironments } from '.
 import { kvGet, kvSet } from './lib/kv';
 import { parseImport } from './lib/importer';
 import {
+  buildRemotePayload,
   collectLocalDocuments,
   pullTeamSnapshot,
   pushTeamSnapshot,
+  readTeamBase,
   readTeamSnapshot,
+  snapshotFromRemote,
   writeRemoteDocuments,
+  writeTeamBase,
+  writeTeamSnapshot,
+  type RemoteSnapshotPayload,
   type TeamSnapshot,
 } from './lib/team';
+import { applySnapshotToWorkspace } from './lib/teamSync';
+import {
+  fetchLatestSnapshot,
+  fetchTeamAccess,
+  logoutTeam,
+  pushSnapshotRemote,
+  readTeamConnection,
+  TeamApiError,
+  type TeamAccess,
+} from './lib/teamClient';
 import { LoginScreen } from './components/LoginScreen';
 import { RequestPanel } from './components/RequestPanel';
 import { Sidebar } from './components/Sidebar';
@@ -105,7 +121,8 @@ export function App() {
   const [savedRequests, setSavedRequests] = useState<SavedRequest[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
   const [requestContext, setRequestContext] = useState<RequestContext | null>(null);
-  const [teamSnapshot, setTeamSnapshot] = useState<TeamSnapshot | null>(readTeamSnapshot);
+  const [teamSnapshot, setTeamSnapshot] = useState<TeamSnapshot | null>(null);
+  const [teamAccess, setTeamAccess] = useState<TeamAccess | null>(null);
   const [syncNonce, setSyncNonce] = useState(0);
   const [queueNonce, setQueueNonce] = useState(0);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -546,8 +563,12 @@ export function App() {
   }
 
   function handleSignOut() {
+    if (session?.mode === 'team') {
+      void logoutTeam(readTeamConnection());
+    }
     signOut();
     setSession(null);
+    setTeamAccess(null);
   }
 
   function handleSaveEnvironment(
@@ -584,9 +605,94 @@ export function App() {
     }
   }
 
-  function handlePush() {
+  async function refreshTeamAccess() {
+    if (session?.mode !== 'team' || !session.team) {
+      setTeamAccess(null);
+      return;
+    }
+    const connection = readTeamConnection();
+    if (!connection) {
+      setTeamAccess(null);
+      return;
+    }
+    try {
+      setTeamAccess(await fetchTeamAccess(connection, session.team.id));
+    } catch {
+      setTeamAccess(null);
+    }
+  }
+
+  useEffect(() => {
+    void refreshTeamAccess();
+    if (session?.mode === 'team' && session.team) {
+      setTeamSnapshot(readTeamSnapshot(session.team.id));
+    } else {
+      setTeamSnapshot(readTeamSnapshot());
+    }
+    // 仅在切换团队或登录模式时刷新权限与本地快照缓存。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.mode, session?.team?.id]);
+
+  function buildLocalSnapshot(): TeamSnapshot {
+    return {
+      revision: readTeamBase(session?.team?.id)?.revision ?? 0,
+      updatedAt: new Date().toISOString(),
+      pushedBy: session?.name ?? 'local',
+      workspace: session?.workspace ?? '本机工作区',
+      schemaVersion: 2,
+      collections,
+      requests: savedRequests,
+      documents: collectLocalDocuments(),
+    };
+  }
+
+  async function handlePush(): Promise<TeamSnapshot> {
+    if (session?.mode === 'team' && session.team) {
+      const connection = readTeamConnection();
+      if (!connection) {
+        throw new TeamApiError(401, 'not_connected', '团队服务连接已失效，请重新登录');
+      }
+      const local = buildLocalSnapshot();
+      try {
+        const result = await pushSnapshotRemote(
+          connection,
+          session.team.id,
+          buildRemotePayload(local),
+          readTeamBase(session.team.id)?.revision ?? 0,
+        );
+        const snapshot: TeamSnapshot = {
+          ...local,
+          revision: result.revision,
+          updatedAt: result.createdAt,
+          pushedBy: session.name,
+        };
+        writeTeamSnapshot(snapshot, session.team.id);
+        writeTeamBase(snapshot, session.team.id);
+        setTeamSnapshot(snapshot);
+        void refreshTeamAccess();
+        return snapshot;
+      } catch (error) {
+        if (error instanceof TeamApiError && error.code === 'revision_conflict') {
+          const latest = await fetchLatestSnapshot(connection, session.team.id);
+          if (latest) {
+            writeTeamSnapshot(
+              snapshotFromRemote(latest.payload as unknown as RemoteSnapshotPayload, {
+                revision: latest.revision,
+                createdAt: latest.createdAt,
+                createdBy: latest.createdBy,
+                workspace: session.workspace,
+              }),
+              session.team.id,
+            );
+          }
+        }
+        throw error;
+      }
+    }
+
     const snapshot = pushTeamSnapshot(
-      session?.account ?? 'local',
+      session?.name ?? 'local',
+      collections,
       savedRequests,
       collectLocalDocuments(),
       session?.workspace ?? '本机工作区',
@@ -596,6 +702,29 @@ export function App() {
   }
 
   async function handlePull() {
+    if (session?.mode === 'team' && session.team) {
+      const connection = readTeamConnection();
+      if (!connection) {
+        throw new TeamApiError(401, 'not_connected', '团队服务连接已失效，请重新登录');
+      }
+      const latest = await fetchLatestSnapshot(connection, session.team.id);
+      if (!latest) return null;
+      const snapshot = snapshotFromRemote(latest.payload as unknown as RemoteSnapshotPayload, {
+        revision: latest.revision,
+        createdAt: latest.createdAt,
+        createdBy: latest.createdBy,
+        workspace: session.workspace,
+      });
+      await applySnapshotToWorkspace(snapshot);
+      writeTeamSnapshot(snapshot, session.team.id);
+      writeTeamBase(snapshot, session.team.id);
+      refreshSaved();
+      setTeamSnapshot(snapshot);
+      setSyncNonce((current) => current + 1);
+      void refreshTeamAccess();
+      return { snapshot, pulled: snapshot.requests.length };
+    }
+
     const snapshot = await pullTeamSnapshot();
     if (!snapshot) return null;
 
@@ -660,7 +789,6 @@ export function App() {
             onEnvironmentChange={setEnvironment}
             onSignOut={handleSignOut}
             onOpenPalette={() => setPaletteOpen(true)}
-            onSessionChange={setSession}
           />
 
           <div className="workspace">
@@ -673,8 +801,10 @@ export function App() {
               environment={environment}
               workspaceEnvironments={workspaceEnvs}
               session={session}
+              networkMode={networkMode}
               teamRevision={teamSnapshot?.revision ?? null}
               teamUpdatedAt={teamSnapshot?.updatedAt ?? null}
+              teamAccess={teamAccess}
               onSelectRequest={selectRequest}
               onReplayHistory={replayHistory}
               onEnvironmentChange={setEnvironment}

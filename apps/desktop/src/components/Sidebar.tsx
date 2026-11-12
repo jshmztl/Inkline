@@ -19,6 +19,7 @@ import { App, Button, Dropdown, Input, Modal, Segmented, Tooltip } from 'antd';
 import {
   type ApiFolder,
   type ApiRequest,
+  type NetworkMode,
 } from '../data/types';
 import { saveRequest, type HistoryEntry, type SavedRequest } from '../lib/api';
 import type { WorkspaceEnvironment } from '../lib/envStore';
@@ -30,6 +31,7 @@ import {
 } from '../lib/importer';
 import { planThreeWayMerge } from '../lib/merge';
 import type { Session } from '../lib/session';
+import { TeamApiError, type TeamAccess } from '../lib/teamClient';
 import {
   collectLocalDocuments,
   readTeamBase,
@@ -48,15 +50,17 @@ interface SidebarProps {
   environment: string;
   workspaceEnvironments: WorkspaceEnvironment[];
   session: Session;
+  networkMode: NetworkMode;
   teamRevision: number | null;
   teamUpdatedAt: string | null;
+  teamAccess: TeamAccess | null;
   onSelectRequest: (request: ApiRequest) => void;
   onReplayHistory: (entry: HistoryEntry) => void;
   onEnvironmentChange: (environment: string) => void;
   onSaveEnvironment: (environment: string, variables: Record<string, string>, label?: string) => void;
   onCreateEnvironment: (label: string, variables: Record<string, string>) => string;
   onDeleteEnvironment: (environment: string) => void;
-  onPush: () => TeamSnapshot;
+  onPush: () => Promise<TeamSnapshot>;
   onPull: () => Promise<{ snapshot: TeamSnapshot; pulled: number } | null>;
   onMerged: () => void;
   onCreateCollection: (name: string) => Promise<string>;
@@ -76,6 +80,13 @@ interface SidebarProps {
   onLoadMoreHistory: () => void;
 }
 
+const roleLabels: Record<string, string> = {
+  owner: '所有者',
+  admin: '管理员',
+  member: '成员',
+  viewer: '只读',
+};
+
 function formatSavedAt(value: string | null | undefined) {
   if (!value) return '刚刚';
   const date = new Date(value);
@@ -93,8 +104,10 @@ export function Sidebar({
   environment,
   workspaceEnvironments,
   session,
+  networkMode,
   teamRevision,
   teamUpdatedAt,
+  teamAccess,
   onSelectRequest,
   onReplayHistory,
   onEnvironmentChange,
@@ -329,11 +342,12 @@ export function Sidebar({
 
   const plan = useMemo(() => {
     if (!mergeOpen) return null;
-    const remote = readTeamSnapshot();
+    const teamId = session.team?.id;
+    const remote = readTeamSnapshot(teamId);
     if (!remote) return null;
-    const base = readTeamBase();
+    const base = readTeamBase(teamId);
     return planThreeWayMerge(base?.requests ?? [], savedRequests, remote.requests);
-  }, [mergeOpen, savedRequests]);
+  }, [mergeOpen, savedRequests, session.team?.id]);
 
   function openMerge() {
     setDecisions({});
@@ -351,8 +365,8 @@ export function Sidebar({
           await saveRequest(conflict.remote);
         }
       }
-      const remote = readTeamSnapshot();
-      if (remote) writeTeamBase(remote);
+      const remote = readTeamSnapshot(session.team?.id);
+      if (remote) writeTeamBase(remote, session.team?.id);
       recordAudit({
         type: 'sync',
         action: '三方合并',
@@ -369,46 +383,76 @@ export function Sidebar({
     }
   }
 
+  const remoteTeam = session.mode === 'team';
+  const canPush = !remoteTeam || (teamAccess?.canPush ?? true);
+  const syncAllowed = !remoteTeam || networkMode !== 'A';
+
+  function requestReadOnly(requestId: string) {
+    return remoteTeam && teamAccess?.requests?.[requestId] === 'view';
+  }
+
+  function collectionReadOnly(collectionId: string) {
+    return remoteTeam && teamAccess?.collections?.[collectionId] === 'view';
+  }
+
   async function handlePush() {
+    if (!syncAllowed) {
+      message.warning('当前为 A 离线模式，不会连接团队服务');
+      return;
+    }
+    if (!canPush) {
+      message.warning('当前账号为只读角色，不能推送团队快照');
+      return;
+    }
     setSyncing('push');
     try {
-      const snapshot = onPush();
+      const snapshot = await onPush();
       setDocCount(Object.keys(snapshot.documents).length);
       setLastSync(`已推送 rev ${snapshot.revision}`);
       recordAudit({
         type: 'sync',
-        action: `推送本地快照 rev ${snapshot.revision}`,
+        action: `推送团队快照 rev ${snapshot.revision}`,
         detail: `${snapshot.requests.length} 个请求 · ${Object.keys(snapshot.documents).length} 份文档`,
         actor: session.name,
       });
       message.success(`已推送 rev ${snapshot.revision} · ${snapshot.requests.length} 个请求`);
-    } catch {
-      message.error('推送失败，请稍后重试');
+    } catch (error) {
+      if (error instanceof TeamApiError && error.code === 'revision_conflict') {
+        setLastSync('远端有更新，待合并');
+        message.warning('团队已有更新版本，已获取远端快照，请先完成三方合并再推送');
+        openMerge();
+      } else {
+        message.error(error instanceof Error ? error.message : '推送失败，请稍后重试');
+      }
     } finally {
       setSyncing(null);
     }
   }
 
   async function handlePull() {
+    if (!syncAllowed) {
+      message.warning('当前为 A 离线模式，不会连接团队服务');
+      return;
+    }
     setSyncing('pull');
     try {
       const result = await onPull();
       if (!result) {
-        setLastSync('本地快照为空');
-        message.info('本地快照为空，请先推送一次');
+        setLastSync(remoteTeam ? '团队还没有快照' : '本地快照为空');
+        message.info(remoteTeam ? '团队还没有快照，请先推送一次' : '本地快照为空，请先推送一次');
         return;
       }
       setDocCount(Object.keys(result.snapshot.documents).length);
       setLastSync(`已拉取 rev ${result.snapshot.revision}`);
       recordAudit({
         type: 'sync',
-        action: `拉取本地快照 rev ${result.snapshot.revision}`,
+        action: `拉取团队快照 rev ${result.snapshot.revision}`,
         detail: `${result.pulled} 个请求 · ${Object.keys(result.snapshot.documents).length} 份文档`,
         actor: session.name,
       });
       message.success(`已拉取 rev ${result.snapshot.revision} · ${result.pulled} 个请求`);
-    } catch {
-      message.error('拉取失败，请稍后重试');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '拉取失败，请稍后重试');
     } finally {
       setSyncing(null);
     }
@@ -492,6 +536,7 @@ export function Sidebar({
 
         {filtered.map((folder, folderIndex) => {
           const isCollapsed = collapsed[folder.id] ?? false;
+          const folderReadOnly = collectionReadOnly(folder.id);
           return (
             <div className="folder" key={folder.id}>
               <div className="folder-head-wrap">
@@ -499,26 +544,27 @@ export function Sidebar({
                 trigger={['contextMenu']}
                 menu={{
                   items: [
-                    { key: 'new', label: '新建请求', icon: <PlusOutlined /> },
-                    { key: 'rename', label: '重命名集合' },
+                    { key: 'new', label: '新建请求', icon: <PlusOutlined />, disabled: folderReadOnly },
+                    { key: 'rename', label: '重命名集合', disabled: folderReadOnly },
                     {
                       key: 'move-up',
                       label: '上移',
-                      disabled: folderIndex === 0,
+                      disabled: folderReadOnly || folderIndex === 0,
                     },
                     {
                       key: 'move-down',
                       label: '下移',
-                      disabled: folderIndex === filtered.length - 1,
+                      disabled: folderReadOnly || folderIndex === filtered.length - 1,
                     },
                     { key: 'test', label: '运行测试集' },
                     { key: 'export', label: '导出集合' },
-                    { key: 'duplicate', label: '复制集合' },
+                    { key: 'duplicate', label: '复制集合', disabled: folderReadOnly },
                     { type: 'divider' },
-                    { key: 'delete', label: '删除集合', danger: true },
+                    { key: 'delete', label: '删除集合', danger: true, disabled: folderReadOnly },
                   ],
                   onClick: ({ key, domEvent }) => {
                     domEvent.stopPropagation();
+                    if (folderReadOnly && key !== 'test' && key !== 'export') return;
                     if (key === 'new') onCreateRequest(folder.id);
                     if (key === 'rename') {
                       setEditor({
@@ -543,69 +589,79 @@ export function Sidebar({
                   onClick={() =>
                     setCollapsed((current) => ({ ...current, [folder.id]: !isCollapsed }))
                   }
-                  onDoubleClick={() =>
+                  onDoubleClick={() => {
+                    if (folderReadOnly) return;
                     setEditor({
                       mode: 'rename-collection',
                       id: folder.id,
                       value: folder.name,
-                    })
-                  }
-                  title="双击重命名集合"
+                    });
+                  }}
+                  title={folderReadOnly ? '只读集合' : '双击重命名集合'}
                 >
                   <DownOutlined
                     className={`folder-caret${isCollapsed ? ' collapsed' : ''}`}
                   />
                   <FolderOpenOutlined />
                   <span>{folder.name}</span>
+                  {folderReadOnly && (
+                    <span className="request-lock" title="只读集合">
+                      只读
+                    </span>
+                  )}
                   <em>{folder.requests.length}</em>
                 </button>
               </Dropdown>
-                <Tooltip title="重命名集合">
-                  <button
-                    type="button"
-                    className="row-edit"
-                    aria-label={`重命名集合 ${folder.name}`}
-                    onClick={() =>
-                      setEditor({
-                        mode: 'rename-collection',
-                        id: folder.id,
-                        value: folder.name,
-                      })
-                    }
-                  >
-                    <EditOutlined />
-                  </button>
-                </Tooltip>
+                {!folderReadOnly && (
+                  <Tooltip title="重命名集合">
+                    <button
+                      type="button"
+                      className="row-edit"
+                      aria-label={`重命名集合 ${folder.name}`}
+                      onClick={() =>
+                        setEditor({
+                          mode: 'rename-collection',
+                          id: folder.id,
+                          value: folder.name,
+                        })
+                      }
+                    >
+                      <EditOutlined />
+                    </button>
+                  </Tooltip>
+                )}
               </div>
 
               {!isCollapsed && (
                 <div className="folder-body">
                   {folder.requests.map((request, requestIndex) => {
                     const saved = savedMap.get(request.id);
+                    const readOnly = requestReadOnly(request.id) || folderReadOnly;
                     return (
                       <div className="request-row-wrap" key={request.id}>
                       <Dropdown
                         trigger={['contextMenu']}
                         menu={{
                           items: [
-                            { key: 'new', label: '新建请求', icon: <PlusOutlined /> },
-                            { key: 'rename', label: '重命名请求' },
+                            { key: 'new', label: '新建请求', icon: <PlusOutlined />, disabled: folderReadOnly },
+                            { key: 'rename', label: '重命名请求', disabled: readOnly },
                             {
                               key: 'move-up',
                               label: '上移',
-                              disabled: requestIndex === 0,
+                              disabled: readOnly || requestIndex === 0,
                             },
                             {
                               key: 'move-down',
                               label: '下移',
-                              disabled: requestIndex === folder.requests.length - 1,
+                              disabled: readOnly || requestIndex === folder.requests.length - 1,
                             },
                             { type: 'divider' },
-                            { key: 'duplicate', label: '复制请求' },
-                            { key: 'delete', label: '删除请求', danger: true },
+                            { key: 'duplicate', label: '复制请求', disabled: readOnly },
+                            { key: 'delete', label: '删除请求', danger: true, disabled: readOnly },
                           ],
                           onClick: ({ key: action, domEvent }) => {
                             domEvent.stopPropagation();
+                            if (readOnly && action !== 'new') return;
                             if (action === 'new') onCreateRequest(folder.id);
                             if (action === 'rename') {
                               setEditor({
@@ -627,14 +683,15 @@ export function Sidebar({
                             request.id === activeRequestId ? ' active' : ''
                           }`}
                           onClick={() => onSelectRequest(request)}
-                          onDoubleClick={() =>
+                          onDoubleClick={() => {
+                            if (readOnly) return;
                             setEditor({
                               mode: 'rename-request',
                               id: request.id,
                               value: request.name,
-                            })
-                          }
-                          title={`${request.name} · ${request.path} · 双击重命名`}
+                            });
+                          }}
+                          title={`${request.name} · ${request.path}${readOnly ? ' · 只读' : ' · 双击重命名'}`}
                         >
                           <MethodTag method={request.method} />
                           <span className="request-path">{request.name}</span>
@@ -646,6 +703,11 @@ export function Sidebar({
                               <CheckCircleFilled />
                             </span>
                           )}
+                          {readOnly && (
+                            <span className="request-lock" title="只读资源">
+                              只读
+                            </span>
+                          )}
                           {request.dataLevel === 'L3' && (
                             <span className="request-lock" title="L3 涉密">
                               L3
@@ -653,22 +715,24 @@ export function Sidebar({
                           )}
                         </button>
                       </Dropdown>
-                        <Tooltip title="重命名请求">
-                          <button
-                            type="button"
-                            className="row-edit"
-                            aria-label={`重命名请求 ${request.name}`}
-                            onClick={() =>
-                              setEditor({
-                                mode: 'rename-request',
-                                id: request.id,
-                                value: request.name,
-                              })
-                            }
-                          >
-                            <EditOutlined />
-                          </button>
-                        </Tooltip>
+                        {!readOnly && (
+                          <Tooltip title="重命名请求">
+                            <button
+                              type="button"
+                              className="row-edit"
+                              aria-label={`重命名请求 ${request.name}`}
+                              onClick={() =>
+                                setEditor({
+                                  mode: 'rename-request',
+                                  id: request.id,
+                                  value: request.name,
+                                })
+                              }
+                            >
+                              <EditOutlined />
+                            </button>
+                          </Tooltip>
+                        )}
                       </div>
                     );
                   })}
@@ -809,40 +873,67 @@ export function Sidebar({
 
       <div
         className="sidebar-sync"
-        title={`${session.workspace} · ${
+        title={`${remoteTeam ? session.team?.serverUrl : session.workspace} · ${
           teamUpdatedAt ? `更新于 ${formatSavedAt(teamUpdatedAt)}` : '尚未推送'
         }`}
       >
         <CloudSyncOutlined />
         <div className="sidebar-sync-body">
-          <strong>{teamRevision != null ? `本地快照 rev ${teamRevision}` : '本地快照尚未建立'}</strong>
+          <strong>
+            {teamRevision != null
+              ? `${remoteTeam ? '团队快照' : '本地快照'} rev ${teamRevision}`
+              : `${remoteTeam ? '团队快照' : '本地快照'}尚未建立`}
+          </strong>
           <span>
-            {lastSync ?? `${savedRequests.length} 个请求 · ${docCount} 份文档草稿`}
+            {lastSync ??
+              (remoteTeam && teamAccess
+                ? `${roleLabels[teamAccess.role] ?? teamAccess.role} · ${savedRequests.length} 个请求 · ${docCount} 份文档`
+                : `${savedRequests.length} 个请求 · ${docCount} 份文档草稿`)}
           </span>
         </div>
         <div className="sidebar-sync-actions">
-          <Tooltip title="推送到本地快照">
+          <Tooltip
+            title={
+              !syncAllowed
+                ? 'A 离线模式下不连接团队服务'
+                : canPush
+                  ? remoteTeam
+                    ? '推送到团队服务'
+                    : '推送到本地快照'
+                  : '只读角色不能推送'
+            }
+          >
             <Button
               variant="text"
               size="small"
               color="green"
               icon={<CloudUploadOutlined />}
               loading={syncing === 'push'}
-              disabled={syncing === 'pull'}
+              disabled={!canPush || !syncAllowed || syncing === 'pull'}
               onClick={handlePush}
-              aria-label="推送到本地快照"
+              aria-label="推送快照"
             />
           </Tooltip>
-          <Tooltip title="从本地快照拉取">
+          <Tooltip
+            title={
+              !syncAllowed
+                ? 'A 离线模式下不连接团队服务'
+                : remoteTeam
+                  ? '从团队服务拉取'
+                  : '从本地快照拉取'
+            }
+          >
             <Button
               variant="text"
               size="small"
               color="cyan"
               icon={<CloudDownloadOutlined />}
               loading={syncing === 'pull'}
-              disabled={syncing === 'push' || teamRevision == null}
+              disabled={
+                !syncAllowed || syncing === 'push' || (!remoteTeam && teamRevision == null)
+              }
               onClick={handlePull}
-              aria-label="从本地快照拉取"
+              aria-label="拉取快照"
             />
           </Tooltip>
           <Tooltip title="三方合并">

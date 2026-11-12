@@ -6,30 +6,95 @@ import {
   WifiOutlined,
 } from '@ant-design/icons';
 import { Button, Input } from 'antd';
-import { enterLocal, enterTeam, type Session } from '../lib/session';
+import { enterLocal, enterTeamSession, type Session } from '../lib/session';
+import {
+  createTeamRemote,
+  loginTeam,
+  readServerHint,
+  type RemoteTeam,
+  type TeamConnection,
+} from '../lib/teamClient';
 
 interface LoginScreenProps {
   onSignedIn: (session: Session) => void;
 }
 
+const roleLabels: Record<string, string> = {
+  owner: '所有者',
+  admin: '管理员',
+  member: '成员',
+  viewer: '只读',
+};
+
 export function LoginScreen({ onSignedIn }: LoginScreenProps) {
-  const [teamName, setTeamName] = useState('');
-  const [memberName, setMemberName] = useState('');
+  const [serverUrl, setServerUrl] = useState(() => readServerHint());
+  const [account, setAccount] = useState('');
+  const [password, setPassword] = useState('');
+  const [phase, setPhase] = useState<'form' | 'choose'>('form');
+  const [connection, setConnection] = useState<TeamConnection | null>(null);
+  const [teams, setTeams] = useState<RemoteTeam[]>([]);
+  const [newTeamName, setNewTeamName] = useState('');
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  function handleLocal() {
-    setError('');
-    onSignedIn(enterLocal());
+  function enter(team: RemoteTeam) {
+    if (!connection) return;
+    onSignedIn(
+      enterTeamSession(connection.serverUrl, connection.user, {
+        id: team.id,
+        name: team.name,
+        role: team.role,
+      }),
+    );
   }
 
-  function handleTeam() {
-    const result = enterTeam(teamName, memberName);
-    if ('error' in result) {
-      setError(result.error);
+  async function handleConnect() {
+    if (!serverUrl.trim() || !account.trim() || !password) {
+      setError('请填写服务地址、账号与口令');
       return;
     }
+    setLoading(true);
     setError('');
-    onSignedIn(result);
+    try {
+      const result = await loginTeam(serverUrl, account, password);
+      setConnection(result.connection);
+      setTeams(result.teams);
+      setPhase('choose');
+
+      if (result.teams.length === 1) {
+        onSignedIn(
+          enterTeamSession(result.connection.serverUrl, result.connection.user, {
+            id: result.teams[0].id,
+            name: result.teams[0].name,
+            role: result.teams[0].role,
+          }),
+        );
+      }
+    } catch (connectError) {
+      setError(connectError instanceof Error ? connectError.message : '连接团队服务失败');
+      setPhase('form');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCreateTeam() {
+    if (!connection) return;
+    const name = newTeamName.trim();
+    if (!name) {
+      setError('请输入团队名称');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      const team = await createTeamRemote(connection, name);
+      enter(team);
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : '创建团队失败');
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -51,7 +116,7 @@ export function LoginScreen({ onSignedIn }: LoginScreenProps) {
         <div className="login-brand-copy">
           <span className="login-eyebrow">INTERNAL WORKSPACE</span>
           <h1>内网接口工作台</h1>
-          <p>请求调试、文档生成与本地快照，全部运行在私有网络内。</p>
+          <p>请求调试、文档生成与团队快照，全部运行在私有网络内。</p>
 
           <ul className="login-points">
             <li>
@@ -84,56 +149,144 @@ export function LoginScreen({ onSignedIn }: LoginScreenProps) {
       <section className="login-panel">
         <div className="login-card">
           <h2>进入工作区</h2>
-          <p>不需要账号口令。个人使用直接进入；团队使用填写团队与成员信息。</p>
+          <p>个人使用直接进入本机；团队使用登录团队服务，同步与权限由服务端统一管理。</p>
 
-          <Button type="primary" size="large" block onClick={handleLocal}>
+          <Button type="primary" size="large" block onClick={() => onSignedIn(enterLocal())}>
             直接进入本机工作区
           </Button>
 
-          <div className="login-divider">或使用团队工作区</div>
+          <div className="login-divider">或连接团队服务</div>
 
-          <div className="login-field">
-            <label htmlFor="login-team">团队名称</label>
-            <Input
-              id="login-team"
-              size="middle"
-              value={teamName}
-              maxLength={40}
-              onChange={(event) => setTeamName(event.target.value)}
-              onPressEnter={handleTeam}
-              placeholder="例如：支付中台"
-              autoComplete="organization"
-            />
-          </div>
+          {phase === 'form' ? (
+            <>
+              <div className="login-field">
+                <label htmlFor="login-server">服务地址</label>
+                <Input
+                  id="login-server"
+                  size="middle"
+                  value={serverUrl}
+                  onChange={(event) => setServerUrl(event.target.value)}
+                  placeholder="http://192.168.1.10:8080"
+                  autoComplete="url"
+                />
+              </div>
 
-          <div className="login-field">
-            <label htmlFor="login-member">成员名称</label>
-            <Input
-              id="login-member"
-              size="middle"
-              value={memberName}
-              maxLength={40}
-              onChange={(event) => setMemberName(event.target.value)}
-              onPressEnter={handleTeam}
-              placeholder="例如：张三"
-              autoComplete="name"
-            />
-          </div>
+              <div className="login-field">
+                <label htmlFor="login-account">账号</label>
+                <Input
+                  id="login-account"
+                  size="middle"
+                  value={account}
+                  onChange={(event) => setAccount(event.target.value)}
+                  placeholder="由团队管理员创建"
+                  autoComplete="username"
+                />
+              </div>
 
-          {error && <span className="login-error">{error}</span>}
+              <div className="login-field">
+                <label htmlFor="login-password">口令</label>
+                <Input.Password
+                  id="login-password"
+                  size="middle"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  onPressEnter={handleConnect}
+                  placeholder="请输入口令"
+                  autoComplete="current-password"
+                />
+              </div>
 
-          <Button
-            block
-            icon={<TeamOutlined />}
-            onClick={handleTeam}
-            disabled={!teamName.trim() || !memberName.trim()}
-          >
-            进入团队工作区
-          </Button>
+              {error && <span className="login-error">{error}</span>}
 
-          <div className="login-hint">
-            本机模式不校验身份。团队信息仅用于本机标识、审计与快照记录，不会上传；跨机同步需接入团队服务。
-          </div>
+              <Button
+                block
+                icon={<TeamOutlined />}
+                loading={loading}
+                onClick={handleConnect}
+                disabled={!serverUrl.trim() || !account.trim() || !password}
+              >
+                登录团队服务
+              </Button>
+
+              <div className="login-hint">
+                登录后可选择所属团队；账号与成员由团队管理员在管理台维护。团队快照保存在服务端。
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="login-hint" style={{ marginBottom: 12 }}>
+                已连接 {connection?.serverUrl} · {connection?.user.displayName}（
+                {connection?.user.account}）
+              </div>
+
+              {teams.length > 0 ? (
+                <>
+                  <div className="login-team-list">
+                    {teams.map((team) => (
+                      <button
+                        key={team.id}
+                        type="button"
+                        className="login-team-item"
+                        onClick={() => enter(team)}
+                        disabled={loading}
+                      >
+                        <div>
+                          <strong>{team.name}</strong>
+                          <span>
+                            {roleLabels[team.role] ?? team.role} · {team.memberCount} 人 · rev #
+                            {team.revision}
+                          </span>
+                        </div>
+                        <em>进入</em>
+                      </button>
+                    ))}
+                  </div>
+
+                  {error && <span className="login-error">{error}</span>}
+                </>
+              ) : (
+                <>
+                  <div className="login-field">
+                    <label htmlFor="login-new-team">创建团队</label>
+                    <Input
+                      id="login-new-team"
+                      size="middle"
+                      value={newTeamName}
+                      onChange={(event) => setNewTeamName(event.target.value)}
+                      onPressEnter={handleCreateTeam}
+                      placeholder="例如：支付中台"
+                    />
+                  </div>
+
+                  {error && <span className="login-error">{error}</span>}
+
+                  <Button
+                    type="primary"
+                    block
+                    icon={<TeamOutlined />}
+                    loading={loading}
+                    disabled={!newTeamName.trim()}
+                    onClick={handleCreateTeam}
+                  >
+                    创建团队并进入
+                  </Button>
+                </>
+              )}
+
+              <Button
+                type="link"
+                size="small"
+                block
+                style={{ marginTop: 8 }}
+                onClick={() => {
+                  setPhase('form');
+                  setError('');
+                }}
+              >
+                使用其他账号
+              </Button>
+            </>
+          )}
         </div>
       </section>
     </div>

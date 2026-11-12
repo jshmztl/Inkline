@@ -3,7 +3,10 @@ import { kvGet, kvRemove, kvSet } from './kv';
 export type SessionMode = 'local' | 'team';
 
 export interface TeamProfile {
+  id: string;
   name: string;
+  role: string;
+  serverUrl: string;
   member: string;
 }
 
@@ -39,24 +42,38 @@ export function readSession(): Session | null {
     const mode: SessionMode =
       parsed.mode === 'team'
         ? 'team'
-        : parsed.mode === 'local' || workspace.includes('支付中台') || workspace === '本机工作区'
+        : parsed.mode === 'local' || workspace === '本机工作区'
           ? 'local'
           : 'team';
-    const name = String(parsed.name ?? parsed.account.split('@')[0] ?? parsed.account);
 
+    if (mode === 'team') {
+      const team = parsed.team;
+      // 旧版本只记录了团队名称，没有真实服务端连接，需要重新登录。
+      if (!team?.id || !team?.serverUrl) return null;
+      return {
+        mode,
+        account: String(parsed.account),
+        name: String(parsed.name ?? parsed.account),
+        role: String(team.role ?? parsed.role ?? 'member'),
+        workspace: String(team.name ?? workspace),
+        team: {
+          id: String(team.id),
+          name: String(team.name),
+          role: String(team.role ?? parsed.role ?? 'member'),
+          serverUrl: String(team.serverUrl),
+          member: String(team.member ?? parsed.name ?? parsed.account),
+        },
+        signedAt: String(parsed.signedAt ?? new Date().toISOString()),
+      };
+    }
+
+    const name = String(parsed.name ?? parsed.account.split('@')[0] ?? parsed.account);
     return {
-      mode,
+      mode: 'local',
       account: String(parsed.account),
       name,
-      role: String(parsed.role ?? (mode === 'team' ? '团队成员' : '本机用户')),
-      workspace: mode === 'local' ? '本机工作区' : workspace,
-      team:
-        mode === 'team'
-          ? {
-              name: String(parsed.team?.name ?? workspace),
-              member: String(parsed.team?.member ?? name),
-            }
-          : undefined,
+      role: String(parsed.role ?? '本机用户'),
+      workspace: '本机工作区',
       signedAt: String(parsed.signedAt ?? new Date().toISOString()),
     };
   } catch {
@@ -76,48 +93,27 @@ export function enterLocal(): Session {
   });
 }
 
-/** 团队模式：仅记录团队与成员标识，数据仍保存在本机。 */
-export function enterTeam(
-  teamName: string,
-  memberName: string,
-): Session | { error: string } {
-  const team = teamName.trim();
-  const member = memberName.trim();
-  if (!team) return { error: '请输入团队名称' };
-  if (!member) return { error: '请输入成员名称' };
-
+/** 团队模式：登录团队服务并选择团队后建立会话。 */
+export function enterTeamSession(
+  serverUrl: string,
+  user: { account: string; displayName: string },
+  team: { id: string; name: string; role: string },
+): Session {
+  const member = user.displayName || user.account;
   return persist({
     mode: 'team',
-    account: member,
+    account: user.account,
     name: member,
-    role: '团队成员',
-    workspace: team,
-    team: { name: team, member },
+    role: team.role,
+    workspace: team.name,
+    team: {
+      id: team.id,
+      name: team.name,
+      role: team.role,
+      serverUrl,
+      member,
+    },
     signedAt: new Date().toISOString(),
-  });
-}
-
-/** 修改团队名称或成员名称，保持当前会话其余信息不变。 */
-export function saveTeamProfile(
-  teamName: string,
-  memberName: string,
-): Session | { error: string } {
-  const current = readSession();
-  if (!current || current.mode !== 'team') {
-    return { error: '当前不是团队工作区' };
-  }
-
-  const team = teamName.trim();
-  const member = memberName.trim();
-  if (!team) return { error: '请输入团队名称' };
-  if (!member) return { error: '请输入成员名称' };
-
-  return persist({
-    ...current,
-    account: member,
-    name: member,
-    workspace: team,
-    team: { name: team, member },
   });
 }
 

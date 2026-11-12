@@ -95,8 +95,79 @@ fn grants_json(policy: Option<&policy::ResourcePolicy>) -> Vec<Value> {
         .unwrap_or_default()
 }
 
-pub async fn list_permissions(
+fn access_label(access: policy::Access) -> &'static str {
+    match access {
+        policy::Access::Edit => "edit",
+        policy::Access::View => "view",
+        policy::Access::None => "none",
+    }
+}
+
+/// 当前成员在当前团队的可见 / 编辑能力，用于客户端展示只读状态。
+pub async fn get_access(
     State(state): State<AppState>,
+    user: AuthUser,
+    Path(team_id): Path<Uuid>,
+) -> Result<Json<Value>, AppError> {
+    let role = crate::api::teams::require_membership(&state.pool, team_id, user.0).await?;
+    let viewer = policy::Viewer::new(user.0, &role);
+    let policies = policy::load_policies(&state.pool, team_id).await?;
+    let payload: Option<Value> = sqlx::query_scalar(
+        "SELECT payload FROM snapshots WHERE team_id = $1 ORDER BY revision DESC LIMIT 1",
+    )
+    .bind(team_id)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    let mut collections = serde_json::Map::new();
+    let mut requests = serde_json::Map::new();
+
+    if let Some(payload) = payload {
+        if let Some(items) = payload.get("collections").and_then(Value::as_array) {
+            for item in items {
+                let Some(id) = item.get("id").and_then(Value::as_str) else {
+                    continue;
+                };
+                let access = policy::collection_access(&policies, id, &viewer);
+                if access != policy::Access::None {
+                    collections.insert(id.to_string(), Value::String(access_label(access).into()));
+                }
+            }
+        }
+        if let Some(items) = payload.get("requests").and_then(Value::as_array) {
+            for item in items {
+                let Some(id) = item.get("id").and_then(Value::as_str) else {
+                    continue;
+                };
+                let collection_id = item
+                    .get("collectionId")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let level = if collection_id.is_empty() {
+                    policy::collection_access(&policies, "", &viewer)
+                } else {
+                    policy::collection_access(&policies, collection_id, &viewer)
+                };
+                let access = policy::request_access(&policies, level, id, &viewer);
+                if access != policy::Access::None {
+                    requests.insert(id.to_string(), Value::String(access_label(access).into()));
+                }
+            }
+        }
+    }
+
+    let manager = role == "owner" || role == "admin";
+    Ok(Json(json!({
+        "role": role,
+        "canPush": role != "viewer",
+        "canManageMembers": manager,
+        "canManagePermissions": manager,
+        "collections": collections,
+        "requests": requests,
+    })))
+}
+
+pub async fn list_permissions(    State(state): State<AppState>,
     user: AuthUser,
     Path(team_id): Path<Uuid>,
 ) -> Result<Json<Value>, AppError> {

@@ -72,6 +72,7 @@ docker compose up -d --build
 | PATCH | `/v1/teams/{id}/members/{userId}` | 调整成员角色 |
 | DELETE | `/v1/teams/{id}/members/{userId}` | 移除成员（同时撤销其资源授权） |
 | POST | `/v1/teams/{id}/members/{userId}/reset-password` | 重置口令并撤销刷新令牌 |
+| GET | `/v1/teams/{id}/access` | 当前成员的可见 / 编辑能力（客户端只读展示） |
 | GET | `/v1/teams/{id}/permissions` | 资源树与当前权限配置（owner / admin） |
 | PUT | `/v1/teams/{id}/permissions/{type}/{resourceId}` | 设置集合 / 接口可见性 |
 | DELETE | `/v1/teams/{id}/permissions/{type}/{resourceId}` | 恢复默认（接口回到继承集合） |
@@ -125,6 +126,15 @@ http://<服务器地址>:8080/admin/
 - 成员对只读资源提交的修改会被忽略；只读角色不能推送快照。
 - 服务端保存的 `payload_hash` 是合并后完整快照的 hash；`source_hash` 记录客户端原始提交内容，用于幂等重试判断。
 - 删除集合时会保留其中不可见的接口：只要集合内存在查看者无权编辑的接口，集合删除会被忽略，避免误删隐藏资源。
+
+### 桌面客户端接入
+
+- 登录：在登录页填写服务地址、账号与口令；登录后若属于多个团队会列出团队供选择，没有团队可直接创建。
+- 令牌：访问令牌与刷新令牌保存在本机设置库（SQLite），访问令牌过期自动刷新；退出团队工作区会撤销刷新令牌。后续可替换为操作系统凭据库。
+- 拉取：`GET /v1/teams/{id}/snapshots/latest` + 快照内容，按服务端裁剪结果增量写入本机集合、接口与文档草稿；不会删除本机额外请求。
+- 推送：携带 `X-Inkline-Base-Revision` 与 `Idempotency-Key`；首次推送前建议先拉取，否则会收到 `409 revision_conflict`，客户端会拉取远端并打开三方合并。
+- 权限：客户端通过 `GET /v1/teams/{id}/access` 获取当前账号对集合 / 接口的 `edit` / `view` 能力；只读资源显示锁标记并禁用重命名、移动、删除等操作，只读角色禁止推送。
+- 隐藏资源不会出现在客户端快照中；成员对只读资源的本地修改不会同步到服务端。
 
 ## 快速验证
 

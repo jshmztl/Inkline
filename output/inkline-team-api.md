@@ -387,6 +387,25 @@ refresh_tokens (
 
 重置口令并撤销该账号全部刷新令牌；`admin` 只能重置成员 / 只读账号。
 
+#### GET /v1/teams/{teamId}/access
+
+返回当前成员对可见资源的操作能力，供桌面客户端展示只读状态与同步按钮：
+
+```json
+{
+  "role": "member",
+  "canPush": true,
+  "canManageMembers": false,
+  "canManagePermissions": false,
+  "collections": { "col-1": "edit", "col-2": "view" },
+  "requests": { "req-1": "edit", "req-2": "view" }
+}
+```
+
+- 只包含当前成员可见的资源；`view` 表示可查看但修改不会同步，`edit` 表示可编辑。
+- 所有者与管理员对所有资源返回 `edit`。
+- `viewer` 角色 `canPush = false`。
+
 #### GET /v1/teams/{teamId}/permissions
 
 返回资源树与权限配置（仅 `owner` / `admin`）：
@@ -580,6 +599,14 @@ sequenceDiagram
 - 在事务内对 `teams.current_revision` 执行 `UPDATE ... RETURNING`，保证同一团队严格递增。
 - `baseRevision` 必须等于当前 `current_revision`，否则返回 `409`。
 - 只接受单调递增，不接受客户端指定 revision。
+
+#### 桌面客户端行为
+
+- 首次接入已有团队时先拉取，再以拉取到的 revision 作为 `baseRevision` 推送。
+- 收到 `409 revision_conflict` 时拉取最新远端快照，并使用本地基准做三方合并，合并完成后重新推送。
+- 拉取采用增量写入：更新服务端返回的集合、接口与文档，不删除本机额外请求，避免首次接入丢失本地数据。
+- 客户端用 `GET /v1/teams/{teamId}/access` 标记只读集合 / 接口：隐藏重命名、移动、删除等入口；`viewer` 禁用推送按钮。
+- 只读资源的本地修改仅保存在本机，推送时服务端会忽略；被隐藏的资源不会下发到客户端。
 
 ### 6.5 审计
 

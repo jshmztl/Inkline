@@ -15,7 +15,7 @@ import { App, Button, Drawer, Dropdown, Input, Modal, Progress, Segmented, Selec
 import type { Density, ThemeMode } from '@inkline/ui';
 import { networkModes, type NetworkMode } from '../data/types';
 import { clearAudit, listAudit, type AuditEntry, type AuditType } from '../lib/audit';
-import { saveTeamProfile, type Session } from '../lib/session';
+import type { Session } from '../lib/session';
 import { checkUpdate, installUpdate, type UpdateInfo, type UpdateProgress } from '../lib/update';
 
 interface TopBarProps {
@@ -31,7 +31,6 @@ interface TopBarProps {
   onEnvironmentChange: (environment: string) => void;
   onSignOut: () => void;
   onOpenPalette: () => void;
-  onSessionChange: (session: Session) => void;
 }
 
 const densityItems = [
@@ -57,6 +56,17 @@ const auditTypeLabel: Record<AuditType, string> = {
   sync: '本机快照',
 };
 
+const roleLabels: Record<string, string> = {
+  owner: '所有者',
+  admin: '管理员',
+  member: '成员',
+  viewer: '只读',
+};
+
+function roleLabel(role: string) {
+  return roleLabels[role] ?? role ?? '团队成员';
+}
+
 function formatAuditTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -77,7 +87,6 @@ export function TopBar({
   onEnvironmentChange,
   onSignOut,
   onOpenPalette,
-  onSessionChange,
 }: TopBarProps) {
   const { message, notification } = App.useApp();
   const network = networkModes[networkMode];
@@ -91,8 +100,6 @@ export function TopBar({
   const [installing, setInstalling] = useState(false);
   const [progress, setProgress] = useState<UpdateProgress>({ downloaded: 0, total: null });
   const [teamOpen, setTeamOpen] = useState(false);
-  const [teamNameDraft, setTeamNameDraft] = useState('');
-  const [memberDraft, setMemberDraft] = useState('');
 
   useEffect(() => {
     if (!auditOpen) return;
@@ -197,20 +204,7 @@ export function TopBar({
   }
 
   function openTeamSettings() {
-    setTeamNameDraft(session.team?.name ?? session.workspace);
-    setMemberDraft(session.team?.member ?? session.name);
     setTeamOpen(true);
-  }
-
-  function handleSaveTeam() {
-    const result = saveTeamProfile(teamNameDraft, memberDraft);
-    if ('error' in result) {
-      message.error(result.error);
-      return;
-    }
-    onSessionChange(result);
-    setTeamOpen(false);
-    message.success('团队信息已更新');
   }
 
   return (
@@ -341,47 +335,33 @@ export function TopBar({
 
       <Modal
         open={teamOpen}
-        title="团队设置"
-        width={420}
+        title="团队连接"
+        width={440}
         onCancel={() => setTeamOpen(false)}
         footer={[
-          <Button key="cancel" size="small" onClick={() => setTeamOpen(false)}>
-            取消
-          </Button>,
-          <Button
-            key="save"
-            size="small"
-            type="primary"
-            disabled={!teamNameDraft.trim() || !memberDraft.trim()}
-            onClick={handleSaveTeam}
-          >
-            保存
+          <Button key="close" size="small" type="primary" onClick={() => setTeamOpen(false)}>
+            关闭
           </Button>,
         ]}
       >
         <div className="login-field">
-          <label htmlFor="team-name">团队名称</label>
-          <Input
-            id="team-name"
-            value={teamNameDraft}
-            maxLength={40}
-            onChange={(event) => setTeamNameDraft(event.target.value)}
-            placeholder="例如：支付中台"
-          />
+          <label>团队服务</label>
+          <Input value={session.team?.serverUrl ?? ''} readOnly />
         </div>
         <div className="login-field">
-          <label htmlFor="team-member">成员名称</label>
-          <Input
-            id="team-member"
-            value={memberDraft}
-            maxLength={40}
-            onChange={(event) => setMemberDraft(event.target.value)}
-            onPressEnter={handleSaveTeam}
-            placeholder="例如：张三"
-          />
+          <label>团队</label>
+          <Input value={session.team?.name ?? session.workspace} readOnly />
+        </div>
+        <div className="login-field">
+          <label>当前成员</label>
+          <Input value={`${session.name} · ${session.account}`} readOnly />
+        </div>
+        <div className="login-field">
+          <label>团队角色</label>
+          <Input value={roleLabel(session.role)} readOnly />
         </div>
         <div className="login-hint">
-          团队信息用于本机标识、审计与快照记录，不会上传；团队快照仍保存在本机，跨机同步需接入团队服务。
+          账号、成员与资源权限由团队管理员在服务端管理台维护。需要切换团队时，退出后重新登录即可。
         </div>
       </Modal>
 

@@ -1,50 +1,117 @@
-import type { SavedRequest } from './api';
+import type { Collection, SavedRequest } from './api';
 import type { DraftField } from './docTask';
-import { kvGet, kvKeys, kvSet } from './kv';
+import { kvGet, kvKeys, kvRemove, kvSet } from './kv';
 
 const REMOTE_KEY = 'aw-team-remote';
 const BASE_KEY = 'aw-team-base';
 const DOC_PREFIX = 'aw-doc-draft:';
+
+function remoteKey(teamId?: string) {
+  return teamId ? `${REMOTE_KEY}:${teamId}` : REMOTE_KEY;
+}
+
+function baseKey(teamId?: string) {
+  return teamId ? `${BASE_KEY}:${teamId}` : BASE_KEY;
+}
 
 export interface TeamSnapshot {
   revision: number;
   updatedAt: string;
   pushedBy: string;
   workspace: string;
+  schemaVersion?: number;
+  collections?: Collection[];
   requests: SavedRequest[];
   documents: Record<string, DraftField[]>;
 }
 
-export function readTeamSnapshot(): TeamSnapshot | null {
+export interface RemoteSnapshotPayload {
+  schemaVersion: number;
+  collections?: Collection[];
+  requests?: SavedRequest[];
+  documents?: Record<string, DraftField[]>;
+}
+
+function validSnapshot(parsed: TeamSnapshot | null): TeamSnapshot | null {
+  if (!parsed || typeof parsed.revision !== 'number' || !Array.isArray(parsed.requests)) {
+    return null;
+  }
+  return {
+    ...parsed,
+    collections: Array.isArray(parsed.collections) ? parsed.collections : [],
+    documents: parsed.documents && typeof parsed.documents === 'object' ? parsed.documents : {},
+  };
+}
+
+export function readTeamSnapshot(teamId?: string): TeamSnapshot | null {
   try {
-    const raw = kvGet(REMOTE_KEY);
+    const raw = kvGet(remoteKey(teamId));
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as TeamSnapshot;
-    if (!parsed?.revision || !Array.isArray(parsed.requests)) return null;
-    return parsed;
+    return validSnapshot(JSON.parse(raw) as TeamSnapshot);
   } catch {
     return null;
   }
 }
 
-export function readTeamBase(): TeamSnapshot | null {
+export function readTeamBase(teamId?: string): TeamSnapshot | null {
   try {
-    const raw = kvGet(BASE_KEY);
+    const raw = kvGet(baseKey(teamId));
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as TeamSnapshot;
-    if (!parsed?.revision || !Array.isArray(parsed.requests)) return null;
-    return parsed;
+    return validSnapshot(JSON.parse(raw) as TeamSnapshot);
   } catch {
     return null;
   }
 }
 
-export function writeTeamBase(snapshot: TeamSnapshot) {
+export function writeTeamBase(snapshot: TeamSnapshot, teamId?: string) {
   try {
-    kvSet(BASE_KEY, JSON.stringify(snapshot));
+    kvSet(baseKey(teamId), JSON.stringify(snapshot));
   } catch {
     // 基准快照写入失败时下次按双端比较处理。
   }
+}
+
+/** 用远端快照覆盖本地缓存，供三方合并与状态展示使用。 */
+export function writeTeamSnapshot(snapshot: TeamSnapshot, teamId?: string) {
+  try {
+    kvSet(remoteKey(teamId), JSON.stringify(snapshot));
+  } catch {
+    // 本地缓存写入失败不影响服务端同步。
+  }
+}
+
+export function buildRemotePayload(snapshot: TeamSnapshot): Record<string, unknown> {
+  return {
+    schemaVersion: 2,
+    collections: (snapshot.collections ?? []).map((collection) => ({
+      id: collection.id,
+      name: collection.name,
+      sort: collection.sort ?? 0,
+    })),
+    requests: snapshot.requests,
+    documents: snapshot.documents,
+  };
+}
+
+export function snapshotFromRemote(
+  payload: RemoteSnapshotPayload,
+  meta: {
+    revision: number;
+    createdAt: string;
+    createdBy?: { displayName?: string };
+    workspace: string;
+  },
+): TeamSnapshot {
+  return {
+    revision: meta.revision,
+    updatedAt: meta.createdAt,
+    pushedBy: meta.createdBy?.displayName ?? '',
+    workspace: meta.workspace,
+    schemaVersion: payload.schemaVersion ?? 2,
+    collections: Array.isArray(payload.collections) ? payload.collections : [],
+    requests: Array.isArray(payload.requests) ? payload.requests : [],
+    documents: payload.documents && typeof payload.documents === 'object' ? payload.documents : {},
+  };
 }
 
 export function collectLocalDocuments(): Record<string, DraftField[]> {
@@ -68,6 +135,7 @@ export function collectLocalDocuments(): Record<string, DraftField[]> {
 
 export function pushTeamSnapshot(
   pushedBy: string,
+  collections: Collection[],
   requests: SavedRequest[],
   documents: Record<string, DraftField[]>,
   workspace = '本机工作区',
@@ -78,6 +146,8 @@ export function pushTeamSnapshot(
     updatedAt: new Date().toISOString(),
     pushedBy,
     workspace,
+    schemaVersion: 2,
+    collections,
     requests,
     documents,
   };
@@ -106,5 +176,15 @@ export function writeRemoteDocuments(documents: Record<string, DraftField[]>) {
     }
   } catch {
     // 忽略文档草稿写入失败。
+  }
+}
+
+export function removeRemoteDocuments(requestIds: string[]) {
+  try {
+    for (const requestId of requestIds) {
+      kvRemove(`${DOC_PREFIX}${requestId}`);
+    }
+  } catch {
+    // 忽略文档草稿清理失败。
   }
 }

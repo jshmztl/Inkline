@@ -3914,6 +3914,56 @@ html[data-theme='dark'] .ai-panel .ai-bubble-end .ant-bubble-content {
   font-size: 12px;
 }
 
+.login-team-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.login-team-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--aw-line);
+  border-radius: 8px;
+  background: var(--aw-surface, #fff);
+  color: var(--aw-ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.login-team-item:hover:not(:disabled) {
+  border-color: var(--aw-accent, #2f5bea);
+  background: var(--aw-accent-soft, #f8faff);
+}
+
+.login-team-item:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.login-team-item strong {
+  display: block;
+  font-size: 13px;
+}
+
+.login-team-item span {
+  color: var(--aw-muted);
+  font-size: 12px;
+}
+
+.login-team-item em {
+  font-style: normal;
+  color: var(--aw-accent, #2f5bea);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 @media (max-width: 900px) {
   .login-screen {
     grid-template-columns: 1fr;
