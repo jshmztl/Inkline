@@ -300,6 +300,38 @@
     .side-diff td.code { width: calc(50% - 40px); }
     .side-diff td.side-add { background: #e8f7ef; color: #0f5c35; }
     .side-diff td.side-remove { background: #fef2f2; color: #991b1b; }
+
+    /* 渲染后的文档对照 */
+    #diff-dialog {
+      width: calc(100vw - 8px);
+      height: calc(100vh - 8px);
+      max-width: none;
+      max-height: none;
+    }
+    #diff-dialog .dialog-body {
+      height: calc(100% - 57px);
+      overflow: auto;
+      padding: 18px 22px 28px;
+    }
+    .doc-diff { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    .doc-diff th { text-align: left; padding: 8px 14px; background: #f8fafc; color: var(--muted); font-weight: 500; font-size: 11px; border-bottom: 1px solid var(--line); }
+    .doc-diff td { width: 50%; vertical-align: top; padding: 8px 14px; border-bottom: 1px solid #eef2f7; }
+    .doc-diff td.diff-remove { background: #fef2f2; box-shadow: inset 3px 0 0 #dc2626; }
+    .doc-diff td.diff-add { background: #e8f7ef; box-shadow: inset 3px 0 0 #0f9d58; }
+    .doc-diff td.diff-change-left { background: #fef2f2; box-shadow: inset 3px 0 0 #dc2626; }
+    .doc-diff td.diff-change-right { background: #e8f7ef; box-shadow: inset 3px 0 0 #0f9d58; }
+    .doc-title { display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 600; }
+    .doc-meta { display: flex; gap: 8px; font-size: 12.5px; }
+    .doc-meta span { color: var(--muted); min-width: 56px; }
+    .doc-heading { margin-top: 10px; padding-bottom: 4px; border-bottom: 1px solid var(--line); color: #334155; font-size: 13px; font-weight: 600; }
+    .doc-kv { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 10px; font-size: 12.5px; }
+    .doc-kv span { word-break: break-all; }
+    .doc-code-line { margin: 0; padding: 1px 10px; background: #0b1220; color: #dbeafe; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
+    .doc-field { display: grid; grid-template-columns: 1.2fr 1fr 0.7fr 0.6fr 2fr; gap: 8px; padding: 4px 0; border-bottom: 1px solid #f1f5f9; font-size: 12px; }
+    .doc-field:last-child { border-bottom: 0; }
+    .doc-field code { color: #1d4ed8; }
+    .doc-field span { word-break: break-all; }
+    .doc-muted { color: #94a3b8; font-size: 12px; }
     @media (max-width: 1280px) {
       .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     }
@@ -2443,18 +2475,23 @@ ${body}
         const requests = requestIds.map((id) => {
           const left = beforeRequests.get(id) || null;
           const right = afterRequests.get(id) || null;
-          const leftLines = left ? requestContentLines(before, left) : [];
-          const rightLines = right ? requestContentLines(after, right) : [];
+          const leftBlocks = left ? requestDocBlocks(before, left) : [];
+          const rightBlocks = right ? requestDocBlocks(after, right) : [];
           let status = 'same';
           if (!left) status = 'add';
           else if (!right) status = 'remove';
-          else if (leftLines.join('\n') !== rightLines.join('\n')) status = 'change';
+          else if (
+            leftBlocks.map(docBlockSignature).join('\u0000')
+            !== rightBlocks.map(docBlockSignature).join('\u0000')
+          ) {
+            status = 'change';
+          }
           return {
             id,
             left,
             right,
-            leftLines,
-            rightLines,
+            leftBlocks,
+            rightBlocks,
             status,
             name: right?.name ?? left?.name ?? id,
             method: right?.method ?? left?.method ?? 'GET',
@@ -2473,6 +2510,203 @@ ${body}
           collectionCount: count(collections),
           requestCount: count(requests),
         };
+      }
+
+      function requestDocBlocks(payload, request) {
+        const docs = payload?.documents?.[request.id];
+        const fields = Array.isArray(docs) ? docs : [];
+        const headers = Array.isArray(request.headers) ? request.headers : [];
+        const blocks = [
+          { type: 'title', method: request.method || 'GET', name: request.name || '未命名接口' },
+          { type: 'meta', label: '方法', value: request.method || 'GET' },
+          { type: 'meta', label: '路径', value: request.url ?? request.path ?? '' },
+          { type: 'meta', label: '所属集合', value: collectionName(payload, request.collectionId) },
+          { type: 'meta', label: '数据分级', value: dataLevelText(request.dataLevel || 'L1') },
+          { type: 'heading', text: `请求头（${headers.length}）` },
+        ];
+        if (headers.length) {
+          for (const header of headers) {
+            blocks.push({ type: 'kv', label: header.name || '', value: header.value || '' });
+          }
+        } else {
+          blocks.push({ type: 'muted', text: '未配置请求头' });
+        }
+        blocks.push({ type: 'heading', text: '请求体' });
+        if (request.body) {
+          for (const line of String(request.body).split('\n')) {
+            blocks.push({ type: 'code', text: line });
+          }
+        } else {
+          blocks.push({ type: 'muted', text: '无请求体' });
+        }
+        blocks.push({ type: 'heading', text: `字段说明（${fields.length}）` });
+        if (fields.length) {
+          for (const field of fields) {
+            blocks.push({ type: 'field', field });
+          }
+        } else {
+          blocks.push({ type: 'muted', text: '暂无字段说明' });
+        }
+        return blocks;
+      }
+
+      function docBlockSignature(block) {
+        if (!block) return '';
+        if (block.type === 'field') {
+          const field = block.field || {};
+          return JSON.stringify([
+            'field',
+            field.key || '',
+            field.path || '',
+            field.type || '',
+            field.source || '',
+            field.description || '',
+          ]);
+        }
+        return JSON.stringify([
+          block.type,
+          block.label || '',
+          block.value || '',
+          block.text || '',
+          block.method || '',
+          block.name || '',
+        ]);
+      }
+
+      function computeBlockDiff(leftBlocks, rightBlocks) {
+        const left = leftBlocks || [];
+        const right = rightBlocks || [];
+        const table = Array.from({ length: left.length + 1 }, () =>
+          new Uint16Array(right.length + 1),
+        );
+        for (let i = left.length - 1; i >= 0; i -= 1) {
+          for (let j = right.length - 1; j >= 0; j -= 1) {
+            table[i][j] = docBlockSignature(left[i]) === docBlockSignature(right[j])
+              ? table[i + 1][j + 1] + 1
+              : Math.max(table[i + 1][j], table[i][j + 1]);
+          }
+        }
+
+        const ops = [];
+        let i = 0;
+        let j = 0;
+        while (i < left.length && j < right.length) {
+          if (docBlockSignature(left[i]) === docBlockSignature(right[j])) {
+            ops.push({ type: 'same', left: left[i], right: right[j] });
+            i += 1;
+            j += 1;
+          } else if (table[i + 1][j] >= table[i][j + 1]) {
+            ops.push({ type: 'remove', left: left[i], right: null });
+            i += 1;
+          } else {
+            ops.push({ type: 'add', left: null, right: right[j] });
+            j += 1;
+          }
+        }
+        while (i < left.length) {
+          ops.push({ type: 'remove', left: left[i], right: null });
+          i += 1;
+        }
+        while (j < right.length) {
+          ops.push({ type: 'add', left: null, right: right[j] });
+          j += 1;
+        }
+
+        const rows = [];
+        let index = 0;
+        while (index < ops.length) {
+          if (ops[index].type === 'same') {
+            rows.push(ops[index]);
+            index += 1;
+            continue;
+          }
+          const removes = [];
+          const adds = [];
+          while (index < ops.length && ops[index].type === 'remove') {
+            removes.push(ops[index].left);
+            index += 1;
+          }
+          while (index < ops.length && ops[index].type === 'add') {
+            adds.push(ops[index].right);
+            index += 1;
+          }
+          const size = Math.max(removes.length, adds.length);
+          for (let offset = 0; offset < size; offset += 1) {
+            const hasLeft = Boolean(removes[offset]);
+            const hasRight = Boolean(adds[offset]);
+            rows.push({
+              type: hasLeft && hasRight ? 'change' : hasLeft ? 'remove' : 'add',
+              left: removes[offset] || null,
+              right: adds[offset] || null,
+            });
+          }
+        }
+        return rows;
+      }
+
+      function renderDocBlock(block) {
+        if (!block) return '';
+        if (block.type === 'title') {
+          return h('div', { class: 'doc-title' },
+            h('span', { class: `method ${block.method || 'GET'}`, text: block.method || 'GET' }),
+            h('span', { text: block.name || '' }),
+          );
+        }
+        if (block.type === 'meta') {
+          return h('div', { class: 'doc-meta' },
+            h('span', { text: block.label || '' }),
+            h('span', { text: block.value || '' }),
+          );
+        }
+        if (block.type === 'heading') {
+          return h('div', { class: 'doc-heading', text: block.text || '' });
+        }
+        if (block.type === 'kv') {
+          return h('div', { class: 'doc-kv' },
+            h('code', { text: block.label || '' }),
+            h('span', { text: block.value || '' }),
+          );
+        }
+        if (block.type === 'code') {
+          return h('div', { class: 'doc-code-line', text: block.text || ' ' });
+        }
+        if (block.type === 'field') {
+          const field = block.field || {};
+          return h('div', { class: 'doc-field' },
+            h('strong', { text: field.key || '-' }),
+            h('code', { text: field.path || '-' }),
+            h('span', { text: field.type || '-' }),
+            h('span', { text: field.source || '-' }),
+            h('span', { text: field.description || '-' }),
+          );
+        }
+        return h('div', { class: 'doc-muted', text: block.text || '' });
+      }
+
+      function renderDocDiff(leftBlocks, rightBlocks) {
+        const rows = computeBlockDiff(leftBlocks, rightBlocks);
+        const body = h('tbody');
+        for (const row of rows) {
+          const leftTone = row.type === 'remove'
+            ? 'diff-remove'
+            : row.type === 'change' ? 'diff-change-left' : '';
+          const rightTone = row.type === 'add'
+            ? 'diff-add'
+            : row.type === 'change' ? 'diff-change-right' : '';
+          body.append(h('tr', {},
+            h('td', { class: leftTone }, row.left ? renderDocBlock(row.left) : ''),
+            h('td', { class: rightTone }, row.right ? renderDocBlock(row.right) : ''),
+          ));
+        }
+        return h('div', { class: 'table-wrap' },
+          h('table', { class: 'doc-diff' },
+            h('thead', {}, h('tr', {},
+              h('th', { text: '上一版本' }),
+              h('th', { text: '当前版本' }),
+            )),
+            body,
+          ),
+        );
       }
 
       function computeLineDiff(beforeText, afterText) {
@@ -2629,7 +2863,7 @@ ${body}
         const changedRequests = diff.requests.filter((row) => row.status !== 'same');
         const blocks = changedRequests.map((row) => h('div', { class: 'diff-section' },
           h('h4', { text: `接口内容 · ${row.method} ${row.name}` }),
-          renderSideBySide(computeLineDiff(row.leftLines.join('\n'), row.rightLines.join('\n'))),
+          renderDocDiff(row.leftBlocks, row.rightBlocks),
         ));
 
         diffBody.replaceChildren(
