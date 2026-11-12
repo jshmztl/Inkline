@@ -149,6 +149,15 @@
     .table select { height: 30px; border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 0 8px; }
     .settings-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; max-width: 720px; }
     .settings-form .wide { grid-column: 1 / -1; }
+    .level-guide { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 14px; max-width: 720px; }
+    .level-guide h4 { margin: 0 0 8px; font-size: 13px; }
+    .level-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid #f1f5f9; }
+    .level-row:last-child { border-bottom: 0; }
+    .level-row.blocked { opacity: .62; }
+    .level-tag { width: 34px; height: 24px; border-radius: 7px; background: #f1f5f9; color: #334155; display: inline-grid; place-items: center; font-size: 11px; font-weight: 700; }
+    .level-text { flex: 1; min-width: 0; }
+    .level-text strong { display: block; font-size: 13px; }
+    .level-text small { color: var(--muted); font-size: 12px; }
     .section-note { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
     .toast {
       position: fixed; right: 20px; bottom: 20px; z-index: 50;
@@ -464,6 +473,12 @@
       const confirmDialog = $('#confirm-dialog');
 
       const roleLabels = { owner: '所有者', admin: '管理员', member: '成员', viewer: '只读' };
+      const dataLevels = {
+        L0: { label: '公开', note: '可对外公开，不包含内部信息' },
+        L1: { label: '内部', note: '仅限团队内部使用，默认允许同步' },
+        L2: { label: '敏感', note: '仅限授权人员，需要所有者显式开启' },
+        L3: { label: '机密', note: '禁止进入团队服务，仅保留在本机' },
+      };
       const tabNames = ['overview', 'members', 'permissions', 'snapshots', 'audit', 'settings'];
 
       const state = {
@@ -520,6 +535,11 @@
         const date = new Date(value);
         if (Number.isNaN(date.getTime())) return String(value);
         return date.toLocaleString('zh-CN', { hour12: false });
+      }
+
+      function dataLevelText(value) {
+        const item = dataLevels[value];
+        return item ? `${value} · ${item.label}` : (value || '-');
       }
 
       function fmtBytes(value) {
@@ -677,7 +697,7 @@
         $('#stats').replaceChildren(
           stat('当前版本', '#' + team.revision),
           stat('成员数', team.memberCount),
-          stat('数据分级上限', team.maxDataLevel),
+          stat('数据分级上限', dataLevelText(team.maxDataLevel)),
           stat('快照保留', team.snapshotRetentionDays + ' 天'),
           stat('审计保留', team.auditRetentionDays + ' 天'),
           stat('受限资源', restrictedCount()),
@@ -730,7 +750,11 @@
 
         const name = h('input', { value: team.name, maxlength: '80', required: true });
         const level = h('select', {},
-          ...['L0', 'L1', 'L2'].map((value) => h('option', { value, text: value, selected: value === team.maxDataLevel })),
+          ...['L0', 'L1', 'L2'].map((value) => h('option', {
+            value,
+            text: `${value} · ${dataLevels[value].label}${value === 'L1' ? '（默认）' : ''}`,
+            selected: value === team.maxDataLevel,
+          })),
         );
         const snapshotDays = h('input', { type: 'number', min: '7', max: '3650', value: team.snapshotRetentionDays, required: true });
         const auditDays = h('input', { type: 'number', min: '7', max: '3650', value: team.auditRetentionDays, required: true });
@@ -771,8 +795,26 @@
         });
 
         card.append(form);
-        card.append(h('p', { class: 'section-note', text: 'L3 数据禁止进入团队服务；保留天数范围 7–3650 天。' }));
+        card.append(dataLevelGuide());
+        card.append(h('p', { class: 'section-note', text: '分级上限决定哪些接口可以进入团队服务；保留天数范围 7–3650 天。' }));
         return card;
+      }
+
+      function dataLevelGuide() {
+        const rows = ['L0', 'L1', 'L2', 'L3'].map((level) => {
+          const item = dataLevels[level];
+          const tone = level === 'L3' ? 'danger' : level === 'L2' ? 'restricted' : 'team';
+          const policy = level === 'L3' ? '禁止同步' : level === 'L2' ? '需显式开启' : '允许同步';
+          return h('div', { class: `level-row${level === 'L3' ? ' blocked' : ''}` },
+            h('span', { class: 'level-tag', text: level }),
+            h('div', { class: 'level-text' },
+              h('strong', { text: item.label + (level === 'L1' ? '（默认）' : '') }),
+              h('small', { text: item.note }),
+            ),
+            h('span', { class: `badge ${tone}`, text: policy }),
+          );
+        });
+        return h('div', { class: 'level-guide' }, h('h4', { text: '数据分级说明' }), ...rows);
       }
 
       function recentAuditCard() {
@@ -1188,7 +1230,7 @@
 
         const header = h('div', {},
           h('h3', { text: resource.name }),
-          h('p', { class: 'perm-sub', text: isCollection ? '集合级权限会作用于其下接口，单接口可覆盖。' : `${resource.method} · 数据分级 ${resource.dataLevel} · ${resource.hasDocument ? '含文档' : '无文档'}` }),
+          h('p', { class: 'perm-sub', text: isCollection ? '集合级权限会作用于其下接口，单接口可覆盖。' : `${resource.method} · 数据分级 ${dataLevelText(resource.dataLevel)} · ${resource.hasDocument ? '含文档' : '无文档'}` }),
         );
 
         const options = [];
