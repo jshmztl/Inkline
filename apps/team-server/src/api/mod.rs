@@ -46,6 +46,10 @@ pub fn router(state: AppState) -> Router {
             get(permissions::get_access),
         )
         .route(
+            "/v1/teams/{team_id}/workspace",
+            get(permissions::get_workspace),
+        )
+        .route(
             "/v1/teams/{team_id}/permissions",
             get(permissions::list_permissions).post(permissions::batch_update_permissions),
         )

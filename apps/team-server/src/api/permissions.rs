@@ -167,6 +167,34 @@ pub async fn get_access(
     })))
 }
 
+/// 管理台查看完整接口内容：仅所有者 / 管理员可用。
+pub async fn get_workspace(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(team_id): Path<Uuid>,
+) -> Result<Json<Value>, AppError> {
+    require_manager(&state, team_id, user.0).await?;
+
+    let row: Option<(i64, Value)> = sqlx::query_as(
+        "SELECT revision, payload FROM snapshots
+         WHERE team_id = $1 ORDER BY revision DESC LIMIT 1",
+    )
+    .bind(team_id)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    match row {
+        Some((revision, payload)) => Ok(Json(json!({
+            "revision": revision,
+            "payload": payload,
+        }))),
+        None => Ok(Json(json!({
+            "revision": 0,
+            "payload": null,
+        }))),
+    }
+}
+
 pub async fn list_permissions(    State(state): State<AppState>,
     user: AuthUser,
     Path(team_id): Path<Uuid>,

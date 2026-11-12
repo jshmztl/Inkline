@@ -1,5 +1,6 @@
 import type { HttpMethod } from '../data/types';
 import type { HeaderPair, SavedRequest } from './api';
+import type { DraftField } from './docTask';
 
 export type ImportSource = 'curl' | 'postman' | 'openapi';
 
@@ -408,13 +409,221 @@ export function toFetchSnippet(request: ImportedRequest): string {
   return `fetch('${request.url}', ${JSON.stringify(init, null, 2)})`;
 }
 
-export type ExportFormat = 'json' | 'curl' | 'fetch';
+export type ExportFormat = 'json' | 'curl' | 'fetch' | 'markdown' | 'html';
+
+const dataLevelLabels: Record<string, string> = {
+  L0: '公开',
+  L1: '内部',
+  L2: '敏感',
+  L3: '机密',
+};
+
+function dataLevelText(level: string | undefined) {
+  const value = level ?? 'L1';
+  const label = dataLevelLabels[value];
+  return label ? `${value} · ${label}` : value;
+}
+
+function markdownCell(value: unknown) {
+  return String(value ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, '<br>');
+}
+
+function markdownTable(headers: string[], rows: unknown[][]) {
+  const lines = [
+    `| ${headers.join(' | ')} |`,
+    `| ${headers.map(() => '---').join(' | ')} |`,
+  ];
+  for (const row of rows) {
+    lines.push(`| ${row.map(markdownCell).join(' | ')} |`);
+  }
+  return lines.join('\n');
+}
+
+function escapeHtml(value: unknown) {
+  return String(value ?? '').replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[character] as string));
+}
+
+function htmlTable(headers: string[], rows: unknown[][]) {
+  const head = headers.map((text) => `<th>${escapeHtml(text)}</th>`).join('');
+  const body = rows
+    .map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join('')}</tr>`)
+    .join('');
+  return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
+function requestMarkdown(
+  request: SavedRequest,
+  fields: DraftField[],
+  level: number,
+) {
+  const heading = '#'.repeat(Math.min(6, level));
+  const sub = '#'.repeat(Math.min(6, level + 1));
+  const lines: string[] = [];
+
+  lines.push(`${heading} ${request.name || '未命名接口'}`);
+  lines.push('');
+  lines.push(`- 方法：\`${request.method}\``);
+  lines.push(`- 路径：\`${request.url}\``);
+  lines.push(`- 数据分级：${dataLevelText(request.dataLevel)}`);
+  lines.push('');
+  lines.push(`${sub} 请求头`);
+  lines.push('');
+  lines.push(
+    request.headers.length
+      ? markdownTable(['名称', '值'], request.headers.map((header) => [header.name, header.value]))
+      : '无',
+  );
+  lines.push('');
+  lines.push(`${sub} 请求体`);
+  lines.push('');
+  if (request.body) {
+    lines.push('```json');
+    lines.push(request.body);
+    lines.push('```');
+  } else {
+    lines.push('无');
+  }
+  lines.push('');
+  lines.push(`${sub} 字段说明`);
+  lines.push('');
+  lines.push(
+    fields.length
+      ? markdownTable(
+          ['字段', '路径', '类型', '来源', '说明'],
+          fields.map((field) => [field.key, field.path, field.type, field.source, field.description]),
+        )
+      : '暂无字段说明。',
+  );
+  return lines.join('\n');
+}
+
+function buildCollectionMarkdown(
+  name: string,
+  requests: SavedRequest[],
+  documents: Record<string, DraftField[]>,
+) {
+  const lines = [
+    `# ${name}`,
+    '',
+    `> 导出自 Inkline · ${new Date().toLocaleString('zh-CN', { hour12: false })}`,
+    `> 接口数量：${requests.length}`,
+    '',
+    '## 接口列表',
+    '',
+  ];
+  if (!requests.length) {
+    lines.push('暂无接口。');
+    return lines.join('\n');
+  }
+  for (const request of requests) {
+    lines.push(`- \`${request.method}\` ${request.name || '未命名接口'}`);
+  }
+  lines.push('');
+  for (const request of requests) {
+    lines.push(requestMarkdown(request, documents[request.id] ?? [], 2));
+    lines.push('');
+    lines.push('---');
+    lines.push('');
+  }
+  return lines.join('\n');
+}
+
+function requestHtml(request: SavedRequest, fields: DraftField[], level: number) {
+  const tag = `h${Math.min(6, level)}`;
+  const sub = `h${Math.min(6, level + 1)}`;
+  const headers = request.headers.length
+    ? htmlTable(['名称', '值'], request.headers.map((header) => [header.name, header.value]))
+    : '<p class="muted">未配置请求头。</p>';
+  const body = request.body
+    ? `<pre>${escapeHtml(request.body)}</pre>`
+    : '<p class="muted">无请求体。</p>';
+  const docs = fields.length
+    ? htmlTable(
+        ['字段', '路径', '类型', '来源', '说明'],
+        fields.map((field) => [field.key, field.path, field.type, field.source, field.description]),
+      )
+    : '<p class="muted">暂无字段说明。</p>';
+
+  return `<section class="api">
+  <${tag}>${escapeHtml(request.name || '未命名接口')}</${tag}>
+  <dl>
+    <dt>方法</dt><dd><code>${escapeHtml(request.method)}</code></dd>
+    <dt>路径</dt><dd><code>${escapeHtml(request.url)}</code></dd>
+    <dt>数据分级</dt><dd>${escapeHtml(dataLevelText(request.dataLevel))}</dd>
+  </dl>
+  <${sub}>请求头</${sub}>
+  ${headers}
+  <${sub}>请求体</${sub}>
+  ${body}
+  <${sub}>字段说明</${sub}>
+  ${docs}
+</section>`;
+}
+
+function buildCollectionHtml(
+  name: string,
+  requests: SavedRequest[],
+  documents: Record<string, DraftField[]>,
+) {
+  const body = requests
+    .map((request) => requestHtml(request, documents[request.id] ?? [], 2))
+    .join('\n');
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(name)} · Inkline 接口文档</title>
+<style>
+  body { margin: 0; padding: 40px 24px; background: #f6f8fc; color: #0f172a; font: 14px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; }
+  main { max-width: 960px; margin: 0 auto; background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 32px 36px; box-shadow: 0 12px 40px rgba(15,23,42,.06); }
+  h1 { font-size: 28px; margin: 0 0 6px; }
+  h2 { font-size: 22px; margin: 32px 0 10px; padding-top: 18px; border-top: 1px solid #e2e8f0; }
+  h3 { font-size: 16px; margin: 20px 0 8px; }
+  .lead { color: #64748b; margin: 0 0 24px; }
+  .api { margin-top: 28px; }
+  dl { display: grid; grid-template-columns: 90px 1fr; gap: 6px 14px; margin: 12px 0 18px; }
+  dt { color: #64748b; font-size: 12px; }
+  dd { margin: 0; word-break: break-all; }
+  code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; background: #f1f5f9; padding: 1px 5px; border-radius: 5px; }
+  pre { background: #0b1220; color: #dbeafe; padding: 14px 16px; border-radius: 10px; overflow: auto; font-size: 12px; line-height: 1.6; }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 16px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #eef2f7; font-size: 13px; vertical-align: top; }
+  th { background: #f8fafc; color: #64748b; font-weight: 500; font-size: 12px; }
+  .muted { color: #94a3b8; }
+  footer { margin-top: 32px; color: #94a3b8; font-size: 12px; }
+  @media print { body { background: #fff; padding: 0; } main { border: 0; box-shadow: none; padding: 0; } pre { white-space: pre-wrap; } }
+</style>
+</head>
+<body>
+<main>
+<h1>${escapeHtml(name)}</h1>
+<p class="lead">${requests.length} 个接口</p>
+${body}
+<footer>由 Inkline 导出 · ${new Date().toLocaleString('zh-CN', { hour12: false })}</footer>
+</main>
+</body>
+</html>`;
+}
 
 export function exportCollection(
   name: string,
   requests: SavedRequest[],
   format: ExportFormat,
+  documents: Record<string, DraftField[]> = {},
 ): string {
+  if (format === 'markdown') {
+    return buildCollectionMarkdown(name, requests, documents);
+  }
+  if (format === 'html') {
+    return buildCollectionHtml(name, requests, documents);
+  }
   if (format === 'json') {
     return JSON.stringify(
       {

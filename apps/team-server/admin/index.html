@@ -238,11 +238,33 @@
     .perm-footer .spacer { flex: 1; }
     .checkline { display: inline-flex; align-items: center; gap: 6px; color: #334155; font-size: 13px; }
     .summary-line { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+
+    /* 接口内容 */
+    .content-layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 16px; align-items: start; }
+    .detail-pane { border: 1px solid var(--line); border-radius: 12px; background: #fff; padding: 18px; min-height: 320px; }
+    .detail-pane h3 { margin: 0 0 2px; font-size: 18px; }
+    .detail-sub { color: var(--muted); font-size: 12px; margin: 0 0 14px; }
+    .detail-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 16px; margin: 12px 0 6px; }
+    .detail-meta label { display: block; color: var(--muted); font-size: 11px; margin-bottom: 2px; }
+    .detail-meta strong { font-size: 13px; font-weight: 600; word-break: break-all; }
+    .detail-section { margin-top: 16px; }
+    .detail-section h4 { margin: 0 0 8px; font-size: 13px; }
+    .code-block { margin: 0; padding: 12px; border-radius: 10px; background: #0b1220; color: #dbeafe; font-size: 12px; overflow: auto; max-height: 300px; white-space: pre-wrap; word-break: break-all; }
+    .doc-table { width: 100%; border-collapse: collapse; }
+    .doc-table th, .doc-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #eef2f7; font-size: 12px; vertical-align: top; }
+    .doc-table th { background: #f8fafc; color: var(--muted); font-weight: 500; }
+    .doc-table tr:last-child td { border-bottom: 0; }
+    .export-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--line); margin-top: 18px; padding-top: 14px; }
+    .export-bar select { height: 32px; border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 0 8px; }
+    .export-bar .spacer { flex: 1; }
+    .content-request { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 8px; border: 1px solid transparent; background: transparent; width: 100%; text-align: left; }
+    .content-request:hover { background: #f8fafc; border-color: var(--line); }
+    .content-request .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     @media (max-width: 1280px) {
       .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     }
     @media (max-width: 1100px) {
-      .perm-layout { grid-template-columns: 1fr; }
+      .perm-layout, .content-layout { grid-template-columns: 1fr; }
       .tree-pane { max-height: 360px; }
     }
     @media (max-width: 820px) {
@@ -328,6 +350,7 @@
             <button type="button" data-tab="overview" class="active">概览</button>
             <button type="button" data-tab="members">成员</button>
             <button type="button" data-tab="permissions">权限</button>
+            <button type="button" data-tab="content">接口内容</button>
             <button type="button" data-tab="snapshots">快照历史</button>
             <button type="button" data-tab="audit">审计</button>
             <button type="button" data-tab="settings">设置</button>
@@ -336,6 +359,7 @@
           <section id="tab-overview" class="tab"></section>
           <section id="tab-members" class="tab hidden"></section>
           <section id="tab-permissions" class="tab hidden"></section>
+          <section id="tab-content" class="tab hidden"></section>
           <section id="tab-snapshots" class="tab hidden"></section>
           <section id="tab-audit" class="tab hidden"></section>
           <section id="tab-settings" class="tab hidden"></section>
@@ -479,7 +503,7 @@
         L2: { label: '敏感', note: '仅限授权人员，需要所有者显式开启' },
         L3: { label: '机密', note: '禁止进入团队服务，仅保留在本机' },
       };
-      const tabNames = ['overview', 'members', 'permissions', 'snapshots', 'audit', 'settings'];
+      const tabNames = ['overview', 'members', 'permissions', 'content', 'snapshots', 'audit', 'settings'];
 
       const state = {
         access: '',
@@ -499,6 +523,9 @@
         permSelected: null,
         permDraft: null,
         permApplyAll: false,
+        workspace: null,
+        contentSelected: null,
+        exportFormat: 'markdown',
         auditType: '',
       };
 
@@ -1466,6 +1493,620 @@
         renderStats(state.team);
       }
 
+      // ---------------- 接口内容与导出 ----------------
+
+      function workspacePayload() {
+        return state.workspace?.payload ?? null;
+      }
+
+      function contentCollections() {
+        const payload = workspacePayload();
+        return payload && Array.isArray(payload.collections) ? payload.collections : [];
+      }
+
+      function contentRequests() {
+        const payload = workspacePayload();
+        return payload && Array.isArray(payload.requests) ? payload.requests : [];
+      }
+
+      function contentDocuments() {
+        const payload = workspacePayload();
+        return payload && payload.documents && typeof payload.documents === 'object'
+          ? payload.documents
+          : {};
+      }
+
+      function contentCollection(id) {
+        return contentCollections().find((item) => item.id === id) || null;
+      }
+
+      function contentRequest(id) {
+        return contentRequests().find((item) => item.id === id) || null;
+      }
+
+      function contentDocument(requestId) {
+        const docs = contentDocuments()[requestId];
+        return Array.isArray(docs) ? docs : [];
+      }
+
+      async function loadWorkspace() {
+        if (!isManager()) {
+          state.workspace = null;
+          renderContent();
+          return;
+        }
+        try {
+          state.workspace = await api(`/v1/teams/${state.team.id}/workspace`);
+          if (state.contentSelected) {
+            const exists = state.contentSelected.type === 'collection'
+              ? contentCollection(state.contentSelected.id)
+              : contentRequest(state.contentSelected.id);
+            if (!exists) state.contentSelected = null;
+          }
+          if (!state.contentSelected && workspacePayload()) {
+            const first = contentCollections()[0];
+            if (first) state.contentSelected = { type: 'collection', id: first.id };
+          }
+        } catch (error) {
+          state.workspace = null;
+          showToast(error.message, 'error');
+        }
+        renderContent();
+      }
+
+      function selectContent(type, id) {
+        state.contentSelected = { type, id };
+        renderContent();
+      }
+
+      function renderContent() {
+        const container = $('#tab-content');
+        if (!isManager()) {
+          container.replaceChildren(h('div', { class: 'card' },
+            h('h3', { text: '接口内容' }),
+            h('p', { class: 'section-note', text: '只有团队所有者或管理员可以查看完整接口内容。' }),
+          ));
+          return;
+        }
+
+        const head = h('div', { class: 'card-head' },
+          h('h3', { text: '接口内容与文档' }),
+          h('div', { class: 'actions' },
+            h('span', { class: 'muted', text: state.workspace ? `快照 #${state.workspace.revision}` : '' }),
+            h('button', { class: 'btn small', type: 'button', text: '刷新', onclick: loadWorkspace }),
+          ),
+        );
+
+        if (!state.workspace) {
+          container.replaceChildren(h('div', { class: 'card' }, head,
+            h('p', { class: 'section-note', text: '正在加载接口内容…' }),
+          ));
+          return;
+        }
+
+        if (!workspacePayload()) {
+          container.replaceChildren(h('div', { class: 'card' }, head,
+            h('p', { class: 'section-note', text: '团队还没有快照，客户端推送后即可查看接口内容。' }),
+          ));
+          return;
+        }
+
+        const collections = contentCollections();
+        const requests = contentRequests();
+        const grouped = new Map();
+        for (const request of requests) {
+          const key = request.collectionId || '';
+          if (!grouped.has(key)) grouped.set(key, []);
+          grouped.get(key).push(request);
+        }
+
+        const treeItems = [];
+        const treeGroups = [];
+
+        for (const collection of collections) {
+          const children = grouped.get(collection.id) || [];
+          const active = state.contentSelected
+            && state.contentSelected.type === 'collection'
+            && state.contentSelected.id === collection.id;
+          const group = h('div', { class: 'tree-group' },
+            h('button', {
+              class: `tree-item${active ? ' active' : ''}`,
+              type: 'button',
+              onclick: () => selectContent('collection', collection.id),
+            },
+              h('span', { class: 'name', text: collection.name }),
+              h('span', { class: 'count', text: `${children.length}` }),
+            ),
+          );
+          if (children.length) {
+            const childBox = h('div', { class: 'tree-children' });
+            for (const request of children) {
+              const childActive = state.contentSelected
+                && state.contentSelected.type === 'request'
+                && state.contentSelected.id === request.id;
+              childBox.append(h('button', {
+                class: `tree-item tree-child${childActive ? ' active' : ''}`,
+                type: 'button',
+                onclick: () => selectContent('request', request.id),
+              },
+                h('span', { class: `method ${request.method || 'GET'}`, text: request.method || 'GET' }),
+                h('span', { class: 'name', text: request.name || '未命名接口' }),
+              ));
+            }
+            group.append(childBox);
+          }
+          treeItems.push(group);
+          treeGroups.push(group);
+        }
+
+        const ungrouped = grouped.get('') || [];
+        if (ungrouped.length) {
+          const group = h('div', { class: 'tree-group' },
+            h('div', { class: 'tree-item' }, h('span', { class: 'name muted', text: '未分组接口' })),
+          );
+          const childBox = h('div', { class: 'tree-children' });
+          for (const request of ungrouped) {
+            const childActive = state.contentSelected
+              && state.contentSelected.type === 'request'
+              && state.contentSelected.id === request.id;
+            childBox.append(h('button', {
+              class: `tree-item tree-child${childActive ? ' active' : ''}`,
+              type: 'button',
+              onclick: () => selectContent('request', request.id),
+            },
+              h('span', { class: `method ${request.method || 'GET'}`, text: request.method || 'GET' }),
+              h('span', { class: 'name', text: request.name || '未命名接口' }),
+            ));
+          }
+          group.append(childBox);
+          treeItems.push(group);
+          treeGroups.push(group);
+        }
+
+        const treeSearch = h('input', { placeholder: '搜索集合或接口…' });
+        treeSearch.addEventListener('input', () => {
+          const keyword = treeSearch.value.trim().toLowerCase();
+          for (const group of treeGroups) {
+            let visible = false;
+            group.querySelectorAll('.tree-item').forEach((item) => {
+              const text = (item.querySelector('.name')?.textContent || '').toLowerCase();
+              const matched = !keyword || text.includes(keyword);
+              item.classList.toggle('hidden', !matched && item.classList.contains('tree-child'));
+              if (matched) visible = true;
+            });
+            const parent = group.querySelector('.tree-item:not(.tree-child)');
+            if (parent) {
+              const parentText = (parent.querySelector('.name')?.textContent || '').toLowerCase();
+              const parentMatched = !keyword || parentText.includes(keyword);
+              parent.classList.toggle('hidden', !parentMatched && !visible);
+            }
+            group.classList.toggle('hidden', !visible && !group.querySelector('.tree-item:not(.hidden):not(.tree-child)'));
+          }
+        });
+
+        const treePane = h('div', { class: 'tree-pane' },
+          h('div', { class: 'tree-toolbar' }, treeSearch),
+          h('div', { class: 'tree-scroll' }, ...treeItems),
+        );
+
+        const layout = h('div', { class: 'content-layout' }, treePane, renderContentDetail());
+        container.replaceChildren(h('div', { class: 'card' },
+          head,
+          h('p', { class: 'section-note', text: '查看接口请求头、请求体与字段文档，并可按 Markdown / HTML / JSON 导出。' }),
+          layout,
+        ));
+      }
+
+      function renderContentDetail() {
+        if (!state.contentSelected) {
+          return h('div', { class: 'detail-pane' },
+            h('h3', { text: '选择左侧接口' }),
+            h('p', { class: 'detail-sub', text: '可以查看接口详情、字段文档，并导出单个接口或整个集合。' }),
+          );
+        }
+
+        if (state.contentSelected.type === 'collection') {
+          const collection = contentCollection(state.contentSelected.id);
+          if (!collection) {
+            return h('div', { class: 'detail-pane' }, h('p', { class: 'section-note', text: '集合已被删除，请刷新。' }));
+          }
+          const requests = contentRequests().filter(
+            (request) => (request.collectionId || '') === collection.id,
+          );
+          const list = h('div', { class: 'detail-section' },
+            h('h4', { text: '接口列表' }),
+            ...(requests.length
+              ? requests.map((request) => h('button', {
+                  class: 'content-request',
+                  type: 'button',
+                  onclick: () => selectContent('request', request.id),
+                },
+                  h('span', { class: `method ${request.method || 'GET'}`, text: request.method || 'GET' }),
+                  h('span', { class: 'name', text: request.name || '未命名接口' }),
+                  h('span', { class: 'badge', text: dataLevelText(request.dataLevel || 'L1') }),
+                ))
+              : [h('p', { class: 'section-note', text: '集合中还没有接口。' })]),
+          );
+
+          return h('div', { class: 'detail-pane' },
+            h('h3', { text: collection.name }),
+            h('p', { class: 'detail-sub', text: `集合 · ${requests.length} 个接口` }),
+            list,
+            exportBar('collection', collection.id),
+          );
+        }
+
+        const request = contentRequest(state.contentSelected.id);
+        if (!request) {
+          return h('div', { class: 'detail-pane' }, h('p', { class: 'section-note', text: '接口已被删除，请刷新。' }));
+        }
+
+        const collection = contentCollection(request.collectionId || '');
+        const headers = Array.isArray(request.headers) ? request.headers : [];
+        const docs = contentDocument(request.id);
+
+        const meta = h('div', { class: 'detail-meta' },
+          h('div', {}, h('label', { text: '方法' }), h('strong', { text: request.method || 'GET' })),
+          h('div', {}, h('label', { text: '所属集合' }), h('strong', { text: collection ? collection.name : '未分组' })),
+          h('div', {}, h('label', { text: '数据分级' }), h('strong', { text: dataLevelText(request.dataLevel || 'L1') })),
+        );
+
+        const pathBlock = h('div', { class: 'detail-section' },
+          h('h4', { text: '请求路径' }),
+          h('pre', { class: 'code-block', text: request.url || request.path || '-' }),
+        );
+
+        const headerBlock = h('div', { class: 'detail-section' },
+          h('h4', { text: '请求头' }),
+          headers.length
+            ? h('div', { class: 'table-wrap' },
+                h('table', { class: 'doc-table' },
+                  h('thead', {}, h('tr', {}, h('th', { text: '名称' }), h('th', { text: '值' }))),
+                  h('tbody', {}, ...headers.map((header) => h('tr', {},
+                    h('td', {}, h('code', { text: header.name || '' })),
+                    h('td', { text: header.value || '' }),
+                  ))),
+                ),
+              )
+            : h('p', { class: 'section-note', text: '未配置请求头。' }),
+        );
+
+        const bodyBlock = h('div', { class: 'detail-section' },
+          h('h4', { text: '请求体' }),
+          request.body
+            ? h('pre', { class: 'code-block', text: String(request.body) })
+            : h('p', { class: 'section-note', text: '无请求体。' }),
+        );
+
+        const docBlock = h('div', { class: 'detail-section' },
+          h('h4', { text: `字段说明 · ${docs.length} 项` }),
+          docs.length
+            ? h('div', { class: 'table-wrap' },
+                h('table', { class: 'doc-table' },
+                  h('thead', {}, h('tr', {},
+                    ...['字段', '路径', '类型', '来源', '说明'].map((text) => h('th', { text })),
+                  )),
+                  h('tbody', {}, ...docs.map((field) => h('tr', {},
+                    h('td', {}, h('strong', { text: field.key || '-' })),
+                    h('td', {}, h('code', { text: field.path || '-' })),
+                    h('td', { text: field.type || '-' }),
+                    h('td', { text: field.source || '-' }),
+                    h('td', { text: field.description || '-' }),
+                  ))),
+                ),
+              )
+            : h('p', { class: 'section-note', text: '暂无字段说明。' }),
+        );
+
+        return h('div', { class: 'detail-pane' },
+          h('h3', { text: request.name || '未命名接口' }),
+          h('p', { class: 'detail-sub', text: '接口详情与字段文档' }),
+          meta,
+          pathBlock,
+          headerBlock,
+          bodyBlock,
+          docBlock,
+          exportBar('request', request.id),
+        );
+      }
+
+      function exportBar(type, id) {
+        const select = h('select', {},
+          ...[['markdown', 'Markdown'], ['html', 'HTML'], ['json', 'JSON']].map(([value, label]) =>
+            h('option', { value, text: label, selected: state.exportFormat === value }),
+          ),
+        );
+        select.addEventListener('change', () => { state.exportFormat = select.value; });
+
+        const actions = [
+          h('button', {
+            class: 'btn primary small',
+            type: 'button',
+            text: type === 'collection' ? '导出集合' : '导出接口文档',
+            onclick: () => exportContent(type, id, select.value),
+          }),
+        ];
+
+        if (type === 'request') {
+          const request = contentRequest(id);
+          const collectionId = request?.collectionId;
+          if (collectionId && contentCollection(collectionId)) {
+            actions.push(h('button', {
+              class: 'btn small',
+              type: 'button',
+              text: '导出所属集合',
+              onclick: () => exportContent('collection', collectionId, select.value),
+            }));
+          }
+        }
+
+        return h('div', { class: 'export-bar' },
+          h('span', { class: 'muted', text: '导出格式' }),
+          select,
+          ...actions,
+          h('span', { class: 'spacer' }),
+          h('span', { class: 'muted', text: '包含接口信息、请求头、请求体与字段文档' }),
+        );
+      }
+
+      function safeFileName(value) {
+        return String(value || 'inkline-export')
+          .replace(/[\\/:*?"<>|\s]+/g, '-')
+          .replace(/^-+|-+$/g, '')
+          .slice(0, 60) || 'inkline-export';
+      }
+
+      function downloadText(name, text, mime) {
+        const blob = new Blob([text], { type: `${mime};charset=utf-8` });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = name;
+        document.body.append(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(link.href), 30000);
+      }
+
+      function exportContent(type, id, format) {
+        try {
+          if (type === 'collection') {
+            const collection = contentCollection(id);
+            if (!collection) throw new Error('集合不存在');
+            const requests = contentRequests().filter(
+              (request) => (request.collectionId || '') === id,
+            );
+            if (format === 'json') {
+              downloadText(`${safeFileName(collection.name)}.json`, JSON.stringify({
+                info: {
+                  name: collection.name,
+                  revision: state.workspace?.revision ?? null,
+                  exportedAt: new Date().toISOString(),
+                },
+                collection,
+                requests,
+                documents: Object.fromEntries(
+                  requests.map((request) => [request.id, contentDocument(request.id)]),
+                ),
+              }, null, 2), 'application/json');
+            } else if (format === 'html') {
+              downloadText(`${safeFileName(collection.name)}.html`, buildCollectionHtml(collection, requests), 'text/html');
+            } else {
+              downloadText(`${safeFileName(collection.name)}.md`, buildCollectionMarkdown(collection, requests), 'text/markdown');
+            }
+            showToast('集合已导出');
+            return;
+          }
+
+          const request = contentRequest(id);
+          if (!request) throw new Error('接口不存在');
+          const collection = contentCollection(request.collectionId || '');
+          if (format === 'json') {
+            downloadText(`${safeFileName(request.name)}.json`, JSON.stringify({
+              collection,
+              request,
+              document: contentDocument(request.id),
+            }, null, 2), 'application/json');
+          } else if (format === 'html') {
+            downloadText(`${safeFileName(request.name)}.html`, buildRequestHtml(request), 'text/html');
+          } else {
+            downloadText(`${safeFileName(request.name)}.md`, buildRequestMarkdown(request), 'text/markdown');
+          }
+          showToast('接口文档已导出');
+        } catch (error) {
+          showToast(error.message, 'error');
+        }
+      }
+
+      function mdCell(value) {
+        return String(value ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, '<br>');
+      }
+
+      function mdTable(headers, rows) {
+        const lines = [
+          `| ${headers.join(' | ')} |`,
+          `| ${headers.map(() => '---').join(' | ')} |`,
+        ];
+        for (const row of rows) {
+          lines.push(`| ${row.map(mdCell).join(' | ')} |`);
+        }
+        return lines.join('\n');
+      }
+
+      function requestMarkdown(request, level = 2) {
+        const heading = '#'.repeat(Math.min(6, level));
+        const sub = '#'.repeat(Math.min(6, level + 1));
+        const collection = contentCollection(request.collectionId || '');
+        const headers = Array.isArray(request.headers) ? request.headers : [];
+        const docs = contentDocument(request.id);
+        const lines = [];
+
+        lines.push(`${heading} ${request.name || '未命名接口'}`);
+        lines.push('');
+        lines.push(`- 方法：\`${request.method || 'GET'}\``);
+        lines.push(`- 路径：\`${request.url || request.path || ''}\``);
+        if (collection) lines.push(`- 所属集合：${collection.name}`);
+        lines.push(`- 数据分级：${dataLevelText(request.dataLevel || 'L1')}`);
+        lines.push('');
+        lines.push(`${sub} 请求头`);
+        lines.push('');
+        lines.push(headers.length
+          ? mdTable(['名称', '值'], headers.map((header) => [header.name, header.value]))
+          : '无');
+        lines.push('');
+        lines.push(`${sub} 请求体`);
+        lines.push('');
+        if (request.body) {
+          lines.push('```json');
+          lines.push(String(request.body));
+          lines.push('```');
+        } else {
+          lines.push('无');
+        }
+        lines.push('');
+        lines.push(`${sub} 字段说明`);
+        lines.push('');
+        lines.push(docs.length
+          ? mdTable(['字段', '路径', '类型', '来源', '说明'], docs.map((field) => [
+              field.key,
+              field.path,
+              field.type,
+              field.source,
+              field.description,
+            ]))
+          : '暂无字段说明。');
+        return lines.join('\n');
+      }
+
+      function buildRequestMarkdown(request) {
+        return [
+          `# ${request.name || '接口文档'}`,
+          '',
+          `> 导出自 Inkline 团队服务 · 快照 #${state.workspace?.revision ?? '-'} · ${new Date().toLocaleString('zh-CN', { hour12: false })}`,
+          '',
+          requestMarkdown(request, 2),
+          '',
+        ].join('\n');
+      }
+
+      function buildCollectionMarkdown(collection, requests) {
+        const lines = [
+          `# ${collection.name}`,
+          '',
+          `> 导出自 Inkline 团队服务 · 快照 #${state.workspace?.revision ?? '-'} · ${new Date().toLocaleString('zh-CN', { hour12: false })}`,
+          `> 接口数量：${requests.length}`,
+          '',
+          '## 接口列表',
+          '',
+        ];
+        if (!requests.length) {
+          lines.push('暂无接口。');
+        } else {
+          for (const request of requests) {
+            lines.push(`- \`${request.method || 'GET'}\` ${request.name || '未命名接口'}`);
+          }
+          lines.push('');
+          for (const request of requests) {
+            lines.push(requestMarkdown(request, 2));
+            lines.push('');
+            lines.push('---');
+            lines.push('');
+          }
+        }
+        return lines.join('\n');
+      }
+
+      function escHtml(value) {
+        return String(value ?? '').replace(/[&<>"']/g, (character) => ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#39;',
+        }[character]));
+      }
+
+      function htmlTable(headers, rows) {
+        return `<table><thead><tr>${headers.map((text) => `<th>${escHtml(text)}</th>`).join('')}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${escHtml(cell ?? '')}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+      }
+
+      function requestHtml(request, level = 2) {
+        const tag = `h${Math.min(6, level)}`;
+        const sub = `h${Math.min(6, level + 1)}`;
+        const collection = contentCollection(request.collectionId || '');
+        const headers = Array.isArray(request.headers) ? request.headers : [];
+        const docs = contentDocument(request.id);
+        const body = request.body
+          ? `<pre>${escHtml(request.body)}</pre>`
+          : '<p class="muted">无请求体。</p>';
+
+        return `<section class="api">
+  <${tag}>${escHtml(request.name || '未命名接口')}</${tag}>
+  <dl>
+    <dt>方法</dt><dd><code>${escHtml(request.method || 'GET')}</code></dd>
+    <dt>路径</dt><dd><code>${escHtml(request.url || request.path || '')}</code></dd>
+    <dt>集合</dt><dd>${escHtml(collection ? collection.name : '未分组')}</dd>
+    <dt>数据分级</dt><dd>${escHtml(dataLevelText(request.dataLevel || 'L1'))}</dd>
+  </dl>
+  <${sub}>请求头</${sub}>
+  ${headers.length ? htmlTable(['名称', '值'], headers.map((header) => [header.name, header.value])) : '<p class="muted">未配置请求头。</p>'}
+  <${sub}>请求体</${sub}>
+  ${body}
+  <${sub}>字段说明</${sub}>
+  ${docs.length ? htmlTable(['字段', '路径', '类型', '来源', '说明'], docs.map((field) => [field.key, field.path, field.type, field.source, field.description])) : '<p class="muted">暂无字段说明。</p>'}
+</section>`;
+      }
+
+      function htmlShell(title, body) {
+        return `<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escHtml(title)} · Inkline 接口文档</title>
+<style>
+  body { margin: 0; padding: 40px 24px; background: #f6f8fc; color: #0f172a; font: 14px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; }
+  main { max-width: 960px; margin: 0 auto; background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 32px 36px; box-shadow: 0 12px 40px rgba(15,23,42,.06); }
+  h1 { font-size: 28px; margin: 0 0 6px; }
+  h2 { font-size: 22px; margin: 32px 0 10px; padding-top: 18px; border-top: 1px solid #e2e8f0; }
+  h3 { font-size: 16px; margin: 20px 0 8px; }
+  .lead { color: #64748b; margin: 0 0 24px; }
+  .api { margin-top: 28px; }
+  dl { display: grid; grid-template-columns: 90px 1fr; gap: 6px 14px; margin: 12px 0 18px; }
+  dt { color: #64748b; font-size: 12px; }
+  dd { margin: 0; word-break: break-all; }
+  code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; background: #f1f5f9; padding: 1px 5px; border-radius: 5px; }
+  pre { background: #0b1220; color: #dbeafe; padding: 14px 16px; border-radius: 10px; overflow: auto; font-size: 12px; line-height: 1.6; }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 16px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #eef2f7; font-size: 13px; vertical-align: top; }
+  th { background: #f8fafc; color: #64748b; font-weight: 500; font-size: 12px; }
+  .muted { color: #94a3b8; }
+  footer { margin-top: 32px; color: #94a3b8; font-size: 12px; }
+  @media print { body { background: #fff; padding: 0; } main { border: 0; box-shadow: none; padding: 0; } pre { white-space: pre-wrap; } }
+</style>
+</head>
+<body>
+<main>
+${body}
+<footer>由 Inkline 团队服务导出 · 快照 #${state.workspace?.revision ?? '-'} · ${new Date().toLocaleString('zh-CN', { hour12: false })}</footer>
+</main>
+</body>
+</html>`;
+      }
+
+      function buildRequestHtml(request) {
+        return htmlShell(
+          request.name || '接口文档',
+          `<h1>${escHtml(request.name || '接口文档')}</h1><p class="lead">${escHtml(request.method || 'GET')} ${escHtml(request.url || request.path || '')}</p>${requestHtml(request, 2)}`,
+        );
+      }
+
+      function buildCollectionHtml(collection, requests) {
+        return htmlShell(
+          collection.name,
+          `<h1>${escHtml(collection.name)}</h1><p class="lead">${requests.length} 个接口</p>${requests.map((request) => requestHtml(request, 2)).join('\n')}`,
+        );
+      }
+
       // ---------------- 快照 / 审计 ----------------
 
       function renderSnapshots() {
@@ -1603,6 +2244,7 @@
         renderOverview();
         renderMembers();
         renderPermissions();
+        renderContent();
         renderSnapshots();
         renderAudit();
         renderSettings();
@@ -1618,6 +2260,7 @@
           $('#tab-' + name).classList.toggle('hidden', name !== tab);
         }
         if (tab === 'permissions' && isManager() && !state.permission) void loadPermissions();
+        if (tab === 'content' && isManager() && !state.workspace) void loadWorkspace();
         if (tab === 'audit' && isManager() && state.audit === null) void loadAudit();
       }
 
@@ -1640,6 +2283,8 @@
           state.permSelected = null;
           state.permDraft = null;
           state.permApplyAll = false;
+          state.workspace = null;
+          state.contentSelected = null;
           state.auditType = '';
           state.tab = 'overview';
 

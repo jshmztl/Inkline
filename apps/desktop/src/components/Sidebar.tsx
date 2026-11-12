@@ -23,6 +23,7 @@ import {
 } from '../data/types';
 import { saveRequest, type HistoryEntry, type SavedRequest } from '../lib/api';
 import type { WorkspaceEnvironment } from '../lib/envStore';
+import type { DraftField } from '../lib/docTask';
 import { recordAudit } from '../lib/audit';
 import {
   exportCollection,
@@ -159,18 +160,59 @@ export function Sidebar({
   const [exportState, setExportState] = useState<{
     name: string;
     requests: SavedRequest[];
+    documents: Record<string, DraftField[]>;
     format: ExportFormat;
   } | null>(null);
 
   async function copyExport() {
     if (!exportState) return;
-    const text = exportCollection(exportState.name, exportState.requests, exportState.format);
+    const text = exportCollection(
+      exportState.name,
+      exportState.requests,
+      exportState.format,
+      exportState.documents,
+    );
     try {
       await navigator.clipboard.writeText(text);
       message.success('已复制到剪贴板');
     } catch {
       message.error('复制失败，请手动选择文本');
     }
+  }
+
+  function downloadExport() {
+    if (!exportState) return;
+    const text = exportCollection(
+      exportState.name,
+      exportState.requests,
+      exportState.format,
+      exportState.documents,
+    );
+    const extension: Record<ExportFormat, string> = {
+      json: 'json',
+      markdown: 'md',
+      html: 'html',
+      curl: 'txt',
+      fetch: 'txt',
+    };
+    const mime: Record<ExportFormat, string> = {
+      json: 'application/json',
+      markdown: 'text/markdown',
+      html: 'text/html',
+      curl: 'text/plain',
+      fetch: 'text/plain',
+    };
+    const base = exportState.name.replace(/[\\/:*?"<>|\s]+/g, '-').replace(/^-+|-+$/g, '') || 'inkline-export';
+    const blob = new Blob([text], { type: `${mime[exportState.format]};charset=utf-8` });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${base}.${extension[exportState.format]}`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+    message.success('导出文件已生成');
   }
 
   async function submitImport() {
@@ -471,13 +513,23 @@ export function Sidebar({
       message.info('集合中没有可导出的已保存请求');
       return;
     }
-    setExportState({ name: folder.name, requests, format: 'json' });
+    setExportState({
+      name: folder.name,
+      requests,
+      documents: collectLocalDocuments(),
+      format: 'markdown',
+    });
   }
 
   const exportText = useMemo(
     () =>
       exportState
-        ? exportCollection(exportState.name, exportState.requests, exportState.format)
+        ? exportCollection(
+            exportState.name,
+            exportState.requests,
+            exportState.format,
+            exportState.documents,
+          )
         : '',
     [exportState],
   );
@@ -557,7 +609,7 @@ export function Sidebar({
                       disabled: folderReadOnly || folderIndex === filtered.length - 1,
                     },
                     { key: 'test', label: '运行测试集' },
-                    { key: 'export', label: '导出集合' },
+                    { key: 'export', label: '导出集合 / 文档' },
                     { key: 'duplicate', label: '复制集合', disabled: folderReadOnly },
                     { type: 'divider' },
                     { key: 'delete', label: '删除集合', danger: true, disabled: folderReadOnly },
@@ -1245,12 +1297,15 @@ export function Sidebar({
 
       <Modal
         open={exportState !== null}
-        title={`导出集合 · ${exportState?.name ?? ''}`}
+        title={`导出集合 / 接口文档 · ${exportState?.name ?? ''}`}
         width={560}
         onCancel={() => setExportState(null)}
         footer={[
           <Button key="close" size="small" onClick={() => setExportState(null)}>
             关闭
+          </Button>,
+          <Button key="download" size="small" onClick={downloadExport}>
+            下载文件
           </Button>,
           <Button
             key="copy"
@@ -1266,14 +1321,16 @@ export function Sidebar({
         <div className="import-body">
           <Segmented
             size="small"
-            value={exportState?.format ?? 'json'}
+            value={exportState?.format ?? 'markdown'}
             onChange={(value) =>
               setExportState((current) =>
                 current ? { ...current, format: value as ExportFormat } : current,
               )
             }
             options={[
-              { label: '集合 JSON', value: 'json' },
+              { label: 'Markdown', value: 'markdown' },
+              { label: 'HTML', value: 'html' },
+              { label: 'JSON', value: 'json' },
               { label: 'curl', value: 'curl' },
               { label: 'fetch', value: 'fetch' },
             ]}

@@ -73,6 +73,7 @@ docker compose up -d --build
 | DELETE | `/v1/teams/{id}/members/{userId}` | 移除成员（同时撤销其资源授权） |
 | POST | `/v1/teams/{id}/members/{userId}/reset-password` | 重置口令并撤销刷新令牌 |
 | GET | `/v1/teams/{id}/access` | 当前成员的可见 / 编辑能力（客户端只读展示） |
+| GET | `/v1/teams/{id}/workspace` | 最新完整快照内容（管理台查看接口与导出，owner / admin） |
 | GET | `/v1/teams/{id}/permissions` | 资源树与当前权限配置（owner / admin） |
 | PUT | `/v1/teams/{id}/permissions/{type}/{resourceId}` | 设置集合 / 接口可见性 |
 | DELETE | `/v1/teams/{id}/permissions/{type}/{resourceId}` | 恢复默认（接口回到继承集合） |
@@ -94,10 +95,17 @@ http://<服务器地址>:8080/admin/
 访问根路径 `/` 会自动跳转到 `/admin/`。页面以 `include_str!` 编进二进制，无需单独部署静态资源。
 
 - 登录账号：使用 `BOOTSTRAP_ACCOUNT` 创建的账号（部署时口令写在 `/opt/inkline-team/admin-password.txt`）。
-- 功能：团队列表与新建、概览统计、最新快照查看 / 下载、快照历史分页、成员增删与角色调整、口令重置、资源权限树、审计日志、团队设置（名称 / 数据分级上限 / 保留天数）。
+- 功能：团队列表与新建、概览统计、最新快照查看 / 下载、快照历史分页、成员增删与角色调整、口令重置、资源权限树、接口内容查看（请求头 / 请求体 / 字段文档）、Markdown / HTML / JSON 导出、审计日志、团队设置（名称 / 数据分级上限 / 保留天数）。
 - 令牌保存在 `sessionStorage`，关闭标签页即失效；访问令牌过期时用刷新令牌自动续期。
 - 页面返回 CSP、`X-Frame-Options: DENY`、`nosniff` 等安全响应头，不加载外部资源。
 - 管理台只调用已有的 `/v1` 接口，没有额外的管理特权接口；权限仍由团队成员角色决定。
+
+### 接口内容与导出
+
+- 「接口内容」页签展示最近一次快照中的集合与接口树，右侧可查看请求方法、路径、请求头、请求体、数据分级与字段文档。
+- 支持导出单个接口或整个集合，格式为 Markdown、HTML 或 JSON；导出内容包含请求头、请求体与字段说明。
+- 内容接口 `GET /v1/teams/{id}/workspace` 仅对 owner / admin 开放，普通成员仍只能拿到裁剪后的快照。
+- 桌面客户端在集合右键菜单「导出集合 / 文档」中同样支持 Markdown、HTML、JSON、curl、fetch，默认使用 Markdown 并包含字段文档。
 
 ## 成员与资源权限
 
