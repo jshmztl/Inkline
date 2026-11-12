@@ -308,11 +308,45 @@
       max-width: none;
       max-height: none;
     }
-    #diff-dialog .dialog-body {
+    #diff-dialog .diff-layout {
+      display: flex;
       height: calc(100% - 57px);
+      min-height: 0;
+    }
+    #diff-dialog .dialog-body {
+      flex: 1;
+      min-width: 0;
+      height: auto;
       overflow: auto;
       padding: 18px 22px 28px;
     }
+    .diff-head-actions { display: flex; align-items: center; gap: 10px; justify-content: flex-end; flex-wrap: nowrap; }
+    .diff-summary { display: flex; gap: 6px; }
+    .diff-nav { display: flex; align-items: center; gap: 6px; }
+    .diff-nav-pos { min-width: 56px; text-align: center; font-size: 12px; color: var(--muted); }
+    .diff-outline {
+      flex: 0 0 236px;
+      width: 236px;
+      overflow: auto;
+      padding: 14px 10px 24px;
+      border-right: 1px solid var(--line);
+      background: #fbfcfe;
+    }
+    .diff-outline-title { padding: 0 8px 8px; font-size: 11px; letter-spacing: .08em; color: var(--muted); }
+    .diff-outline-group { display: flex; flex-direction: column; gap: 2px; margin-bottom: 12px; }
+    .diff-outline-item {
+      display: flex; align-items: center; gap: 6px; width: 100%;
+      padding: 6px 8px; border: 0; border-radius: 8px; background: transparent;
+      color: #334155; font-size: 12.5px; text-align: left;
+    }
+    .diff-outline-item:hover { background: #eef2ff; }
+    .diff-outline-item.active { background: var(--accent-soft); color: #1d4ed8; font-weight: 600; }
+    .diff-outline-item.sub { padding-left: 10px; font-size: 12px; }
+    .diff-outline-item .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .diff-outline-item .count { margin-left: auto; color: var(--muted); font-size: 11px; }
+    .diff-outline-empty { padding: 4px 8px; color: var(--muted); font-size: 12px; }
+    .doc-diff tr.diff-focus td,
+    .entity-diff tr.diff-focus td { outline: 2px solid #f59e0b; outline-offset: -2px; }
     .doc-diff { width: 100%; border-collapse: collapse; table-layout: fixed; }
     .doc-diff th { text-align: left; padding: 8px 14px; background: #f8fafc; color: var(--muted); font-weight: 500; font-size: 11px; border-bottom: 1px solid var(--line); }
     .doc-diff td { width: 50%; vertical-align: top; padding: 8px 14px; border-bottom: 1px solid #eef2f7; }
@@ -356,6 +390,7 @@
     @media (max-width: 1100px) {
       .perm-layout, .content-layout { grid-template-columns: 1fr; }
       .tree-pane { max-height: 360px; }
+      .diff-outline { display: none; }
     }
     @media (max-width: 820px) {
       .layout { grid-template-columns: 1fr; }
@@ -368,6 +403,7 @@
       .settings-form { grid-template-columns: 1fr; }
       .top-actions .server, .top-actions #user-label { display: none; }
       .page-head h1 { font-size: 20px; }
+      .diff-summary { display: none; }
     }
   </style>
 </head>
@@ -471,9 +507,20 @@
   <dialog id="diff-dialog">
     <div class="dialog-head">
       <h2 id="diff-title">版本对比</h2>
-      <button id="diff-close" class="btn small" type="button">关闭</button>
+      <div class="diff-head-actions">
+        <div id="diff-summary" class="diff-summary"></div>
+        <div class="diff-nav">
+          <button id="diff-prev" class="btn small" type="button">上一处</button>
+          <span id="diff-nav-pos" class="diff-nav-pos">0 / 0</span>
+          <button id="diff-next" class="btn small" type="button">下一处</button>
+        </div>
+        <button id="diff-close" class="btn small" type="button">关闭</button>
+      </div>
     </div>
-    <div class="dialog-body" id="diff-body"></div>
+    <div class="diff-layout">
+      <aside id="diff-outline" class="diff-outline"></aside>
+      <div class="dialog-body" id="diff-body"></div>
+    </div>
   </dialog>
 
   <dialog id="team-dialog">
@@ -592,6 +639,10 @@
       const diffDialog = $('#diff-dialog');
       const diffTitle = $('#diff-title');
       const diffBody = $('#diff-body');
+      const diffSummary = $('#diff-summary');
+      const diffOutline = $('#diff-outline');
+      const diffNavPos = $('#diff-nav-pos');
+      const diffState = { targets: [], outline: [], index: -1, jumpUntil: 0, focusTimer: 0, scrollRaf: 0 };
       const teamDialog = $('#team-dialog');
       const memberDialog = $('#member-dialog');
       const passwordDialog = $('#password-dialog');
@@ -2903,36 +2954,179 @@ ${body}
         );
       }
 
+      function setDiffSummary(collectionCount, requestCount) {
+        diffSummary.replaceChildren(
+          h('span', { class: 'badge team', text: `接口 +${requestCount.add} / -${requestCount.remove} / 改 ${requestCount.change}` }),
+          h('span', { class: 'badge', text: `集合 +${collectionCount.add} / -${collectionCount.remove} / 改 ${collectionCount.change}` }),
+        );
+      }
+
+      function resetDiffNav() {
+        diffState.targets = [];
+        diffState.outline = [];
+        diffState.index = -1;
+        diffState.jumpUntil = 0;
+        clearTimeout(diffState.focusTimer);
+        diffNavPos.textContent = '0 / 0';
+        $('#diff-prev').disabled = true;
+        $('#diff-next').disabled = true;
+        diffOutline.replaceChildren();
+      }
+
+      function buildDiffOutline(collections, requests, changedRequests) {
+        diffState.outline = [];
+        diffOutline.replaceChildren(h('div', { class: 'diff-outline-title', text: '大纲' }));
+        const group = (title, entries) => {
+          diffOutline.append(h('div', { class: 'diff-outline-title', text: title }));
+          if (!entries.length) {
+            diffOutline.append(h('div', { class: 'diff-outline-empty', text: '无' }));
+            return;
+          }
+          const list = h('div', { class: 'diff-outline-group' });
+          for (const entry of entries) {
+            const button = h('button', {
+              class: 'diff-outline-item' + (entry.sub ? ' sub' : ''),
+              type: 'button',
+              'data-target': entry.target,
+            },
+              ...(entry.tag ? [entry.tag] : []),
+              h('span', { class: 'name', text: entry.label }),
+            );
+            list.append(button);
+            diffState.outline.push({ id: entry.target, button });
+          }
+          diffOutline.append(list);
+        };
+        group('概览', [
+          { label: `集合 · ${collections.length}`, target: 'diff-sec-collections' },
+          { label: `接口 · ${requests.length}`, target: 'diff-sec-requests' },
+        ]);
+        group(`变更接口 · ${changedRequests.length}`, changedRequests.map((row, index) => ({
+          label: row.name,
+          tag: h('span', { class: `method ${row.method}`, text: row.method }),
+          target: `diff-sec-req-${index}`,
+          sub: true,
+        })));
+      }
+
+      function setOutlineActive(id) {
+        for (const entry of diffState.outline) {
+          entry.button.classList.toggle('active', entry.id === id);
+        }
+      }
+
+      function scrollDiffTo(element, offset = 10) {
+        if (!element) return;
+        const bodyTop = diffBody.getBoundingClientRect().top;
+        const top = diffBody.scrollTop + element.getBoundingClientRect().top - bodyTop - offset;
+        diffBody.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+      }
+
+      function jumpDiffSection(id) {
+        const section = document.getElementById(id);
+        if (!section) return;
+        scrollDiffTo(section, 6);
+        setOutlineActive(id);
+      }
+
+      function diffCurrentIndex() {
+        const bodyTop = diffBody.getBoundingClientRect().top;
+        let index = -1;
+        diffState.targets.forEach((row, i) => {
+          if (row.getBoundingClientRect().top - bodyTop <= 96) index = i;
+        });
+        return index;
+      }
+
+      function setDiffPosition(index) {
+        const total = diffState.targets.length;
+        diffState.index = index;
+        diffNavPos.textContent = total ? `${index >= 0 ? index + 1 : 0} / ${total}` : '0 / 0';
+      }
+
+      function focusDiffChange(index) {
+        const row = diffState.targets[index];
+        if (!row) return;
+        diffState.targets.forEach((item) => item.classList.remove('diff-focus'));
+        row.classList.add('diff-focus');
+        clearTimeout(diffState.focusTimer);
+        diffState.focusTimer = setTimeout(() => row.classList.remove('diff-focus'), 1600);
+        diffState.jumpUntil = Date.now() + 600;
+        scrollDiffTo(row, 110);
+        setDiffPosition(index);
+        const section = row.closest('.diff-section');
+        if (section?.id) setOutlineActive(section.id);
+      }
+
+      function jumpDiffChange(delta) {
+        const total = diffState.targets.length;
+        if (!total) return;
+        const current = diffState.index;
+        let next;
+        if (delta > 0) next = current < 0 ? 0 : (current + 1) % total;
+        else next = current <= 0 ? total - 1 : current - 1;
+        focusDiffChange(next);
+      }
+
+      function onDiffScroll() {
+        if (diffState.scrollRaf) return;
+        diffState.scrollRaf = requestAnimationFrame(() => {
+          diffState.scrollRaf = 0;
+          if (Date.now() < diffState.jumpUntil) return;
+          setDiffPosition(diffCurrentIndex());
+          const bodyTop = diffBody.getBoundingClientRect().top;
+          let active = '';
+          for (const entry of diffState.outline) {
+            const section = document.getElementById(entry.id);
+            if (section && section.getBoundingClientRect().top - bodyTop <= 80) active = entry.id;
+          }
+          if (active) setOutlineActive(active);
+        });
+      }
+
       function renderSideDiff(diff, fromRevision, toRevision) {
         diffTitle.textContent = `版本对比 · #${fromRevision} → #${toRevision}`;
+        resetDiffNav();
         const { collectionCount, requestCount } = diff;
+        setDiffSummary(collectionCount, requestCount);
         const total =
           collectionCount.add + collectionCount.remove + collectionCount.change +
           requestCount.add + requestCount.remove + requestCount.change;
 
-        const summary = h('div', { class: 'summary-line' },
-          h('span', { class: 'badge team', text: `接口 +${requestCount.add} / -${requestCount.remove} / 改 ${requestCount.change}` }),
-          h('span', { class: 'badge', text: `集合 +${collectionCount.add} / -${collectionCount.remove} / 改 ${collectionCount.change}` }),
-        );
-
         if (total === 0) {
-          diffBody.replaceChildren(summary, h('p', { class: 'section-note', text: '两个版本内容一致。' }));
+          diffBody.replaceChildren(h('p', { class: 'section-note', text: '两个版本内容一致。' }));
+          diffOutline.append(
+            h('div', { class: 'diff-outline-title', text: '大纲' }),
+            h('div', { class: 'diff-outline-empty', text: '无变更' }),
+          );
           diffDialog.showModal();
           return;
         }
 
         const changedRequests = diff.requests.filter((row) => row.status !== 'same');
-        const blocks = changedRequests.map((row) => h('div', { class: 'diff-section' },
-          h('h4', { text: `接口内容 · ${row.method} ${row.name}` }),
-          renderDocDiff(row.leftBlocks, row.rightBlocks),
-        ));
+        const collectionsSection = renderEntityDiff('集合', diff.collections, (item) => item.name || item.id);
+        collectionsSection.id = 'diff-sec-collections';
+        const requestsSection = renderEntityDiff('接口', diff.requests, (item) => `${item.method} ${item.name}`);
+        requestsSection.id = 'diff-sec-requests';
+        const blocks = changedRequests.map((row, index) => {
+          const section = h('div', { class: 'diff-section' },
+            h('h4', { text: `接口内容 · ${row.method} ${row.name}` }),
+            renderDocDiff(row.leftBlocks, row.rightBlocks),
+          );
+          section.id = `diff-sec-req-${index}`;
+          return section;
+        });
 
-        diffBody.replaceChildren(
-          summary,
-          renderEntityDiff('集合', diff.collections, (item) => item.name || item.id),
-          renderEntityDiff('接口', diff.requests, (item) => `${item.method} ${item.name}`),
-          ...blocks,
+        diffBody.replaceChildren(collectionsSection, requestsSection, ...blocks);
+        buildDiffOutline(diff.collections, diff.requests, changedRequests);
+        diffBody.scrollTop = 0;
+        diffState.targets = [...diffBody.querySelectorAll('.entity-diff tr, .doc-diff tr')].filter((row) =>
+          row.querySelector('td.side-add, td.side-remove, td.diff-add, td.diff-remove, td.diff-change-left, td.diff-change-right'),
         );
+        $('#diff-prev').disabled = false;
+        $('#diff-next').disabled = false;
+        setDiffPosition(-1);
+        setOutlineActive('diff-sec-collections');
         diffDialog.showModal();
       }
 
@@ -3319,6 +3513,13 @@ ${body}
       diffDialog.addEventListener('click', (event) => {
         if (event.target === diffDialog) diffDialog.close();
       });
+      $('#diff-prev').addEventListener('click', () => jumpDiffChange(-1));
+      $('#diff-next').addEventListener('click', () => jumpDiffChange(1));
+      diffOutline.addEventListener('click', (event) => {
+        const button = event.target.closest('.diff-outline-item');
+        if (button) jumpDiffSection(button.dataset.target);
+      });
+      diffBody.addEventListener('scroll', onDiffScroll, { passive: true });
 
       $('#mode-create').addEventListener('click', () => { state.memberMode = 'create'; syncMemberMode(); });
       $('#mode-existing').addEventListener('click', () => { state.memberMode = 'existing'; syncMemberMode(); });
