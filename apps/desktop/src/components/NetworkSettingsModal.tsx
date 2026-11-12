@@ -59,7 +59,7 @@ export function NetworkSettingsModal({ open, onClose }: NetworkSettingsModalProp
           <Input.TextArea
             value={options.intranetCidrs}
             rows={3}
-            placeholder={'192.168.0.0/16\n192.168.0.0/16'}
+            placeholder={'192.168.0.0/16\n10.0.0.0/8'}
             onChange={(event) =>
               setOptions((current) => ({
                 ...current,
