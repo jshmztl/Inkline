@@ -1,6 +1,6 @@
 # 墨线 Inkline · 内网 API 工作台
 
-面向内网与离线场景的 API 调试与文档工作台。基于 Tauri 2 与 React 19 构建，请求、历史、文档草稿与审计记录均保存在本地；AI 文档流支持本地模型、内网网关与外网模型三档路由，并对出网数据做分级、脱敏与人工审批。
+面向内网与离线场景的 API 调试与文档工作台。基于 Tauri 2 与 React 19 构建，请求、历史、文档草稿与审计记录均保存在本地；AI 文档流支持本地模型、内网网关与外网模型三档路由，并对出网数据做分级、脱敏与人工审批。可选接入自建团队服务，在多台机器之间按成员角色与资源权限同步集合、接口与文档。
 
 ## 功能特性
 
@@ -10,9 +10,14 @@
 - **AI 文档流**：基于 Ant Design X 的对话面板，从请求与响应示例生成结构化字段、术语命中、置信度与 OpenAPI 草稿 diff，可一键应用到草稿。
 - **文档生成接口**：把 Word 等文档里复制的接口说明粘贴到 AI 对话框，自动解析请求方法、地址、请求头与请求体，确认后一键创建并打开请求。
 - **三档模型路由与出网预检**：A 本地 / B 内网网关 / C 外网；L2、L3 数据禁止出网，出网前自动脱敏并需人工审批。
-- **协作与同步**：本机 / 团队工作区进入、团队快照 push / pull、三方合并与字段级冲突解决（跨机同步待接入团队服务）。
+- **协作与同步**：本机 / 团队工作区，团队服务端登录、快照 push / pull、单接口增量推送、三方合并与字段级冲突解决，按成员角色与资源权限裁剪内容。
 - **审计与离线队列**：请求、AI 任务、出网审批、团队同步全部留痕；请求失败自动入队，支持单条或批量重试。
 - **请求体行内字段注释**：JSON / XML 请求体右侧按行对齐展示 `//` 字段说明，可直接编辑并与 AI 文档草稿双向同步；分隔线可左右拖动调整宽度，支持收起。
+- **多协议与自动化**：WebSocket、SSE、GraphQL（含 introspection 与类型浏览）、multipart 文件上传；前置 / 后置脚本沙箱、断言与集合测试、请求取消。
+- **Mock 与网络选项**：本地或局域网 Mock Server（支持路径参数与通配符）、A/B/C 网络模式与内网白名单、HTTP 代理、客户端证书（mTLS）、忽略证书校验、Cookie 会话。
+- **导入导出**：支持 Postman 集合与环境、OpenAPI、curl 导入；集合可导出 Markdown / HTML / JSON / curl / fetch，审计日志可导出 JSON。
+- **响应工具**：保存响应基线并逐行对比；展示总耗时、首字节与下载耗时。
+- **团队服务**：自建 Rust axum + PostgreSQL 服务端，成员角色与资源级权限、单接口增量推送、快照版本对比、内置管理台。
 - **效率与可访问性**：⌘K / Ctrl+K 命令面板、全键盘操作、焦点管理、大响应体虚拟滚动、按需分包。
 
 ## 技术栈
@@ -23,6 +28,7 @@
 | 前端 | React 19 + TypeScript + Vite 8 |
 | 组件与设计 | Ant Design 5 + Ant Design X |
 | 本地存储 | SQLite（rusqlite） |
+| 团队服务 | Rust axum + PostgreSQL 16（可选 Docker Compose） |
 | 工程 | pnpm workspace（`apps/*`、`packages/*`） |
 
 ## 目录结构
@@ -30,15 +36,19 @@
 ```text
 .
 ├─ apps/
-│  └─ desktop/                 # Tauri 桌面端
-│     ├─ src/
-│     │  ├─ components/        # 侧栏、请求区、AI 面板、命令面板等
-│     │  ├─ data/              # 集合、环境、网络模式示例数据
-│     │  └─ lib/               # 请求、文档任务、路由、脱敏、合并、审计、队列
-│     └─ src-tauri/            # Rust 端：HTTP 引擎、SQLite、命令注册
+│  ├─ desktop/                 # Tauri 桌面端
+│  │  ├─ src/
+│  │  │  ├─ components/        # 侧栏、请求区、AI 面板、命令面板等
+│  │  │  ├─ data/              # 集合、环境、网络模式示例数据
+│  │  │  └─ lib/               # 请求、文档任务、路由、脱敏、合并、审计、队列
+│  │  └─ src-tauri/            # Rust 端：HTTP / WS / SSE / Mock / AI / SQLite
+│  └─ team-server/             # 团队同步服务（axum + PostgreSQL + 管理台）
+│     ├─ src/api/              # 登录、团队、成员、权限、快照、审计
+│     ├─ migrations/           # PostgreSQL 迁移
+│     └─ admin/                # 内置管理台（单页，编入二进制）
 ├─ packages/
 │  └─ ui/                      # 设计 token 与 Ant Design Provider
-├─ output/                     # 设计研究、PRD、TDD 等文档
+├─ output/                     # 团队服务 API 设计文档
 ├─ ROADMAP.md                  # 里程碑与验收记录
 └─ pnpm-workspace.yaml
 ```
@@ -78,6 +88,17 @@ pnpm release
 
 普通构建输出到 `apps/desktop/src-tauri/target/release/bundle/nsis/`。
 
+### 团队服务（可选）
+
+团队工作区需要自建同步服务，依赖 PostgreSQL 16 或 Docker：
+
+```bash
+cd apps/team-server
+docker compose up -d --build
+```
+
+默认账号 `admin` / `change-me-please`，部署后请通过环境变量覆盖；管理台位于 `http://<服务器地址>:8080/admin/`。完整接口、权限规则与跨网段部署说明见 [apps/team-server/README.md](apps/team-server/README.md)。
+
 ### Windows 代码签名（可选）
 
 安装包默认不签名，SmartScreen 会提示“未知发布者”。自签名证书只能让已部署该证书的机器识别发布者，**不能保证所有机器跳过 SmartScreen**；若要在公网彻底消除提示，需要 OV / EV 代码签名证书或 Azure Trusted Signing。
@@ -116,7 +137,7 @@ pnpm release
 
 ### 标签触发的流水线（GitHub Actions）
 
-推送 `v*` 标签会自动在 `windows-latest` 上构建签名 MSI 并创建 GitHub Release，清单里的下载地址指向该 Release 的稳定文件名 `inkline_x64.msi`。
+推送 `v*` 标签会自动在 `windows-latest` 上构建签名 NSIS 安装包并创建 GitHub Release，清单里的下载地址指向该 Release 的稳定文件名 `inkline_x64-setup.exe`。
 
 需要先在 GitHub 仓库的 Secrets 中配置：
 
@@ -158,23 +179,23 @@ pnpm release
 
 ## 工作区模式
 
-登录页提供两种进入方式，不做账号校验：
+登录页提供两种进入方式：
 
-- **本机工作区**：点「直接进入本机工作区」即可，不需要账号与口令，适合个人使用。
-- **团队工作区**：填写团队名称与成员名称后进入，用于顶部标识、审计操作人与快照记录；进入后可在「账户菜单 → 团队设置」修改。
+- **本机工作区**：点「直接进入本机工作区」即可，不需要账号与口令，适合个人使用；数据只保存在本机。
+- **团队工作区**：填写团队服务地址、账号与口令登录，可选择已有团队或新建团队。进入后可推送 / 拉取快照，服务端按成员角色与资源权限裁剪内容，客户端对只读资源显示锁标记并禁用编辑。
 
-团队快照（push / pull / 三方合并）目前保存在本机，不跨设备；跨机同步需要接入团队服务端。
+同步采用乐观锁：首次推送为整包，已有基准后只提交变化的集合、接口与文档；`baseRevision` 冲突时客户端会拉取远端并打开三方合并。访问令牌与刷新令牌保存在本机 SQLite，访问令牌过期自动续期，退出团队工作区会撤销刷新令牌。
 
 ## 数据与存储
 
-- SQLite 数据库：系统应用数据目录下的 `inkline.db`，包含 `requests`、`history`、`settings`、`audit_logs` 等表。
+- SQLite 数据库：系统应用数据目录下的 `inkline.db`，包含 `requests`、`collections`、`history`、`settings`、`audit_logs` 等表；环境变量、请求元数据、脚本、断言、AI 配置、文档草稿与团队令牌统一存入 `settings` 表。
 - 卸载时会弹窗询问是否删除应用数据：选择“是”会清理 `%APPDATA%` 与 `%LOCALAPPDATA%` 下的 `com.inkline.desktop`，以及旧版 `com.apiworkbench.desktop`（不清理会被重装后的旧库迁移逻辑恢复）；选择“否”会保留数据，重新安装后可继续使用。
 - 浏览器预览的本地键：`aw-session`、`aw-doc-draft:{requestId}`、`aw-team-remote`、`aw-team-base`、`aw-audit`、`aw-offline-queue`。
 - 出网预检默认识别 `token`、`secret`、`password`、`authorization`、`api-key`、`tenant` 等敏感字段并脱敏。
 
 ## 项目状态
 
-M0–M4 里程碑均已完成，详见 [ROADMAP.md](ROADMAP.md)。当前 AI 路由、团队同步与更新检查在浏览器预览下使用本地模拟实现，桌面端可按需接入真实网关。
+M0–M5 里程碑均已完成，M6 除企业 SSO 外已完成，详见 [ROADMAP.md](ROADMAP.md)。浏览器预览可使用大部分功能（AI 与团队同步受浏览器 CORS 与网络策略限制），自动更新与系统级能力仅在桌面端可用。
 
 ## 许可
 
