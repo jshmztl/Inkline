@@ -326,12 +326,25 @@
     .doc-heading { margin-top: 10px; padding-bottom: 4px; border-bottom: 1px solid var(--line); color: #334155; font-size: 13px; font-weight: 600; }
     .doc-kv { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 10px; font-size: 12.5px; }
     .doc-kv span { word-break: break-all; }
-    .doc-code-line { margin: 0; padding: 1px 10px; background: #0b1220; color: #dbeafe; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
+    .doc-code-line { margin: 0; padding: 1px 12px 1px 0; background: transparent; color: #dbeafe; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all; line-height: 1.6; }
     .doc-field { display: grid; grid-template-columns: 1.2fr 1fr 0.7fr 0.6fr 2fr; gap: 8px; padding: 4px 0; border-bottom: 1px solid #f1f5f9; font-size: 12px; }
     .doc-field:last-child { border-bottom: 0; }
     .doc-field code { color: #1d4ed8; }
     .doc-field span { word-break: break-all; }
     .doc-muted { color: #94a3b8; font-size: 12px; }
+    .diff-cell { display: flex; align-items: stretch; min-width: 0; }
+    .diff-ln { flex: 0 0 26px; width: 26px; padding-right: 7px; color: #94a3b8; font-size: 11px; line-height: 1.7; text-align: right; user-select: none; }
+    .diff-content { flex: 1; min-width: 0; }
+    .doc-diff td.code-cell { padding: 0; border-bottom: 0; background: #0b1220; color: #dbeafe; }
+    .doc-diff td.code-cell .diff-ln { color: #64748b; line-height: 1.6; }
+    .doc-diff td.code-cell.diff-add,
+    .doc-diff td.code-cell.diff-change-right { background: #0e3521; box-shadow: inset 3px 0 0 #0f9d58; }
+    .doc-diff td.code-cell.diff-remove,
+    .doc-diff td.code-cell.diff-change-left { background: #3a1417; box-shadow: inset 3px 0 0 #dc2626; }
+    .doc-diff td.code-cell.diff-add .diff-ln,
+    .doc-diff td.code-cell.diff-change-right .diff-ln { color: #6ee7b7; }
+    .doc-diff td.code-cell.diff-remove .diff-ln,
+    .doc-diff td.code-cell.diff-change-left .diff-ln { color: #fca5a5; }
     @media (max-width: 1280px) {
       .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     }
@@ -2686,16 +2699,38 @@ ${body}
       function renderDocDiff(leftBlocks, rightBlocks) {
         const rows = computeBlockDiff(leftBlocks, rightBlocks);
         const body = h('tbody');
+        let leftNo = 0;
+        let rightNo = 0;
         for (const row of rows) {
+          const hasLeft = Boolean(row.left);
+          const hasRight = Boolean(row.right);
+          if (hasLeft) leftNo += 1;
+          if (hasRight) rightNo += 1;
           const leftTone = row.type === 'remove'
             ? 'diff-remove'
             : row.type === 'change' ? 'diff-change-left' : '';
           const rightTone = row.type === 'add'
             ? 'diff-add'
             : row.type === 'change' ? 'diff-change-right' : '';
+          const leftClass = [leftTone, row.left?.type === 'code' ? 'code-cell' : '']
+            .filter(Boolean)
+            .join(' ');
+          const rightClass = [rightTone, row.right?.type === 'code' ? 'code-cell' : '']
+            .filter(Boolean)
+            .join(' ');
           body.append(h('tr', {},
-            h('td', { class: leftTone }, row.left ? renderDocBlock(row.left) : ''),
-            h('td', { class: rightTone }, row.right ? renderDocBlock(row.right) : ''),
+            h('td', { class: leftClass },
+              h('div', { class: 'diff-cell' },
+                h('span', { class: 'diff-ln', text: hasLeft ? String(leftNo) : '' }),
+                h('div', { class: 'diff-content' }, hasLeft ? renderDocBlock(row.left) : ''),
+              ),
+            ),
+            h('td', { class: rightClass },
+              h('div', { class: 'diff-cell' },
+                h('span', { class: 'diff-ln', text: hasRight ? String(rightNo) : '' }),
+                h('div', { class: 'diff-content' }, hasRight ? renderDocBlock(row.right) : ''),
+              ),
+            ),
           ));
         }
         return h('div', { class: 'table-wrap' },
