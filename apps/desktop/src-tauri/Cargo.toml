@@ -1,6 +1,6 @@
 [package]
 name = "inkline"
-version = "0.1.21"
+version = "0.1.22"
 description = "Inkline · 内网 API 工作台"
 authors = ["Inkline"]
 edition = "2021"
