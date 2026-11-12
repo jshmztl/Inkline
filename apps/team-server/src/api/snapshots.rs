@@ -1,11 +1,12 @@
 use std::io::Read;
 
 use axum::body::Bytes;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use chrono::{DateTime, Utc};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -19,6 +20,69 @@ use crate::state::AppState;
 
 const BASE_REVISION_HEADER: &str = "x-inkline-base-revision";
 const IDEMPOTENCY_HEADER: &str = "idempotency-key";
+
+#[derive(Debug, Deserialize)]
+pub struct SnapshotListQuery {
+    pub limit: Option<i64>,
+    pub before: Option<i64>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct SnapshotHistoryRow {
+    revision: i64,
+    payload_hash: String,
+    size_bytes: i64,
+    schema_version: i32,
+    base_revision: Option<i64>,
+    created_at: DateTime<Utc>,
+    created_by_name: Option<String>,
+}
+
+pub async fn list_snapshots(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(team_id): Path<Uuid>,
+    Query(query): Query<SnapshotListQuery>,
+) -> Result<Json<Value>, AppError> {
+    crate::api::teams::require_membership(&state.pool, team_id, user.0).await?;
+
+    let limit = query.limit.unwrap_or(20).clamp(1, 100);
+    let rows: Vec<SnapshotHistoryRow> = sqlx::query_as(
+        "SELECT s.revision, s.payload_hash, s.size_bytes, s.schema_version,
+                s.base_revision, s.created_at, u.display_name AS created_by_name
+         FROM snapshots s
+         LEFT JOIN users u ON u.id = s.created_by
+         WHERE s.team_id = $1
+           AND ($2::bigint IS NULL OR s.revision < $2)
+         ORDER BY s.revision DESC
+         LIMIT $3",
+    )
+    .bind(team_id)
+    .bind(query.before)
+    .bind(limit)
+    .fetch_all(&state.pool)
+    .await?;
+
+    let next_cursor = if rows.len() as i64 == limit {
+        rows.last().map(|row| row.revision)
+    } else {
+        None
+    };
+
+    Ok(Json(json!({
+        "entries": rows.iter().map(|row| json!({
+            "revision": row.revision,
+            "hash": row.payload_hash,
+            "sizeBytes": row.size_bytes,
+            "schemaVersion": row.schema_version,
+            "baseRevision": row.base_revision,
+            "createdBy": { "displayName": row.created_by_name },
+            "createdAt": row.created_at,
+            "downloadUrl": format!("/v1/teams/{team_id}/snapshots/{}", row.revision),
+        })).collect::<Vec<_>>(),
+        "nextCursor": next_cursor,
+    })))
+}
 
 pub async fn get_latest(
     State(state): State<AppState>,

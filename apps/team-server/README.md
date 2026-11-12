@@ -7,8 +7,9 @@ Rust + axum + PostgreSQL 实现的团队同步服务，对应设计文档 `outpu
 - 账号登录、刷新令牌、登出、当前用户信息
 - 团队创建、列表、详情、设置（名称 / 数据分级上限 / 保留天数）
 - 成员列表（邀请与角色管理在 M2）
-- 快照最新版本、指定版本、推送（乐观锁 + 幂等键 + gzip）
+- 快照最新版本、历史列表、指定版本、推送（乐观锁 + 幂等键 + gzip）
 - 审计日志查询（owner / admin）
+- 内置管理台（团队 / 快照历史 / 成员 / 审计 / 设置）
 - 健康检查与元信息
 
 ## 环境要求
@@ -66,10 +67,27 @@ docker compose up -d --build
 | GET | `/v1/teams/{id}` | 团队详情 |
 | PATCH | `/v1/teams/{id}` | 修改名称 / 数据分级上限 / 保留天数（owner） |
 | GET | `/v1/teams/{id}/members` | 成员列表 |
+| GET | `/v1/teams/{id}/snapshots` | 快照历史列表（`limit` / `before` 分页） |
 | POST | `/v1/teams/{id}/snapshots` | 推送快照 |
 | GET | `/v1/teams/{id}/snapshots/latest` | 最新快照元信息 |
 | GET | `/v1/teams/{id}/snapshots/{revision}` | 指定版本快照 |
 | GET | `/v1/teams/{id}/audit` | 审计日志（owner / admin） |
+
+## 管理台
+
+服务内置一个零依赖的单页管理台，浏览器打开即可使用：
+
+```
+http://<服务器地址>:8080/admin/
+```
+
+访问根路径 `/` 会自动跳转到 `/admin/`。页面以 `include_str!` 编进二进制，无需单独部署静态资源。
+
+- 登录账号：使用 `BOOTSTRAP_ACCOUNT` 创建的账号（部署时口令写在 `/opt/inkline-team/admin-password.txt`）。
+- 功能：团队列表与新建、概览统计、最新快照查看 / 下载、快照历史分页、成员列表、审计日志、团队设置（名称 / 数据分级上限 / 保留天数）。
+- 令牌保存在 `sessionStorage`，关闭标签页即失效；访问令牌过期时用刷新令牌自动续期。
+- 页面返回 CSP、`X-Frame-Options: DENY`、`nosniff` 等安全响应头，不加载外部资源。
+- 管理台只调用已有的 `/v1` 接口，没有额外的管理特权接口；权限仍由团队成员角色决定。
 
 ## 快速验证
 
@@ -144,7 +162,7 @@ curl -s http://127.0.0.1:8080/v1/teams/<teamId>/snapshots/latest \
 ## 尚未实现（M2+）
 
 - 邀请码、成员增删与角色变更
-- 快照历史列表、回滚、定时清理
+- 快照回滚、定时清理
 - 增量同步、单请求级协作、评论
 - 企业 SSO、端到端加密
 - 桌面端 `teamService` 真实接入（下一步）

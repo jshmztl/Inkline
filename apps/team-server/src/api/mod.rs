@@ -1,3 +1,4 @@
+pub mod admin;
 pub mod audit;
 pub mod auth;
 pub mod meta;
@@ -11,6 +12,9 @@ use crate::state::AppState;
 
 pub fn router(state: AppState) -> Router {
     Router::new()
+        .route("/", get(admin::root))
+        .route("/admin", get(admin::page))
+        .route("/admin/", get(admin::page))
         .route("/healthz", get(meta::healthz))
         .route("/readyz", get(meta::readyz))
         .route("/v1/meta", get(meta::meta))
@@ -26,7 +30,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/teams/{team_id}/members", get(teams::list_members))
         .route(
             "/v1/teams/{team_id}/snapshots",
-            post(snapshots::push_snapshot),
+            get(snapshots::list_snapshots).post(snapshots::push_snapshot),
         )
         .route(
             "/v1/teams/{team_id}/snapshots/latest",
