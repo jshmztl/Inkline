@@ -10,7 +10,7 @@ axum = "0.8"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "net"] }
 tower-http = { version = "0.6", features = ["trace", "compression-gzip", "cors"] }
 sqlx = { version = "0.8", default-features = false, features = [
-  "runtime-tokio-rustls",
+  "runtime-tokio",
   "postgres",
   "uuid",
   "chrono",
@@ -23,7 +23,8 @@ serde_json = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 argon2 = "0.5"
-jsonwebtoken = "9"
+hmac = "0.12"
+base64 = "0.22"
 rand = "0.8"
 sha2 = "0.10"
 hex = "0.4"
