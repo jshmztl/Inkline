@@ -72,7 +72,7 @@ pub fn create_access_token(
     ))
 }
 
-fn verify_access_token(secret: &str, token: &str) -> Result<Claims, ()> {
+pub fn verify_access_token(secret: &str, token: &str) -> Result<Claims, ()> {
     let parts: Vec<&str> = token.split('.').collect();
     if parts.len() != 3 {
         return Err(());

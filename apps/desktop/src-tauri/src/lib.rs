@@ -4,7 +4,9 @@ mod http;
 mod mock;
 mod model;
 mod netprobe;
+mod secrets;
 mod sse;
+mod timing;
 mod ws;
 
 use std::sync::Mutex;
@@ -61,7 +63,10 @@ pub fn run() {
             db::clear_audit,
             db::load_settings,
             db::save_settings,
-            db::delete_settings
+            db::delete_settings,
+            secrets::save_secret,
+            secrets::load_secret,
+            secrets::delete_secret
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

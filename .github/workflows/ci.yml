@@ -52,3 +52,34 @@ jobs:
           name: inkline-setup
           path: apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
           if-no-files-found: error
+
+  team-server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: inkline_test
+          POSTGRES_USER: inkline
+          POSTGRES_PASSWORD: inkline
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U inkline -d inkline_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "apps/team-server -> target"
+
+      - name: 单元与集成测试
+        env:
+          TEST_DATABASE_URL: postgres://inkline:inkline@localhost:5432/inkline_test
+        run: cargo test --manifest-path apps/team-server/Cargo.toml

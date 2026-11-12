@@ -1,4 +1,16 @@
 import { kvGet, kvRemove, kvSet } from './kv';
+import {
+  CONNECTION_META_KEY,
+  clearStoredTokens,
+  persistTokens,
+  readCachedTokens,
+  setCachedTokens,
+} from './teamSecrets';
+import {
+  decryptSnapshotPayload,
+  encryptSnapshotPayload,
+  isEncryptedPayload,
+} from './teamCrypto';
 
 export interface TeamConnectionUser {
   id: string;
@@ -33,7 +45,6 @@ export interface TeamAccess {
   requests: Record<string, 'edit' | 'view'>;
 }
 
-const CONNECTION_KEY = 'aw-team-connection';
 const SERVER_HINT_KEY = 'aw-team-server-hint';
 
 export class TeamApiError extends Error {
@@ -64,25 +75,38 @@ export function normalizeServerUrl(raw: string): string {
 
 export function readTeamConnection(): TeamConnection | null {
   try {
-    const raw = kvGet(CONNECTION_KEY);
+    const raw = kvGet(CONNECTION_META_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<TeamConnection>;
-    if (!parsed?.serverUrl || !parsed?.accessToken || !parsed?.refreshToken || !parsed?.user) {
-      return null;
-    }
-    return parsed as TeamConnection;
+    const meta = JSON.parse(raw) as { serverUrl?: string; user?: TeamConnectionUser };
+    const tokens = readCachedTokens();
+    if (!meta?.serverUrl || !meta?.user || !tokens) return null;
+    return {
+      serverUrl: meta.serverUrl,
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      user: meta.user,
+    };
   } catch {
     return null;
   }
 }
 
 export function saveTeamConnection(connection: TeamConnection) {
-  kvSet(CONNECTION_KEY, JSON.stringify(connection));
+  kvSet(
+    CONNECTION_META_KEY,
+    JSON.stringify({ serverUrl: connection.serverUrl, user: connection.user }),
+  );
   kvSet(SERVER_HINT_KEY, connection.serverUrl);
+  setCachedTokens({
+    accessToken: connection.accessToken,
+    refreshToken: connection.refreshToken,
+  });
+  void persistTokens();
 }
 
 export function clearTeamConnection() {
-  kvRemove(CONNECTION_KEY);
+  kvRemove(CONNECTION_META_KEY);
+  void clearStoredTokens();
 }
 
 export function readServerHint(): string {
@@ -253,10 +277,14 @@ export async function pushSnapshotRemote(
   teamId: string,
   payload: unknown,
   baseRevision: number,
+  encryptionKey?: string | null,
 ): Promise<{ revision: number; hash: string; createdAt: string }> {
+  const body = encryptionKey
+    ? await encryptSnapshotPayload(payload as Record<string, unknown>, encryptionKey)
+    : payload;
   return (await teamRequest(connection, `/v1/teams/${teamId}/snapshots`, {
     method: 'POST',
-    body: payload,
+    body,
     headers: {
       'X-Inkline-Base-Revision': String(baseRevision),
       'Idempotency-Key': crypto.randomUUID(),
@@ -267,6 +295,7 @@ export async function pushSnapshotRemote(
 export async function fetchLatestSnapshot(
   connection: TeamConnection,
   teamId: string,
+  encryptionKey?: string | null,
 ): Promise<{ revision: number; payload: Record<string, unknown>; createdAt: string; createdBy?: { displayName?: string } } | null> {
   const meta = (await teamRequest(connection, `/v1/teams/${teamId}/snapshots/latest`)) as
     | {
@@ -277,7 +306,17 @@ export async function fetchLatestSnapshot(
       }
     | null;
   if (!meta) return null;
-  const payload = (await teamRequest(connection, meta.downloadUrl)) as Record<string, unknown>;
+  let payload = (await teamRequest(connection, meta.downloadUrl)) as Record<string, unknown>;
+  if (isEncryptedPayload(payload)) {
+    if (!encryptionKey) {
+      throw new TeamApiError(
+        0,
+        'encryption_key_missing',
+        '该团队快照已加密，请先在团队设置中导入团队密钥',
+      );
+    }
+    payload = await decryptSnapshotPayload(payload, encryptionKey);
+  }
   return { ...meta, payload };
 }
 

@@ -1,19 +1,23 @@
 mod api;
 mod auth;
+mod cleanup;
 mod config;
 mod db;
 mod error;
 mod models;
 mod policy;
+mod presence;
 mod state;
 
 use std::error::Error;
 use std::io::ErrorKind;
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::extract::DefaultBodyLimit;
+use axum::http::{header, HeaderValue, Method};
 use tower_http::compression::CompressionLayer;
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
@@ -37,15 +41,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let state = AppState {
         pool,
         config: Arc::new(config),
+        presence: Default::default(),
     };
 
+    let cors = build_cors(&state.config.cors_allowed_origins)?;
     let app = api::router(state.clone())
         .layer(TraceLayer::new_for_http())
         .layer(CompressionLayer::new())
-        .layer(CorsLayer::permissive())
+        .layer(cors)
         .layer(DefaultBodyLimit::max(
             state.config.max_compressed_bytes + 1024 * 1024,
         ));
+
+    cleanup::spawn(
+        state.pool.clone(),
+        state.config.cleanup_interval_hours,
+        state.config.default_audit_retention_days,
+    );
 
     let bind_addr = state.config.bind_addr.clone();
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
@@ -53,6 +65,37 @@ async fn main() -> Result<(), Box<dyn Error>> {
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+fn build_cors(origins: &[String]) -> Result<CorsLayer, Box<dyn Error>> {
+    if origins.iter().any(|origin| origin == "*") {
+        tracing::warn!("CORS_ALLOWED_ORIGINS 包含 *，将允许所有来源");
+        return Ok(CorsLayer::permissive());
+    }
+
+    let parsed = origins
+        .iter()
+        .map(|origin| {
+            origin
+                .parse::<HeaderValue>()
+                .map_err(|error| io_error(format!("CORS 来源 {origin} 无效：{error}")))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(CorsLayer::new()
+        .allow_origin(parsed)
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::PATCH,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers(Any)
+        .allow_credentials(false)
+        .expose_headers(vec![header::CONTENT_ENCODING, header::CONTENT_LENGTH])
+        .max_age(Duration::from_secs(3600)))
 }
 
 async fn bootstrap_user(pool: &sqlx::PgPool, config: &Config) -> Result<(), Box<dyn Error>> {

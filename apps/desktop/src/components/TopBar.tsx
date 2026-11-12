@@ -16,6 +16,8 @@ import type { Density, ThemeMode } from '@inkline/ui';
 import { networkModes, type NetworkMode } from '../data/types';
 import { clearAudit, listAudit, type AuditEntry, type AuditType } from '../lib/audit';
 import type { Session } from '../lib/session';
+import type { PresenceSnapshot } from '../lib/presence';
+import { TeamEncryptionPanel } from './TeamEncryptionPanel';
 import { checkUpdate, installUpdate, type UpdateInfo, type UpdateProgress } from '../lib/update';
 
 interface TopBarProps {
@@ -25,6 +27,7 @@ interface TopBarProps {
   environment: string;
   environments: { value: string; label: string }[];
   session: Session;
+  presence: PresenceSnapshot;
   onToggleMode: () => void;
   onDensityChange: (density: Density) => void;
   onNetworkModeChange: (mode: NetworkMode) => void;
@@ -81,6 +84,7 @@ export function TopBar({
   environment,
   environments,
   session,
+  presence,
   onToggleMode,
   onDensityChange,
   onNetworkModeChange,
@@ -255,6 +259,28 @@ export function TopBar({
       <div className="topbar-spacer" />
 
       <div className="topbar-actions">
+        {session.mode === 'team' && (
+          <Tooltip
+            title={
+              presence.members.length > 0
+                ? `在线：${presence.members.map((member) => member.displayName).join('、')}`
+                : presence.status === 'online'
+                  ? '暂无其他成员在线'
+                  : presence.status === 'connecting'
+                    ? '正在连接在线状态'
+                    : '在线状态已断开，正在重试'
+            }
+          >
+            <span className={`presence-pill tone-${presence.status}`}>
+              <TeamOutlined />
+              {presence.status === 'online'
+                ? `${presence.members.length} 在线`
+                : presence.status === 'connecting'
+                  ? '连接中'
+                  : '离线'}
+            </span>
+          </Tooltip>
+        )}
         <Tooltip title="审计日志">
           <Button
             type="text"
@@ -360,6 +386,7 @@ export function TopBar({
           <label>团队角色</label>
           <Input value={roleLabel(session.role)} readOnly />
         </div>
+        {session.team?.id && <TeamEncryptionPanel teamId={session.team.id} />}
         <div className="login-hint">
           账号、成员与资源权限由团队管理员在服务端管理台维护。需要切换团队时，退出后重新登录即可。
         </div>

@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS collections (
     id          TEXT PRIMARY KEY,
     name        TEXT NOT NULL,
     sort        INTEGER NOT NULL DEFAULT 0,
+    parent_id   TEXT,
     updated_at  TEXT NOT NULL
 );
 
@@ -99,6 +100,10 @@ pub fn open(app: &AppHandle) -> Result<Connection, Box<dyn std::error::Error>> {
             "ALTER TABLE requests ADD COLUMN sort INTEGER NOT NULL DEFAULT 0",
             [],
         )?;
+    }
+
+    if !column_exists(&connection, "collections", "parent_id")? {
+        connection.execute("ALTER TABLE collections ADD COLUMN parent_id TEXT", [])?;
     }
 
     cleanup_legacy_seed(&connection)?;
@@ -205,6 +210,7 @@ pub struct Collection {
     pub id: String,
     pub name: String,
     pub sort: Option<i64>,
+    pub parent_id: Option<String>,
     pub updated_at: Option<String>,
 }
 
@@ -241,7 +247,7 @@ pub struct HistoryEntry {
 pub fn list_collections(state: State<'_, DbState>) -> Result<Vec<Collection>, String> {
     let connection = state.0.lock().map_err(|error| error.to_string())?;
     let mut statement = connection
-        .prepare("SELECT id, name, sort, updated_at FROM collections ORDER BY sort, name")
+        .prepare("SELECT id, name, sort, parent_id, updated_at FROM collections ORDER BY sort, name")
         .map_err(|error| error.to_string())?;
 
     let rows = statement
@@ -250,7 +256,8 @@ pub fn list_collections(state: State<'_, DbState>) -> Result<Vec<Collection>, St
                 id: row.get(0)?,
                 name: row.get(1)?,
                 sort: Some(row.get(2)?),
-                updated_at: Some(row.get(3)?),
+                parent_id: row.get(3)?,
+                updated_at: Some(row.get(4)?),
             })
         })
         .map_err(|error| error.to_string())?;
@@ -272,16 +279,18 @@ pub fn save_collection(
 
     connection
         .execute(
-            "INSERT INTO collections (id, name, sort, updated_at)
-             VALUES (?1, ?2, ?3, ?4)
+            "INSERT INTO collections (id, name, sort, parent_id, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT(id) DO UPDATE SET
                name = excluded.name,
                sort = excluded.sort,
+               parent_id = excluded.parent_id,
                updated_at = excluded.updated_at",
             params![
                 &collection.id,
                 &collection.name,
                 collection.sort.unwrap_or(0),
+                &collection.parent_id,
                 &updated_at,
             ],
         )
@@ -296,12 +305,28 @@ pub fn save_collection(
 #[tauri::command]
 pub fn delete_collection(state: State<'_, DbState>, id: String) -> Result<(), String> {
     let connection = state.0.lock().map_err(|error| error.to_string())?;
-    connection
-        .execute("DELETE FROM requests WHERE collection_id = ?1", params![&id])
-        .map_err(|error| error.to_string())?;
-    connection
-        .execute("DELETE FROM collections WHERE id = ?1", params![&id])
-        .map_err(|error| error.to_string())?;
+    delete_collection_recursive(&connection, &id).map_err(|error| error.to_string())
+}
+
+fn delete_collection_recursive(connection: &Connection, id: &str) -> Result<(), rusqlite::Error> {
+    connection.execute(
+        "WITH RECURSIVE descendants(id) AS (
+            SELECT id FROM collections WHERE id = ?1
+            UNION ALL
+            SELECT c.id FROM collections c JOIN descendants d ON c.parent_id = d.id
+         )
+         DELETE FROM requests WHERE collection_id IN (SELECT id FROM descendants)",
+        params![id],
+    )?;
+    connection.execute(
+        "WITH RECURSIVE descendants(id) AS (
+            SELECT id FROM collections WHERE id = ?1
+            UNION ALL
+            SELECT c.id FROM collections c JOIN descendants d ON c.parent_id = d.id
+         )
+         DELETE FROM collections WHERE id IN (SELECT id FROM descendants)",
+        params![id],
+    )?;
     Ok(())
 }
 
@@ -412,6 +437,10 @@ pub fn record_history(
     entry: HistoryEntry,
 ) -> Result<HistoryEntry, String> {
     let connection = state.0.lock().map_err(|error| error.to_string())?;
+    record_history_to(&connection, entry)
+}
+
+fn record_history_to(connection: &Connection, entry: HistoryEntry) -> Result<HistoryEntry, String> {
     let created_at = entry
         .created_at
         .clone()
@@ -449,6 +478,14 @@ pub fn list_history(
     offset: Option<i64>,
 ) -> Result<Vec<HistoryEntry>, String> {
     let connection = state.0.lock().map_err(|error| error.to_string())?;
+    list_history_from(&connection, limit, offset)
+}
+
+fn list_history_from(
+    connection: &Connection,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> Result<Vec<HistoryEntry>, String> {
     let limit = limit.unwrap_or(20).clamp(1, 500);
     let offset = offset.unwrap_or(0).max(0);
 
@@ -700,5 +737,88 @@ mod tests {
 
         let loaded = load_settings_from(&connection).expect("load settings");
         assert_eq!(loaded.get("aw-density").map(String::as_str), Some("compact"));
+    }
+
+    #[test]
+    fn deleting_collection_removes_descendants_and_requests() {
+        let connection = test_connection();
+        let now = Utc::now().to_rfc3339();
+        connection
+            .execute(
+                "INSERT INTO collections (id, name, sort, parent_id, updated_at)
+                 VALUES ('root', '根集合', 0, NULL, ?1)",
+                params![&now],
+            )
+            .expect("insert root");
+        connection
+            .execute(
+                "INSERT INTO collections (id, name, sort, parent_id, updated_at)
+                 VALUES ('child', '子集合', 0, 'root', ?1)",
+                params![&now],
+            )
+            .expect("insert child");
+
+        for (id, collection_id) in [("r1", "root"), ("r2", "child")] {
+            connection
+                .execute(
+                    "INSERT INTO requests (id, name, method, url, headers, body, data_level, collection_id, sort, updated_at)
+                     VALUES (?1, ?1, 'GET', '/', '[]', NULL, 'L1', ?2, 0, ?3)",
+                    params![id, collection_id, &now],
+                )
+                .expect("insert request");
+        }
+
+        delete_collection_recursive(&connection, "root").expect("delete tree");
+
+        let collections: i64 = connection
+            .query_row("SELECT COUNT(*) FROM collections", [], |row| row.get(0))
+            .expect("count collections");
+        let requests: i64 = connection
+            .query_row("SELECT COUNT(*) FROM requests", [], |row| row.get(0))
+            .expect("count requests");
+        assert_eq!(collections, 0);
+        assert_eq!(requests, 0);
+    }
+
+    #[test]
+    fn history_entry_survives_database_reopen() {
+        let path = std::env::temp_dir().join(format!(
+            "inkline-history-{}-{:?}.db",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_file(&path);
+
+        {
+            let connection = Connection::open(&path).expect("open database");
+            connection.execute_batch(SCHEMA).expect("create schema");
+            record_history_to(
+                &connection,
+                HistoryEntry {
+                    id: None,
+                    request_id: Some("req-1".to_string()),
+                    method: "GET".to_string(),
+                    url: "http://127.0.0.1/health".to_string(),
+                    status: Some(200),
+                    duration_ms: Some(12),
+                    size_bytes: Some(2),
+                    error: None,
+                    created_at: None,
+                },
+            )
+            .expect("record history");
+        }
+
+        {
+            let connection = Connection::open(&path).expect("reopen database");
+            connection.execute_batch(SCHEMA).expect("ensure schema");
+            let rows = list_history_from(&connection, Some(10), Some(0)).expect("list history");
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].status, Some(200));
+            assert_eq!(rows[0].url, "http://127.0.0.1/health");
+            assert!(rows[0].created_at.is_some());
+        }
+
+        let _ = std::fs::remove_file(&path);
     }
 }

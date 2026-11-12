@@ -26,6 +26,8 @@ services:
       BOOTSTRAP_PASSWORD: ${BOOTSTRAP_PASSWORD:-change-me-please}
       DEFAULT_SNAPSHOT_RETENTION_DAYS: ${DEFAULT_SNAPSHOT_RETENTION_DAYS:-90}
       DEFAULT_AUDIT_RETENTION_DAYS: ${DEFAULT_AUDIT_RETENTION_DAYS:-90}
+      CLEANUP_INTERVAL_HOURS: ${CLEANUP_INTERVAL_HOURS:-24}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://tauri.localhost,https://tauri.localhost,tauri://localhost,http://localhost:1420,http://127.0.0.1:1420}
     ports:
       - "8080:8080"
 

@@ -6,9 +6,11 @@ import './styles.css';
 import { getCssVars, type ThemeMode } from '@inkline/ui';
 import { App } from './App';
 import { initKv, kvGet } from './lib/kv';
+import { hydrateTeamSecrets } from './lib/teamSecrets';
 
 async function bootstrap() {
   await initKv();
+  await hydrateTeamSecrets();
 
   const mode: ThemeMode = kvGet('aw-theme') === 'dark' ? 'dark' : 'light';
   const root = document.documentElement;

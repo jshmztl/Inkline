@@ -100,6 +100,7 @@ export function buildRemotePayload(snapshot: TeamSnapshot): Record<string, unkno
       id: collection.id,
       name: collection.name,
       sort: collection.sort ?? 0,
+      parentId: collection.parentId ?? null,
     })),
     requests: snapshot.requests,
     documents: snapshot.documents,
@@ -123,6 +124,7 @@ function collectionSignature(collection: Collection) {
   return JSON.stringify({
     name: collection.name,
     sort: collection.sort ?? 0,
+    parentId: collection.parentId ?? null,
   });
 }
 

@@ -3287,6 +3287,10 @@ ${body}
           download.addEventListener('click', () => downloadSnapshot(entry.revision));
           const diff = h('button', { class: 'btn small', type: 'button', text: '对比上一版' });
           diff.addEventListener('click', () => openDiff(entry.revision - 1, entry.revision));
+          const rollback = isManager() && entry.revision !== state.latest?.revision
+            ? h('button', { class: 'btn small', type: 'button', text: '回滚' })
+            : null;
+          if (rollback) rollback.addEventListener('click', () => rollbackSnapshot(entry.revision));
           return h('tr', {},
             h('td', {}, h('strong', { text: '#' + entry.revision })),
             h('td', { text: fmtTime(entry.createdAt) }),
@@ -3294,7 +3298,7 @@ ${body}
             h('td', { text: fmtBytes(entry.sizeBytes) }),
             h('td', { text: entry.baseRevision === null || entry.baseRevision === undefined ? '-' : '#' + entry.baseRevision }),
             h('td', {}, h('code', { text: shortHash(entry.hash) })),
-            h('td', {}, h('div', { class: 'actions' }, view, download, entry.revision > 1 ? diff : null)),
+            h('td', {}, h('div', { class: 'actions' }, view, download, entry.revision > 1 ? diff : null, rollback)),
           );
         });
 
@@ -3483,6 +3487,22 @@ ${body}
           link.click();
           link.remove();
           setTimeout(() => URL.revokeObjectURL(link.href), 30000);
+        } catch (error) {
+          showToast(error.message, 'error');
+        }
+      }
+
+      async function rollbackSnapshot(revision) {
+        if (!confirm(`确定把快照 #${revision} 回滚为最新版本吗？回滚会生成一个新版本，历史记录不会删除。`)) return;
+        try {
+          const key = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+          const result = await api(`/v1/teams/${state.team.id}/snapshots/${revision}/rollback`, {
+            method: 'POST',
+            headers: { 'Idempotency-Key': key },
+          });
+          showToast(`已回滚到 #${revision}，生成新版本 #${result.revision}`);
+          await selectTeam(state.team.id);
+          switchTab('snapshots');
         } catch (error) {
           showToast(error.message, 'error');
         }

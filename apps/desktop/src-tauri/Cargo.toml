@@ -23,9 +23,11 @@ tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 rustls-native-certs = "0.8"
 rustls-pemfile = "2"
+tokio-rustls = "0.26"
 tokio = { version = "1", features = ["sync", "macros", "net", "io-util", "time", "rt", "fs"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 chrono = { version = "0.4", features = ["serde"] }
 if-addrs = "0.13"
 tauri-plugin-updater = "2.14.1"
 tauri-plugin-process = "2.4.0"
+keyring = { version = "3", features = ["windows-native"] }

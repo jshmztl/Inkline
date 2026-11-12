@@ -7,6 +7,9 @@ pub mod permissions;
 pub mod snapshots;
 pub mod teams;
 
+#[cfg(test)]
+mod tests;
+
 use axum::routing::{get, patch, post, put};
 use axum::Router;
 
@@ -69,6 +72,14 @@ pub fn router(state: AppState) -> Router {
             "/v1/teams/{team_id}/snapshots/{revision}",
             get(snapshots::get_snapshot),
         )
+        .route(
+            "/v1/teams/{team_id}/snapshots/{revision}/rollback",
+            post(snapshots::rollback_snapshot),
+        )
         .route("/v1/teams/{team_id}/audit", get(audit::list_audit))
+        .route(
+            "/v1/teams/{team_id}/presence",
+            get(crate::presence::presence_ws),
+        )
         .with_state(state)
 }

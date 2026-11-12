@@ -352,6 +352,40 @@ pub fn filter_payload(payload: &Value, viewer: &Viewer, policies: &PolicyMap) ->
         }
     }
 
+    // 子集合跟随父集合可见性：父集合不可见时，后代也不可见。
+    let parent_of: HashMap<String, String> = collections
+        .iter()
+        .filter_map(|collection| {
+            let id = value_id(collection)?.to_string();
+            let parent = collection
+                .get("parentId")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            Some((id, parent))
+        })
+        .collect();
+    let visible_ids: HashSet<String> = visible_collections
+        .iter()
+        .filter_map(value_id)
+        .map(str::to_string)
+        .collect();
+    visible_collections.retain(|collection| {
+        let Some(id) = value_id(collection) else {
+            return false;
+        };
+        let mut cursor = parent_of.get(id).cloned().unwrap_or_default();
+        let mut guard = 0;
+        while !cursor.is_empty() && guard < 100 {
+            if !visible_ids.contains(&cursor) {
+                return false;
+            }
+            cursor = parent_of.get(&cursor).cloned().unwrap_or_default();
+            guard += 1;
+        }
+        true
+    });
+
     let mut visible_request_ids = HashSet::new();
     let mut visible_requests = Vec::new();
     for request in &requests {

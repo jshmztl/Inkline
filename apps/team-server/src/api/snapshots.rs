@@ -453,6 +453,136 @@ pub async fn push_snapshot(
     ))
 }
 
+pub async fn rollback_snapshot(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path((team_id, revision)): Path<(Uuid, i64)>,
+    headers: HeaderMap,
+) -> Result<(StatusCode, Json<Value>), AppError> {
+    let role = crate::api::teams::require_membership(&state.pool, team_id, user.0).await?;
+    if role != "owner" && role != "admin" {
+        return Err(AppError::forbidden("只有所有者或管理员可以回滚快照"));
+    }
+
+    let source: Option<(Value, i32)> = sqlx::query_as(
+        "SELECT payload, schema_version FROM snapshots WHERE team_id = $1 AND revision = $2",
+    )
+    .bind(team_id)
+    .bind(revision)
+    .fetch_optional(&state.pool)
+    .await?;
+    let Some((source_payload, schema_version)) = source else {
+        return Err(AppError::not_found("目标快照版本不存在"));
+    };
+
+    let max_data_level: String =
+        sqlx::query_scalar("SELECT max_data_level FROM teams WHERE id = $1")
+            .bind(team_id)
+            .fetch_one(&state.pool)
+            .await?;
+    let requests = source_payload
+        .get("requests")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    policy::validate_snapshot_levels(&requests, &max_data_level)?;
+
+    let idempotency_key = headers
+        .get(IDEMPOTENCY_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
+    if idempotency_key.chars().count() > 128 {
+        return Err(AppError::validation("Idempotency-Key 不能超过 128 个字符"));
+    }
+
+    let existing: Option<(i64, String, DateTime<Utc>)> = sqlx::query_as(
+        "SELECT revision, payload_hash, created_at FROM snapshots
+         WHERE team_id = $1 AND idempotency_key = $2",
+    )
+    .bind(team_id)
+    .bind(&idempotency_key)
+    .fetch_optional(&state.pool)
+    .await?;
+    if let Some((existing_revision, hash, created_at)) = existing {
+        return Ok((
+            StatusCode::CREATED,
+            Json(json!({
+                "revision": existing_revision,
+                "hash": hash,
+                "createdAt": created_at,
+                "rolledBackFrom": revision,
+            })),
+        ));
+    }
+
+    let bytes = serde_json::to_vec(&source_payload)
+        .map_err(|error| AppError::internal(format!("回滚快照序列化失败：{error}")))?;
+    let payload_hash = format!("sha256:{}", hex::encode(Sha256::digest(&bytes)));
+    let created_at = Utc::now();
+
+    let mut tx = state.pool.begin().await?;
+    let current_revision: i64 =
+        sqlx::query_scalar("SELECT current_revision FROM teams WHERE id = $1 FOR UPDATE")
+            .bind(team_id)
+            .fetch_one(&mut *tx)
+            .await?;
+    let new_revision = current_revision + 1;
+
+    sqlx::query(
+        "INSERT INTO snapshots
+            (team_id, revision, payload, payload_hash, source_hash, size_bytes, schema_version, base_revision, created_by, created_at, idempotency_key)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+    )
+    .bind(team_id)
+    .bind(new_revision)
+    .bind(&source_payload)
+    .bind(&payload_hash)
+    .bind(&payload_hash)
+    .bind(bytes.len() as i64)
+    .bind(schema_version)
+    .bind(current_revision)
+    .bind(user.0)
+    .bind(created_at)
+    .bind(&idempotency_key)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query("UPDATE teams SET current_revision = $2 WHERE id = $1")
+        .bind(team_id)
+        .bind(new_revision)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+
+    let _ = db::write_audit(
+        &state.pool,
+        Some(team_id),
+        Some(user.0),
+        "sync",
+        "snapshot.rollback",
+        json!({
+            "fromRevision": revision,
+            "revision": new_revision,
+            "sizeBytes": bytes.len(),
+        }),
+    )
+    .await;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({
+            "revision": new_revision,
+            "hash": payload_hash,
+            "createdAt": created_at,
+            "rolledBackFrom": revision,
+        })),
+    ))
+}
+
 fn decode_payload(
     raw: &[u8],
     encoding: Option<&str>,

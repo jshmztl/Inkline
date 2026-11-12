@@ -1,27 +1,15 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  CheckCircleFilled,
   CloseCircleOutlined,
-  CloseOutlined,
-  CodeOutlined,
-  CopyOutlined,
-  DeleteOutlined,
-  DownloadOutlined,
-  DiffOutlined,
   EditOutlined,
-  FormatPainterOutlined,
   GlobalOutlined,
   LockOutlined,
-  MoreOutlined,
-  PlusOutlined,
-  ProfileOutlined,
   SaveOutlined,
-  SearchOutlined,
   SendOutlined,
   StopOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
-import { App, Button, Checkbox, Dropdown, Input, Segmented, Select, Tag, Tooltip } from 'antd';
+import { App, Button, Input, Select, Tooltip } from 'antd';
 import type { ApiRequest, HttpMethod, KvRow, NetworkMode } from '../data/types';
 import { recordAudit } from '../lib/audit';
 import { enqueueTask } from '../lib/queue';
@@ -33,9 +21,7 @@ import {
   type SavedRequest,
   type SendResponse,
 } from '../lib/api';
-import type { DraftField, RequestContext } from '../lib/docTask';
-import { describeBodyLines, type BodyLineNote } from '../lib/bodyFields';
-import { readGlossary } from '../lib/glossary';
+import type { RequestContext } from '../lib/docTask';
 import {
   nextEventId,
   openWebSocket,
@@ -47,20 +33,30 @@ import {
 import { resolveHeaders, resolveTemplate } from '../lib/variables';
 import { checkNetworkAccessResolved } from '../lib/networkPolicy';
 import {
-  assertionOperators,
   evaluateAssertions,
-  operatorLabel,
-  type AssertionOperator,
   type AssertionResult,
   type AssertionRow,
 } from '../lib/assertions';
 import { runScript } from '../lib/scriptSandbox';
 import { readNetworkOptions } from '../lib/network';
 import { kvGet, kvSet } from '../lib/kv';
-import { MethodTag } from './MethodTag';
-import { CodeEditor, formatJson, formatXml } from './CodeEditor';
+import { RequestTabs } from './RequestTabs';
+import {
+  RequestResponsePanel,
+  type ResponseTabKey,
+  type ScriptLog,
+} from './RequestResponsePanel';
+import { RequestKvPanel } from './RequestKvPanel';
+import {
+  RequestBodyPanel,
+  RequestGraphqlPanel,
+  type BodyMode,
+  type FileRow,
+} from './RequestBodyPanel';
+import { RequestAuthPanel, type AuthType } from './RequestAuthPanel';
+import { RequestAssertionsPanel } from './RequestAssertionsPanel';
+import { RequestScriptsPanel } from './RequestScriptsPanel';
 import { NetworkSettingsModal } from './NetworkSettingsModal';
-import { ResponseCode } from './ResponseCode';
 import { fetchGraphqlSchema, type GraphqlType } from '../lib/graphql';
 
 const GraphqlSchemaModal = lazy(() =>
@@ -101,25 +97,6 @@ interface RequestPanelProps {
 }
 
 type RequestTabKey = 'params' | 'headers' | 'body' | 'auth' | 'assertions' | 'scripts';
-type ResponseTabKey = 'body' | 'headers' | 'cookies' | 'console' | 'assertions';
-type BodyMode = 'json' | 'xml' | 'text' | 'form' | 'multipart';
-type AuthType = 'none' | 'bearer' | 'basic' | 'apikey';
-
-interface FileRow {
-  id: string;
-  key: string;
-  fileName: string;
-  contentType: string;
-  contentBase64: string;
-  enabled: boolean;
-}
-
-interface ScriptLog {
-  id: string;
-  phase: 'pre' | 'post';
-  text: string;
-  bad: boolean;
-}
 
 interface RequestMeta {
   bodyMode: BodyMode;
@@ -187,19 +164,6 @@ function writeRequestMeta(id: string, meta: RequestMeta) {
   }
 }
 
-function readFileAsBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = String(reader.result ?? '');
-      const comma = result.indexOf(',');
-      resolve(comma >= 0 ? result.slice(comma + 1) : result);
-    };
-    reader.onerror = () => reject(reader.error ?? new Error('读取文件失败'));
-    reader.readAsDataURL(file);
-  });
-}
-
 function encodeBasic(user: string, password: string) {
   const bytes = new TextEncoder().encode(`${user}:${password}`);
   let binary = '';
@@ -260,22 +224,6 @@ export function RequestPanel({
   const [headers, setHeaders] = useState<KvRow[]>([]);
   const [body, setBody] = useState('');
   const [bodyMode, setBodyMode] = useState<BodyMode>(defaultMeta.bodyMode);
-  const [bodyNotesOpen, setBodyNotesOpen] = useState(
-    () => kvGet('aw-body-notes-open') !== '0',
-  );
-  const [bodyNotesWidth, setBodyNotesWidth] = useState(() => {
-    const stored = Number(kvGet('aw-body-notes-width'));
-    return Number.isFinite(stored) && stored >= 180 ? Math.min(stored, 720) : 288;
-  });
-  const [resizingNotes, setResizingNotes] = useState(false);
-  const bodySplitRef = useRef<HTMLDivElement>(null);
-  const bodyNotesWidthRef = useRef(bodyNotesWidth);
-  const notesResizeRef = useRef<{
-    startX: number;
-    startWidth: number;
-    maxWidth: number;
-  } | null>(null);
-  const [docDraft, setDocDraft] = useState<DraftField[]>([]);
   const [formRows, setFormRows] = useState<KvRow[]>(defaultMeta.formRows);
   const [fileRows, setFileRows] = useState<FileRow[]>(defaultMeta.fileRows);
   const [assertionRows, setAssertionRows] = useState<AssertionRow[]>(
@@ -317,7 +265,6 @@ export function RequestPanel({
   const [feedback, setFeedback] = useState<string | null>(null);
   const [requestName, setRequestName] = useState(activeRequest.name);
   const appliedKey = useRef<string | null>(null);
-  const bodyNotesScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setRequestName(saved?.name ?? activeRequest.name);
@@ -347,26 +294,6 @@ export function RequestPanel({
     setFeedback(null);
     setResponseQuery('');
   }, [activeRequest, saved]);
-
-  useEffect(() => {
-    function loadDraft() {
-      try {
-        const raw = kvGet(`aw-doc-draft:${activeRequest.id}`);
-        const parsed = raw ? JSON.parse(raw) : [];
-        setDocDraft(Array.isArray(parsed) ? (parsed as DraftField[]) : []);
-      } catch {
-        setDocDraft([]);
-      }
-    }
-
-    loadDraft();
-
-    function handleDraftUpdated(event: Event) {
-      if ((event as CustomEvent<string>).detail === activeRequest.id) loadDraft();
-    }
-    window.addEventListener('aw-doc-draft-updated', handleDraftUpdated);
-    return () => window.removeEventListener('aw-doc-draft-updated', handleDraftUpdated);
-  }, [activeRequest.id]);
 
   useEffect(() => {
     const meta = readRequestMeta(activeRequest.id);
@@ -479,120 +406,6 @@ export function RequestPanel({
     onContextChange,
   ]);
 
-  const activeRows = useMemo(
-    () => (requestTab === 'headers' ? headers : params),
-    [requestTab, headers, params],
-  );
-
-  const bodyLineNotes = useMemo(() => {
-    if (!bodyNotesOpen || (bodyMode !== 'json' && bodyMode !== 'xml')) return [];
-    return describeBodyLines(body, bodyMode, docDraft, readGlossary());
-  }, [body, bodyMode, bodyNotesOpen, docDraft]);
-
-  const bodyLineCount = useMemo(() => body.split('\n').length, [body]);
-
-  const lineNoteMap = useMemo(() => {
-    const map = new Map<number, BodyLineNote>();
-    for (const note of bodyLineNotes) {
-      if (!map.has(note.line)) map.set(note.line, note);
-    }
-    return map;
-  }, [bodyLineNotes]);
-
-  function commitBodyNote(path: string, description: string) {
-    if (!activeRequest.id) return;
-    const key = `请求:${path}`;
-    const text = description.trim();
-    const now = new Date().toISOString();
-    const existing = docDraft.find((entry) => entry.key === key);
-
-    let next = docDraft;
-    if (existing) {
-      next = text
-        ? docDraft.map((entry) =>
-            entry.key === key ? { ...entry, description: text, updatedAt: now } : entry,
-          )
-        : docDraft.filter((entry) => entry.key !== key);
-    } else if (text) {
-      next = [
-        ...docDraft,
-        {
-          key,
-          path,
-          type: 'string',
-          source: '请求',
-          description: text,
-          updatedAt: now,
-        },
-      ];
-    }
-
-    if (next === docDraft) return;
-    setDocDraft(next);
-    kvSet(`aw-doc-draft:${activeRequest.id}`, JSON.stringify(next));
-    window.dispatchEvent(
-      new CustomEvent('aw-doc-draft-updated', { detail: activeRequest.id }),
-    );
-  }
-
-  function clampBodyNotesWidth(width: number) {
-    const container = bodySplitRef.current;
-    const max = container
-      ? Math.min(720, Math.max(240, container.getBoundingClientRect().width - 360))
-      : 720;
-    return Math.min(max, Math.max(180, width));
-  }
-
-  function startNotesResize(event: PointerEvent<HTMLDivElement>) {
-    const container = bodySplitRef.current;
-    if (!container) return;
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    notesResizeRef.current = {
-      startX: event.clientX,
-      startWidth: bodyNotesWidth,
-      maxWidth: Math.min(
-        720,
-        Math.max(240, container.getBoundingClientRect().width - 360),
-      ),
-    };
-    setResizingNotes(true);
-  }
-
-  function moveNotesResize(event: PointerEvent<HTMLDivElement>) {
-    const drag = notesResizeRef.current;
-    if (!drag) return;
-    const next = Math.min(
-      drag.maxWidth,
-      Math.max(180, drag.startWidth - (event.clientX - drag.startX)),
-    );
-    bodyNotesWidthRef.current = next;
-    setBodyNotesWidth(next);
-  }
-
-  function endNotesResize(event: PointerEvent<HTMLDivElement>) {
-    if (!notesResizeRef.current) return;
-    notesResizeRef.current = null;
-    setResizingNotes(false);
-    event.currentTarget.releasePointerCapture(event.pointerId);
-    kvSet('aw-body-notes-width', String(Math.round(bodyNotesWidthRef.current)));
-  }
-
-  function nudgeNotesWidth(delta: number) {
-    const next = clampBodyNotesWidth(bodyNotesWidthRef.current + delta);
-    bodyNotesWidthRef.current = next;
-    setBodyNotesWidth(next);
-    kvSet('aw-body-notes-width', String(Math.round(next)));
-  }
-
-  function toggleBodyNotes() {
-    setBodyNotesOpen((current) => {
-      const next = !current;
-      kvSet('aw-body-notes-open', next ? '1' : '0');
-      return next;
-    });
-  }
-
   const hostPrefix = '{{host}}';
   const usesHostTemplate = url.startsWith(hostPrefix);
   const editablePath = usesHostTemplate ? url.slice(hostPrefix.length) : url;
@@ -620,94 +433,6 @@ export function RequestPanel({
     if (!needle) return 0;
     return (response?.body ?? '').toLowerCase().split(needle).length - 1;
   }, [response, responseQuery]);
-
-  const visibleRows = requestTab === 'headers' || requestTab === 'params' ? activeRows : [];
-
-  function updateRow(id: string, patch: Partial<KvRow>) {
-    const updater = (rows: KvRow[]) =>
-      rows.map((row) => (row.id === id ? { ...row, ...patch } : row));
-    if (requestTab === 'headers') {
-      setHeaders(updater);
-    } else {
-      setParams(updater);
-    }
-  }
-
-  function addRow() {
-    const blank: KvRow = {
-      id: `row-${Date.now().toString(36)}`,
-      key: '',
-      value: '',
-      description: '',
-      enabled: true,
-    };
-    if (requestTab === 'headers') {
-      setHeaders((rows) => [...rows, blank]);
-    } else {
-      setParams((rows) => [...rows, blank]);
-    }
-  }
-
-  function removeRow(id: string) {
-    if (requestTab === 'headers') {
-      setHeaders((rows) => rows.filter((row) => row.id !== id));
-    } else {
-      setParams((rows) => rows.filter((row) => row.id !== id));
-    }
-  }
-
-  function updateFormRow(id: string, patch: Partial<KvRow>) {
-    setFormRows((rows) => rows.map((row) => (row.id === id ? { ...row, ...patch } : row)));
-  }
-
-  function updateFileRow(id: string, patch: Partial<FileRow>) {
-    setFileRows((rows) => rows.map((row) => (row.id === id ? { ...row, ...patch } : row)));
-  }
-
-  async function pickFile(id: string, file: File) {
-    try {
-      const contentBase64 = await readFileAsBase64(file);
-      updateFileRow(id, {
-        fileName: file.name,
-        contentType: file.type || 'application/octet-stream',
-        contentBase64,
-      });
-    } catch {
-      message.error('读取文件失败');
-    }
-  }
-
-  function addFormRow() {
-    setFormRows((rows) => [
-      ...rows,
-      {
-        id: `form-${Date.now().toString(36)}`,
-        key: '',
-        value: '',
-        description: '',
-        enabled: true,
-      },
-    ]);
-  }
-
-  function updateAssertionRow(id: string, patch: Partial<AssertionRow>) {
-    setAssertionRows((rows) =>
-      rows.map((row) => (row.id === id ? { ...row, ...patch } : row)),
-    );
-  }
-
-  function addAssertionRow() {
-    setAssertionRows((rows) => [
-      ...rows,
-      {
-        id: `assert-${Date.now().toString(36)}`,
-        path: '',
-        operator: 'equals',
-        expected: '',
-        enabled: true,
-      },
-    ]);
-  }
 
   useEffect(() => {
     return () => {
@@ -815,18 +540,6 @@ export function RequestPanel({
           : []),
       ].slice(-60),
     );
-  }
-
-  function formatRequestBody() {
-    if (bodyMode !== 'json' && bodyMode !== 'xml') return;
-    const result = bodyMode === 'json' ? formatJson(body) : formatXml(body);
-    if (!result.ok) {
-      message.warning(
-        bodyMode === 'json' ? 'JSON 语法有误，暂无法格式化' : 'XML 语法有误，暂无法格式化',
-      );
-      return;
-    }
-    setBody(result.value);
   }
 
   async function openSchema() {
@@ -1383,51 +1096,14 @@ export function RequestPanel({
 
   return (
     <section className="request-pane">
-      <div className="request-tabs" role="tablist" aria-label="打开的请求">
-            {openTabs.map((request) => (
-              <button
-                key={request.id}
-                type="button"
-                role="tab"
-                aria-selected={request.id === activeRequest.id}
-                className={`request-tab${request.id === activeRequest.id ? ' active' : ''}`}
-                onClick={() => onSelectTab(request.id)}
-              >
-                <MethodTag method={request.method} />
-                <span>{request.name || request.path || request.id}</span>
-                <span
-                  className="tab-close"
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`关闭 ${request.name || request.path}`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onCloseTab(request.id);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.stopPropagation();
-                      onCloseTab(request.id);
-                    }
-                  }}
-                >
-                  <CloseOutlined />
-                </span>
-              </button>
-            ))}
-            <button
-              type="button"
-              className="tab-add"
-              aria-label="新建请求"
-              onClick={onCreateRequest}
-            >
-              <PlusOutlined />
-            </button>
-        <div className="request-tabs-spacer" />
-        <Tag className={`level-tag level-${activeRequest.dataLevel.toLowerCase()}`}>
-          {activeRequest.dataLevel}
-        </Tag>
-      </div>
+      <RequestTabs
+        openTabs={openTabs}
+        activeRequestId={activeRequest.id}
+        dataLevel={activeRequest.dataLevel}
+        onSelectTab={onSelectTab}
+        onCloseTab={onCloseTab}
+        onCreateRequest={onCreateRequest}
+      />
 
       <div className="request-name-bar">
         <EditOutlined className="request-name-icon" />
@@ -1629,891 +1305,96 @@ export function RequestPanel({
 
       <div className="request-body">
         {(requestTab === 'params' || requestTab === 'headers') && (
-          <div className="kv-editor">
-            <div className="kv-head">
-              <span />
-              <span>KEY</span>
-              <span>VALUE</span>
-              <span>说明</span>
-              <span />
-            </div>
-            {visibleRows.map((row) => (
-              <div className={`kv-row${row.enabled ? '' : ' disabled'}`} key={row.id}>
-                <Checkbox
-                  checked={row.enabled}
-                  onChange={(event) => updateRow(row.id, { enabled: event.target.checked })}
-                />
-                <input
-                  className="kv-input mono"
-                  value={row.key}
-                  onChange={(event) => updateRow(row.id, { key: event.target.value })}
-                  aria-label="参数名"
-                />
-                <input
-                  className="kv-input mono"
-                  value={row.value}
-                  onChange={(event) => updateRow(row.id, { value: event.target.value })}
-                  aria-label="参数值"
-                />
-                <input
-                  className="kv-input"
-                  value={row.description}
-                  onChange={(event) => updateRow(row.id, { description: event.target.value })}
-                  aria-label="参数说明"
-                />
-                <Tooltip title="删除">
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={<DeleteOutlined />}
-                    aria-label="删除该行"
-                    onClick={() => removeRow(row.id)}
-                  />
-                </Tooltip>
-              </div>
-            ))}
-            <button type="button" className="kv-add" onClick={addRow}>
-              <PlusOutlined /> 添加一行
-            </button>
-          </div>
+          <RequestKvPanel
+            rows={requestTab === 'headers' ? headers : params}
+            onChange={requestTab === 'headers' ? setHeaders : setParams}
+          />
         )}
 
         {requestTab === 'body' && protocol === 'graphql' && (
-          <div className="body-editor gql-editor">
-            <div className="editor-toolbar">
-              <span className="editor-note">POST · application/json · GraphQL</span>
-              <div className="editor-toolbar-spacer" />
-              <Button
-                variant="text"
-                size="small"
-                icon={<GlobalOutlined />}
-                color="geekblue"
-                onClick={() => void openSchema()}
-              >
-                获取 Schema
-              </Button>
-            </div>
-            <label className="gql-field">
-              <span>Query</span>
-              <Input.TextArea
-                value={gqlQuery}
-                onChange={(event) => setGqlQuery(event.target.value)}
-                autoSize={{ minRows: 5, maxRows: 12 }}
-                spellCheck={false}
-                aria-label="GraphQL Query"
-              />
-            </label>
-            <label className="gql-field">
-              <span>Variables</span>
-              <Input.TextArea
-                value={gqlVariables}
-                onChange={(event) => setGqlVariables(event.target.value)}
-                autoSize={{ minRows: 3, maxRows: 8 }}
-                spellCheck={false}
-                aria-label="GraphQL Variables"
-              />
-            </label>
-          </div>
+          <RequestGraphqlPanel
+            gqlQuery={gqlQuery}
+            onGqlQueryChange={setGqlQuery}
+            gqlVariables={gqlVariables}
+            onGqlVariablesChange={setGqlVariables}
+            onOpenSchema={() => void openSchema()}
+          />
         )}
 
         {requestTab === 'body' && protocol !== 'graphql' && (
-          <div className="body-editor">
-            <div className="editor-toolbar">
-              <Segmented
-                size="small"
-                value={bodyMode}
-                onChange={(value) => setBodyMode(value as BodyMode)}
-                options={[
-                  { label: 'JSON', value: 'json' },
-                  { label: 'XML', value: 'xml' },
-                  { label: '文本', value: 'text' },
-                  { label: '表单', value: 'form' },
-                  { label: 'form-data', value: 'multipart' },
-                ]}
-              />
-              <span className="editor-note">
-                {bodyMode === 'json'
-                  ? 'application/json · 自动格式化'
-                  : bodyMode === 'xml'
-                    ? 'application/xml · 自动格式化'
-                    : bodyMode === 'text'
-                      ? 'text/plain'
-                      : bodyMode === 'multipart'
-                        ? 'multipart/form-data · 支持文件'
-                        : 'application/x-www-form-urlencoded'}
-              </span>
-              <div className="editor-toolbar-spacer" />
-              {(bodyMode === 'json' || bodyMode === 'xml') && (
-                <Button
-                  variant="text"
-                  size="small"
-                  icon={<ProfileOutlined />}
-                  color="geekblue"
-                  onClick={toggleBodyNotes}
-                  aria-pressed={bodyNotesOpen}
-                >
-                  {bodyNotesOpen ? '隐藏注释' : '字段注释'}
-                </Button>
-              )}
-              {(bodyMode === 'json' || bodyMode === 'xml') && (
-                <Button
-                  variant="text"
-                  size="small"
-                  icon={<FormatPainterOutlined />}
-                  color="cyan"
-                  onClick={formatRequestBody}
-                >
-                  格式化
-                </Button>
-              )}
-              <Button variant="text" size="small" icon={<CodeOutlined />} color="geekblue">
-                生成代码
-              </Button>
-            </div>
-            {bodyMode === 'form' || bodyMode === 'multipart' ? (
-              <div className="kv-editor">
-                <div className="kv-head">
-                  <span />
-                  <span>KEY</span>
-                  <span>VALUE</span>
-                  <span>说明</span>
-                  <span />
-                </div>
-                {formRows.map((row) => (
-                  <div className={`kv-row${row.enabled ? '' : ' disabled'}`} key={row.id}>
-                    <Checkbox
-                      checked={row.enabled}
-                      onChange={(event) =>
-                        updateFormRow(row.id, { enabled: event.target.checked })
-                      }
-                    />
-                    <input
-                      className="kv-input mono"
-                      value={row.key}
-                      onChange={(event) => updateFormRow(row.id, { key: event.target.value })}
-                      aria-label="表单字段名"
-                    />
-                    <input
-                      className="kv-input mono"
-                      value={row.value}
-                      onChange={(event) => updateFormRow(row.id, { value: event.target.value })}
-                      aria-label="表单字段值"
-                    />
-                    <input
-                      className="kv-input"
-                      value={row.description}
-                      onChange={(event) =>
-                        updateFormRow(row.id, { description: event.target.value })
-                      }
-                      aria-label="表单字段说明"
-                    />
-                    <Tooltip title="删除">
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<DeleteOutlined />}
-                        aria-label="删除表单字段"
-                        onClick={() =>
-                          setFormRows((rows) => rows.filter((item) => item.id !== row.id))
-                        }
-                      />
-                    </Tooltip>
-                  </div>
-                ))}
-                <button type="button" className="kv-add" onClick={addFormRow}>
-                  <PlusOutlined /> 添加字段
-                </button>
-
-                {bodyMode === 'multipart' && (
-                  <div className="multipart-files">
-                    <div className="multipart-head">
-                      <span>FILE</span>
-                      <span>字段名</span>
-                      <span>文件</span>
-                      <span />
-                    </div>
-                    {fileRows.map((row) => (
-                      <div className="multipart-row" key={row.id}>
-                        <Checkbox
-                          checked={row.enabled}
-                          onChange={(event) =>
-                            updateFileRow(row.id, { enabled: event.target.checked })
-                          }
-                        />
-                        <input
-                          className="kv-input mono"
-                          value={row.key}
-                          placeholder="file"
-                          onChange={(event) =>
-                            updateFileRow(row.id, { key: event.target.value })
-                          }
-                          aria-label="文件字段名"
-                        />
-                        <label className="file-pick">
-                          <input
-                            type="file"
-                            onChange={(event) => {
-                              const file = event.target.files?.[0];
-                              if (file) void pickFile(row.id, file);
-                              event.target.value = '';
-                            }}
-                          />
-                          <span title={row.fileName}>
-                            {row.fileName || '选择文件'}
-                          </span>
-                        </label>
-                        <Tooltip title="删除">
-                          <Button
-                            type="text"
-                            size="small"
-                            icon={<DeleteOutlined />}
-                            aria-label="删除文件字段"
-                            onClick={() =>
-                              setFileRows((rows) =>
-                                rows.filter((item) => item.id !== row.id),
-                              )
-                            }
-                          />
-                        </Tooltip>
-                      </div>
-                    ))}
-                    <button
-                      type="button"
-                      className="kv-add"
-                      onClick={() =>
-                        setFileRows((rows) => [
-                          ...rows,
-                          {
-                            id: `file-${Date.now().toString(36)}`,
-                            key: 'file',
-                            fileName: '',
-                            contentType: '',
-                            contentBase64: '',
-                            enabled: true,
-                          },
-                        ])
-                      }
-                    >
-                      <PlusOutlined /> 添加文件字段
-                    </button>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div
-                className={`body-split${resizingNotes ? ' resizing' : ''}`}
-                ref={bodySplitRef}
-              >
-                <CodeEditor
-                  value={body}
-                  onChange={setBody}
-                  language={
-                    bodyMode === 'json' ? 'json' : bodyMode === 'xml' ? 'xml' : 'text'
-                  }
-                  ariaLabel="请求体"
-                  placeholder={
-                    bodyMode === 'json'
-                      ? '{\n  "key": "value"\n}'
-                      : bodyMode === 'xml'
-                        ? '<root>\n  <key>value</key>\n</root>'
-                        : '请输入请求体…'
-                  }
-                  onScrollTopChange={(scrollTop) => {
-                    const node = bodyNotesScrollRef.current;
-                    if (node) node.scrollTop = scrollTop;
-                  }}
-                />
-                {bodyNotesOpen && (bodyMode === 'json' || bodyMode === 'xml') && (
-                  <>
-                    <div
-                      className="body-split-handle"
-                      role="separator"
-                      aria-orientation="vertical"
-                      aria-label="调整字段注释宽度"
-                      aria-valuemin={180}
-                      aria-valuenow={Math.round(bodyNotesWidth)}
-                      tabIndex={0}
-                      onPointerDown={startNotesResize}
-                      onPointerMove={moveNotesResize}
-                      onPointerUp={endNotesResize}
-                      onPointerCancel={endNotesResize}
-                      onKeyDown={(event) => {
-                        if (event.key === 'ArrowLeft') {
-                          event.preventDefault();
-                          nudgeNotesWidth(16);
-                        } else if (event.key === 'ArrowRight') {
-                          event.preventDefault();
-                          nudgeNotesWidth(-16);
-                        }
-                      }}
-                    />
-                    <aside
-                      className="body-notes"
-                      aria-label="字段注释"
-                      style={{ flex: `0 0 ${bodyNotesWidth}px` }}
-                    >
-                      <div className="body-notes-scroll" ref={bodyNotesScrollRef}>
-                        <div className="body-notes-lines">
-                          {Array.from({ length: bodyLineCount }, (_, line) => {
-                            const note = lineNoteMap.get(line);
-                            return (
-                              <div className="body-notes-line" key={line}>
-                                {note && (
-                                  <>
-                                    <span className="body-note-mark">//</span>
-                                    <input
-                                      key={`${note.path}:${note.description}`}
-                                      className="body-note-input"
-                                      defaultValue={note.description}
-                                      placeholder="添加说明"
-                                      title={note.path}
-                                      aria-label={`${note.path} 字段说明`}
-                                      spellCheck={false}
-                                      onBlur={(event) =>
-                                        commitBodyNote(note.path, event.target.value)
-                                      }
-                                      onKeyDown={(event) => {
-                                        if (event.key === 'Enter') {
-                                          event.preventDefault();
-                                          event.currentTarget.blur();
-                                        }
-                                      }}
-                                    />
-                                  </>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </aside>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
+          <RequestBodyPanel
+            requestId={activeRequest.id}
+            body={body}
+            onBodyChange={setBody}
+            bodyMode={bodyMode}
+            onBodyModeChange={setBodyMode}
+            formRows={formRows}
+            onFormRowsChange={setFormRows}
+            fileRows={fileRows}
+            onFileRowsChange={setFileRows}
+          />
         )}
 
         {requestTab === 'auth' && (
-          <div className="auth-panel">
-            <div className="auth-card">
-              <Segmented
-                size="small"
-                value={authType}
-                onChange={(value) => setAuthType(value as AuthType)}
-                options={[
-                  { label: '无', value: 'none' },
-                  { label: 'Bearer', value: 'bearer' },
-                  { label: 'Basic', value: 'basic' },
-                  { label: 'API Key', value: 'apikey' },
-                ]}
-              />
-
-              {authType === 'bearer' && (
-                <label className="auth-field">
-                  <span>Token</span>
-                  <Input.Password
-                    value={authToken}
-                    onChange={(event) => setAuthToken(event.target.value)}
-                    placeholder="{{token}}"
-                    aria-label="Bearer Token"
-                  />
-                </label>
-              )}
-
-              {authType === 'basic' && (
-                <>
-                  <label className="auth-field">
-                    <span>用户名</span>
-                    <Input
-                      value={authUser}
-                      onChange={(event) => setAuthUser(event.target.value)}
-                      aria-label="Basic 用户名"
-                    />
-                  </label>
-                  <label className="auth-field">
-                    <span>口令</span>
-                    <Input.Password
-                      value={authPass}
-                      onChange={(event) => setAuthPass(event.target.value)}
-                      aria-label="Basic 口令"
-                    />
-                  </label>
-                </>
-              )}
-
-              {authType === 'apikey' && (
-                <>
-                  <label className="auth-field">
-                    <span>Header 名</span>
-                    <Input
-                      value={apiKeyName}
-                      onChange={(event) => setApiKeyName(event.target.value)}
-                      aria-label="API Key 名称"
-                    />
-                  </label>
-                  <label className="auth-field">
-                    <span>值</span>
-                    <Input.Password
-                      value={apiKeyValue}
-                      onChange={(event) => setApiKeyValue(event.target.value)}
-                      aria-label="API Key 值"
-                    />
-                  </label>
-                </>
-              )}
-
-              <p>
-                支持 <code>{'{{变量}}'}</code> 引用环境变量。鉴权信息在发送时写入请求头，不额外落盘。
-              </p>
-            </div>
-          </div>
+          <RequestAuthPanel
+            authType={authType}
+            onAuthTypeChange={setAuthType}
+            authToken={authToken}
+            onAuthTokenChange={setAuthToken}
+            authUser={authUser}
+            onAuthUserChange={setAuthUser}
+            authPass={authPass}
+            onAuthPassChange={setAuthPass}
+            apiKeyName={apiKeyName}
+            onApiKeyNameChange={setApiKeyName}
+            apiKeyValue={apiKeyValue}
+            onApiKeyValueChange={setApiKeyValue}
+          />
         )}
 
         {requestTab === 'assertions' && (
-          <div className="kv-editor assertion-editor">
-            <div className="kv-head assertion-head">
-              <span />
-              <span>PATH</span>
-              <span>运算符</span>
-              <span>期望值</span>
-              <span />
-            </div>
-            {assertionRows.map((row) => {
-              const noValue = row.operator === 'exists' || row.operator === 'notExists';
-              return (
-                <div
-                  className={`kv-row assertion-row${row.enabled ? '' : ' disabled'}`}
-                  key={row.id}
-                >
-                  <Checkbox
-                    checked={row.enabled}
-                    onChange={(event) =>
-                      updateAssertionRow(row.id, { enabled: event.target.checked })
-                    }
-                  />
-                  <input
-                    className="kv-input mono"
-                    value={row.path}
-                    placeholder="status / data.id / headers.content-type"
-                    onChange={(event) =>
-                      updateAssertionRow(row.id, { path: event.target.value })
-                    }
-                    aria-label="断言路径"
-                  />
-                  <Select
-                    size="small"
-                    value={row.operator}
-                    options={assertionOperators}
-                    onChange={(value) =>
-                      updateAssertionRow(row.id, { operator: value as AssertionOperator })
-                    }
-                    className="assertion-op"
-                    popupMatchSelectWidth={false}
-                    aria-label="断言运算符"
-                  />
-                  <input
-                    className="kv-input mono"
-                    value={row.expected}
-                    placeholder={noValue ? '无需填写' : '期望值'}
-                    disabled={noValue}
-                    onChange={(event) =>
-                      updateAssertionRow(row.id, { expected: event.target.value })
-                    }
-                    aria-label="断言期望值"
-                  />
-                  <Tooltip title="删除">
-                    <Button
-                      type="text"
-                      size="small"
-                      icon={<DeleteOutlined />}
-                      aria-label="删除断言"
-                      onClick={() =>
-                        setAssertionRows((rows) =>
-                          rows.filter((item) => item.id !== row.id),
-                        )
-                      }
-                    />
-                  </Tooltip>
-                </div>
-              );
-            })}
-            <button type="button" className="kv-add" onClick={addAssertionRow}>
-              <PlusOutlined /> 添加断言
-            </button>
-            <p className="assertion-tip">
-              路径支持 <code>status</code>、<code>headers.名称</code> 与响应 JSON 路径（如{' '}
-              <code>data.items.0.id</code>），请求成功后自动校验。
-            </p>
-          </div>
+          <RequestAssertionsPanel rows={assertionRows} onChange={setAssertionRows} />
         )}
 
         {requestTab === 'scripts' && (
-          <div className="script-editor">
-            <div className="script-block">
-              <div className="script-head">
-                <strong>前置脚本</strong>
-                <span>发送前执行 · 可用于签名与写入变量</span>
-              </div>
-              <textarea
-                className="code-block script-input"
-                value={preScript}
-                onChange={(event) => setPreScript(event.target.value)}
-                spellCheck={false}
-                aria-label="前置脚本"
-              />
-            </div>
-            <div className="script-block">
-              <div className="script-head">
-                <strong>后置脚本</strong>
-                <span>收到响应后执行 · 可读取 pm.response</span>
-              </div>
-              <textarea
-                className="code-block script-input"
-                value={postScript}
-                onChange={(event) => setPostScript(event.target.value)}
-                spellCheck={false}
-                aria-label="后置脚本"
-              />
-            </div>
-            <p className="script-tip">
-              沙箱内可用 <code>pm.variables.get/set/unset</code>、
-              <code>pm.request</code>、<code>pm.response.status/body/json()</code> 与{' '}
-              <code>console.log</code>。执行结果见响应区「Console」，超时 2 秒强制终止。
-            </p>
-          </div>
+          <RequestScriptsPanel
+            preScript={preScript}
+            onPreScriptChange={setPreScript}
+            postScript={postScript}
+            onPostScriptChange={setPostScript}
+          />
         )}
       </div>
 
-      <div className="response-panel">
-        <div className="response-head">
-          <strong>响应</strong>
-          {streamMode ? (
-            <span className={`status-pill ${connected ? 'ok' : 'warn'}`}>
-              {connected ? '已连接' : '未连接'}
-            </span>
-          ) : response ? (
-            <>
-              <span
-                className={`status-pill ${
-                  response.status >= 200 && response.status < 300
-                    ? 'ok'
-                    : response.status >= 500
-                      ? 'bad'
-                      : 'warn'
-                }`}
-              >
-                {response.status} {response.statusText}
-              </span>
-              <span className="response-meta">{response.durationMs} ms</span>
-              {response.ttfbMs != null && (
-                <span className="response-meta" title="从发起到收到响应头">
-                  首字节 {response.ttfbMs} ms
-                </span>
-              )}
-              {response.downloadMs != null && (
-                <span className="response-meta" title="接收响应体耗时">
-                  下载 {response.downloadMs} ms
-                </span>
-              )}
-              <span className="response-meta">{formatBytes(response.sizeBytes)}</span>
-            </>
-          ) : (
-            <span className="status-pill">未发送</span>
-          )}
-          {feedback && (
-            <span className="send-feedback">
-              <CheckCircleFilled /> {feedback}
-            </span>
-          )}
-          {error && <span className="response-error">{error}</span>}
-          {!streamMode && assertionResults.length > 0 && (
-            <span
-              className={`assertion-pill ${
-                assertionResults.some((row) => !row.passed) ? 'bad' : 'ok'
-              }`}
-            >
-              {assertionResults.filter((row) => row.passed).length}/{assertionResults.length}{' '}
-              断言通过
-            </span>
-          )}
-          <div className="response-spacer" />
-          {streamMode ? (
-            <Tooltip title="清空消息">
-              <Button
-                type="text"
-                size="small"
-                icon={<DeleteOutlined />}
-                aria-label="清空消息"
-                onClick={() => setStreamEvents([])}
-              />
-            </Tooltip>
-          ) : (
-            <Input
-              size="small"
-              allowClear
-              prefix={<SearchOutlined />}
-              className="response-search"
-              placeholder="搜索响应"
-              value={responseQuery}
-              onChange={(event) => setResponseQuery(event.target.value)}
-              disabled={responseTab !== 'body'}
-              aria-label="搜索响应"
-            />
-          )}
-          {!streamMode && responseQuery.trim() && (
-            <span className={`response-meta${responseMatchCount === 0 ? ' bad' : ''}`}>
-              {responseMatchCount} 处匹配
-            </span>
-          )}
-          <Tooltip title="复制响应">
-            <Button
-              type="text"
-              size="small"
-              icon={<CopyOutlined />}
-              aria-label="复制响应"
-              onClick={copyResponse}
-            />
-          </Tooltip>
-          <Dropdown
-            trigger={['click']}
-            menu={{
-              items: [
-                {
-                  key: 'copy',
-                  label: '复制响应',
-                  icon: <CopyOutlined />,
-                  disabled: !hasResponseContent,
-                },
-                {
-                  key: 'download',
-                  label: '下载响应体',
-                  icon: <DownloadOutlined />,
-                  disabled: !hasResponseContent,
-                },
-                {
-                  key: 'baseline',
-                  label: '保存响应为基线',
-                  icon: <SaveOutlined />,
-                  disabled: !response || streamMode,
-                },
-                {
-                  key: 'diff',
-                  label: '对比基线',
-                  icon: <DiffOutlined />,
-                  disabled: !response || streamMode || !readResponseBaseline(),
-                },
-                { type: 'divider' },
-                {
-                  key: 'clear',
-                  label: '清空响应',
-                  icon: <DeleteOutlined />,
-                  danger: true,
-                  disabled: !hasResponseContent && !error,
-                },
-              ],
-              onClick: ({ key }) => {
-                if (key === 'copy') void copyResponse();
-                if (key === 'download') downloadResponse();
-                if (key === 'baseline') saveResponseBaseline();
-                if (key === 'diff') openResponseDiff();
-                if (key === 'clear') clearResponse();
-              },
-            }}
-          >
-            <Button type="text" size="small" icon={<MoreOutlined />} aria-label="响应操作" />
-          </Dropdown>
-        </div>
-
-        {!streamMode && (
-          <div className="response-subtabs" role="tablist" aria-label="响应内容">
-            {(
-              [
-                ['body', 'Body', null],
-                ['headers', 'Headers', null],
-                ['cookies', 'Cookies', null],
-                ['console', 'Console', null],
-                [
-                  'assertions',
-                  '断言',
-                  assertionResults.filter((row) => !row.passed).length,
-                ],
-              ] as const
-            ).map(([key, label, count]) => (
-              <button
-                key={key}
-                type="button"
-                role="tab"
-                aria-selected={responseTab === key}
-                className={`subtab${responseTab === key ? ' active' : ''}`}
-                onClick={() => setResponseTab(key)}
-              >
-                {label}
-                {count ? <em className="bad">{count}</em> : null}
-              </button>
-            ))}
-          </div>
-        )}
-
-        <div className={`response-body${streamMode ? ' stream-body' : ''}`}>
-          {streamMode ? (
-            <>
-              <div className="stream-log">
-                {streamEvents.length === 0 ? (
-                  <div className="response-empty">点击「连接」开始接收消息。</div>
-                ) : (
-                  streamEvents.map((event) => (
-                    <div className={`stream-event ${event.kind}`} key={event.id}>
-                      <div className="stream-event-head">
-                        <span className="stream-time">
-                          {new Date(event.at).toLocaleTimeString()}
-                        </span>
-                        <span className="stream-kind">
-                          {event.kind === 'open'
-                            ? 'OPEN'
-                            : event.kind === 'message'
-                              ? 'MESSAGE'
-                              : event.kind === 'error'
-                                ? 'ERROR'
-                                : event.kind === 'close'
-                                  ? 'CLOSE'
-                                  : 'INFO'}
-                        </span>
-                        {event.label && (
-                          <span
-                            className="stream-label"
-                            title={event.eventId ? `事件 ID：${event.eventId}` : undefined}
-                          >
-                            {event.label}
-                          </span>
-                        )}
-                      </div>
-                      <pre>{event.payload}</pre>
-                    </div>
-                  ))
-                )}
-              </div>
-              {protocol === 'websocket' && (
-                <div className="stream-composer">
-                  <Input
-                    value={draftMessage}
-                    onChange={(event) => setDraftMessage(event.target.value)}
-                    onPressEnter={sendDraftMessage}
-                    placeholder={connected ? '输入消息，回车发送' : '连接后可发送消息'}
-                    disabled={!connected}
-                    aria-label="WebSocket 消息"
-                  />
-                  <Button
-                    type="primary"
-                    size="small"
-                    disabled={!connected || !draftMessage.trim()}
-                    onClick={sendDraftMessage}
-                  >
-                    发送
-                  </Button>
-                </div>
-              )}
-            </>
-          ) : (
-            <>
-              {responseTab === 'body' &&
-                (error ? (
-                  <div className="response-error-panel">
-                    <CloseCircleOutlined />
-                    <div>
-                      <strong>请求未完成</strong>
-                      <p>{error}</p>
-                    </div>
-                  </div>
-                ) : response ? (
-                  <ResponseCode body={response.body} query={responseQuery} />
-                ) : (
-                  <div className="response-empty">发送请求后在此查看响应。</div>
-                ))}
-
-              {responseTab === 'headers' &&
-                ((response?.headers ?? []).length > 0 ? (
-                  <div className="response-kv">
-                    {(response?.headers ?? []).map((header) => (
-                      <div key={`${header.name}-${header.value}`}>
-                        <span>{header.name}</span>
-                        <code>{header.value}</code>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="response-empty">该响应没有可显示的响应头。</div>
-                ))}
-
-              {responseTab === 'cookies' && (
-                <div className="response-empty">该响应没有 Set-Cookie。</div>
-              )}
-
-              {responseTab === 'console' && (
-                <div className="console-panel">
-                  <div className="console-line">
-                    <span>{new Date().toLocaleTimeString()}</span>
-                    <span className={error ? 'console-bad' : 'console-ok'}>
-                      {error ? '×' : '→'} {method} {url}
-                    </span>
-                    <span>
-                      {error
-                        ? '请求失败'
-                        : response
-                          ? `${response.durationMs}ms · ${response.status} ${response.statusText}`
-                          : '尚未发送'}
-                    </span>
-                  </div>
-                  {scriptLogs.map((entry) => (
-                    <div className="console-line" key={entry.id}>
-                      <span>script</span>
-                      <span className={entry.bad ? 'console-bad' : 'console-ok'}>
-                        [{entry.phase}] {entry.text}
-                      </span>
-                    </div>
-                  ))}
-                  {scriptLogs.length === 0 && (
-                    <div className="console-line">
-                      <span>script</span>
-                      <span>暂未执行脚本日志。</span>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {responseTab === 'assertions' &&
-                (assertionResults.length === 0 ? (
-                  <div className="response-empty">
-                    发送请求后在此查看断言结果。可在请求区的「断言」页配置。
-                  </div>
-                ) : (
-                  <div className="assertion-results">
-                    {assertionResults.map((row) => (
-                      <div
-                        className={`assertion-result${row.passed ? ' ok' : ' bad'}`}
-                        key={row.id}
-                      >
-                        <span className="assertion-state">
-                          {row.passed ? <CheckCircleFilled /> : <CloseCircleOutlined />}
-                        </span>
-                        <span className="assertion-path mono">{row.path}</span>
-                        <span className="assertion-op-label">{operatorLabel(row.operator)}</span>
-                        <span className="assertion-expected mono">
-                          {row.operator === 'exists' || row.operator === 'notExists'
-                            ? '—'
-                            : row.expected}
-                        </span>
-                        <span className="assertion-actual mono" title={row.actual}>
-                          实际：{row.actual}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                ))}
-            </>
-          )}
-        </div>
-      </div>
+      <RequestResponsePanel
+        protocol={protocol}
+        method={method}
+        url={url}
+        response={response}
+        streamMode={streamMode}
+        connected={connected}
+        feedback={feedback}
+        error={error}
+        assertionResults={assertionResults}
+        responseTab={responseTab}
+        onResponseTabChange={setResponseTab}
+        responseQuery={responseQuery}
+        onResponseQueryChange={setResponseQuery}
+        responseMatchCount={responseMatchCount}
+        hasResponseContent={hasResponseContent}
+        hasBaseline={Boolean(readResponseBaseline())}
+        streamEvents={streamEvents}
+        draftMessage={draftMessage}
+        onDraftMessageChange={setDraftMessage}
+        onSendDraftMessage={sendDraftMessage}
+        onClearStream={() => setStreamEvents([])}
+        onCopy={() => void copyResponse()}
+        onDownload={downloadResponse}
+        onSaveBaseline={saveResponseBaseline}
+        onOpenDiff={openResponseDiff}
+        onClear={clearResponse}
+        scriptLogs={scriptLogs}
+      />
     </section>
   );
 }

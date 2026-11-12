@@ -1,29 +1,11 @@
-import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
-import {
-  BookOutlined,
-  DeleteOutlined,
-  DownOutlined,
-  ExperimentOutlined,
-  EyeOutlined,
-  FileAddOutlined,
-  FileTextOutlined,
-  LockOutlined,
-  MoreOutlined,
-  PaperClipOutlined,
-  PlusOutlined,
-  RobotOutlined,
-  SendOutlined,
-  SettingOutlined,
-  ThunderboltOutlined,
-} from '@ant-design/icons';
-import { App, Button, Checkbox, Dropdown, Input, Modal, Select, Tag, Tooltip } from 'antd';
-import { Bubble, Prompts, Sender } from '@ant-design/x';
-import type { ApiRequest, HttpMethod, NetworkMode } from '../data/types';
+import { useEffect, useMemo, useState } from 'react';
+import { LockOutlined, RobotOutlined } from '@ant-design/icons';
+import { App } from 'antd';
+import type { ApiRequest, NetworkMode } from '../data/types';
 import { kvGet, kvSet } from '../lib/kv';
 import { networkModes } from '../data/types';
 import type { Collection } from '../lib/api';
 import {
-  httpMethods,
   looksLikeApiDoc,
   parseRequestDraft,
   type RequestDraft,
@@ -33,14 +15,16 @@ import {
   buildDraftDiff,
   buildFieldReview,
   docToMarkdown,
-  docToOpenApi,
   mergeDraftFields,
   type DraftField,
-  type FieldReview,
   type GlossaryEntry,
   type RequestContext,
 } from '../lib/docTask';
-import { MethodTag } from './MethodTag';
+import {
+  buildDescriptionPrompt,
+  extractSystemPrompt,
+  parseDescriptionJson,
+} from '../lib/aiPrompt';
 import { AiGatewayModal } from './AiGatewayModal';
 import { preflightEgress } from '../lib/egress';
 import { recordAudit } from '../lib/audit';
@@ -48,14 +32,22 @@ import { resolveModelRoute } from '../lib/modelRoute';
 import { checkNetworkAccessResolved, type NetworkAccess } from '../lib/networkPolicy';
 import {
   chatWithGateway,
-  chatWithGatewayStream,
   readGatewayConfig,
 } from '../lib/aiGateway';
-import {
-  defaultGlossary,
-  readGlossary,
-  writeGlossary,
-} from '../lib/glossary';
+import { readGlossary, writeGlossary } from '../lib/glossary';
+import { copyMarkdown, downloadDocFile } from '../lib/docExport';
+import { useAiChat, type ChatMessage } from '../lib/useAiChat';
+import { AiPanelHead } from './AiPanelHead';
+import { AiTaskPanel } from './AiTaskPanel';
+import { AiPromptList } from './AiPromptList';
+import { AiChatMessages } from './AiChatMessages';
+import { AiReviewCard } from './AiReviewCard';
+import { AiComposer } from './AiComposer';
+import { AiGlossaryModal } from './AiGlossaryModal';
+import { AiDocModal } from './AiDocModal';
+import { AiDiffModal } from './AiDiffModal';
+import { AiPreflightModal } from './AiPreflightModal';
+import { AiCreateRequestModal } from './AiCreateRequestModal';
 
 interface AiPanelProps {
   networkMode: NetworkMode;
@@ -68,44 +60,6 @@ interface AiPanelProps {
 }
 
 type AiAction = 'task' | 'descriptions' | 'tests' | 'chat' | 'extract';
-
-interface ChatMessage {
-  key: string;
-  placement: 'start' | 'end';
-  text: string;
-}
-
-const prompts = ['从文档生成接口', '生成接口文档', '补全字段说明', '生成测试用例', '解释错误'];
-
-const extractSystemPrompt = [
-  '你是 API 文档解析器。用户会粘贴从 Word 复制的接口说明，请只提取其中一个接口。',
-  '只输出一个 JSON 对象，不要输出解释文字或其他内容。',
-  'JSON 结构：',
-  '{"name":"接口名称","method":"GET|POST|PUT|PATCH|DELETE","url":"接口地址","headers":[{"name":"Header 名","value":"Header 值"}],"body":"请求体示例，没有则为 null"}',
-  '要求：',
-  '- url 优先使用文档中的完整地址；没有域名时保留以 / 开头的路径',
-  '- method 使用文档给出的请求方式，未给出时用 GET',
-  '- headers 只保留文档明确列出的请求头',
-  '- body 输出原始示例文本（JSON 或表单），不要改写字段',
-  '- 文档包含多个接口时，只输出第一个',
-].join('\n');
-
-function parseDescriptionJson(text: string): Record<string, unknown> | null {
-  const cleaned = text
-    .trim()
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/```$/, '')
-    .trim();
-  const start = cleaned.indexOf('{');
-  const end = cleaned.lastIndexOf('}');
-  if (start < 0 || end <= start) return null;
-  try {
-    const parsed = JSON.parse(cleaned.slice(start, end + 1)) as unknown;
-    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
-  } catch {
-    return null;
-  }
-}
 
 export function AiPanel({
   networkMode,
@@ -134,7 +88,6 @@ export function AiPanel({
   const [glossaryOpen, setGlossaryOpen] = useState(false);
   const [descLoading, setDescLoading] = useState(false);
   const [testsLoading, setTestsLoading] = useState(false);
-  const [streaming, setStreaming] = useState(false);
   const [pendingAction, setPendingAction] = useState<AiAction>('task');
   const [pendingChat, setPendingChat] = useState('');
   const [draftRequest, setDraftRequest] = useState<RequestDraft | null>(null);
@@ -187,8 +140,6 @@ export function AiPanel({
       }),
     [review, notes, draft],
   );
-  const requestReview = effectiveReview.filter((item) => item.source === '请求');
-  const responseReview = effectiveReview.filter((item) => item.source === '响应');
   const diff = useMemo(
     () => (task ? buildDraftDiff(draft, effectiveReview, accepted) : []),
     [task, draft, effectiveReview, accepted],
@@ -197,6 +148,12 @@ export function AiPanel({
     () => (task ? docToMarkdown(task, draft) : ''),
     [task, draft],
   );
+  const { streaming, sendChat } = useAiChat({
+    messages,
+    task,
+    review: effectiveReview,
+    setMessages,
+  });
 
   useEffect(() => {
     setAccepted({});
@@ -292,40 +249,6 @@ export function AiPanel({
     }
   }
 
-  function buildContextPrompt() {
-    if (!task) return '';
-    const sampleByPath = new Map(
-      [...task.request.fields, ...(task.response?.fields ?? [])].map((field) => [
-        field.path,
-        field.sample,
-      ]),
-    );
-    const fieldLines = effectiveReview
-      .slice(0, 80)
-      .map(
-        (field) =>
-          `- ${field.path} (${field.type}, ${field.source})${
-            sampleByPath.get(field.path) ? ` 示例: ${String(sampleByPath.get(field.path)).slice(0, 80)}` : ''
-          }`,
-      )
-      .join('\n');
-    return [
-      `接口名称：${task.request.name}`,
-      `请求：${task.request.method} ${task.request.url}`,
-      `敏感级别：${task.request.dataLevel}`,
-      task.request.headers.length > 0
-        ? `请求头：${task.request.headers.map((header) => header.name).join(', ')}`
-        : '',
-      task.request.body ? `请求体示例：\n${task.request.body.slice(0, 1500)}` : '',
-      task.response
-        ? `响应状态：${task.response.status} ${task.response.statusText}\n响应示例：\n${task.response.body.slice(0, 1500)}`
-        : '暂无响应示例',
-      fieldLines ? `字段列表：\n${fieldLines}` : '',
-    ]
-      .filter(Boolean)
-      .join('\n\n');
-  }
-
   async function runAiAction(action: AiAction, chatText = '') {
     if (!route.allowed) {
       message.error(route.reason);
@@ -378,18 +301,6 @@ export function AiPanel({
     setGlossaryOpen(true);
   }
 
-  function updateGlossaryRow(index: number, patch: Partial<GlossaryEntry>) {
-    setGlossaryDraft((current) =>
-      current.map((entry, entryIndex) =>
-        entryIndex === index ? { ...entry, ...patch } : entry,
-      ),
-    );
-  }
-
-  function removeGlossaryRow(index: number) {
-    setGlossaryDraft((current) => current.filter((_, entryIndex) => entryIndex !== index));
-  }
-
   function saveGlossaryDraft() {
     const cleaned = writeGlossary(glossaryDraft);
     setGlossaryEntries(cleaned);
@@ -420,29 +331,7 @@ export function AiPanel({
       return;
     }
     setDescLoading(true);
-    const sampleByPath = new Map(
-      [...task.request.fields, ...(task.response?.fields ?? [])].map((field) => [
-        field.path,
-        field.sample,
-      ]),
-    );
-    const lines = effectiveReview
-      .map(
-        (field) =>
-          `- ${field.path} | ${field.type} | ${field.source}${
-            sampleByPath.get(field.path)
-              ? ` | 示例: ${String(sampleByPath.get(field.path)).slice(0, 100)}`
-              : ''
-          }`,
-      )
-      .join('\n');
-    const prompt = [
-      '你是 API 文档助手。请为下列字段各写一句简洁、准确的中文说明，说明字段的业务含义与取值规则。',
-      '只输出一个 JSON 对象，键必须是完整字段路径，值为字段说明字符串，不要输出 Markdown 或其他内容。',
-      '',
-      '字段列表：',
-      lines,
-    ].join('\n');
+    const prompt = buildDescriptionPrompt(task, effectiveReview);
 
     try {
       const reply = await chatWithGateway(
@@ -560,204 +449,50 @@ export function AiPanel({
     }
   }
 
-  async function sendChat(text: string) {
-    if (!text.trim() || streaming) return;
-    const config = readGatewayConfig();
-    const history = messages.map((item) => ({
-      role: item.placement === 'end' ? ('user' as const) : ('assistant' as const),
-      content: item.text,
-    }));
-    const contextPrompt = buildContextPrompt();
-    const assistantKey = `reply-${Date.now()}`;
-    setMessages((current) => [
-      ...current,
-      { key: `user-${Date.now()}`, placement: 'end', text },
-      { key: assistantKey, placement: 'start', text: '思考中…' },
-    ]);
-    setStreaming(true);
-
-    const updateAssistant = (updater: (current: string) => string) =>
-      setMessages((current) =>
-        current.map((item) =>
-          item.key === assistantKey ? { ...item, text: updater(item.text) } : item,
-        ),
-      );
-
-    try {
-      const result = await chatWithGatewayStream(
-        config,
-        [
-          {
-            role: 'system',
-            content: [
-              '你是内网 API 文档助手，回答简洁、专业，使用中文。',
-              contextPrompt ? `当前接口上下文：\n${contextPrompt}` : '',
-            ]
-              .filter(Boolean)
-              .join('\n\n'),
-          },
-          ...history,
-          { role: 'user', content: text },
-        ],
-        120_000,
-        (delta) =>
-          updateAssistant((current) =>
-            current === '思考中…' ? delta : `${current}${delta}`,
-          ),
-      );
-      if (!result.content.trim()) {
-        updateAssistant((current) => (current === '思考中…' ? '（无输出）' : current));
-      }
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      updateAssistant(() => `生成失败：${reason}`);
-    } finally {
-      setStreaming(false);
-    }
-  }
-
-  function submit() {
-    const text = composer.trim();
-    if (!text || streaming || draftLoading) return;
-    setComposer('');
-    // 粘贴的接口文档直接进入解析流程，普通消息仍走对话。
-    void runAiAction(looksLikeApiDoc(text) ? 'extract' : 'chat', text);
-  }
-
   function downloadDoc(format: 'markdown' | 'openapi') {
     if (!task) return;
-    const content =
-      format === 'markdown' ? docToMarkdown(task, draft) : docToOpenApi(task, draft);
-    const extension = format === 'markdown' ? 'md' : 'openapi.json';
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${task.request.name}.${extension}`;
-    link.click();
-    URL.revokeObjectURL(url);
+    downloadDocFile(task, draft, format);
     message.success(`已导出 ${format === 'markdown' ? 'Markdown' : 'OpenAPI'}`);
   }
 
   async function copyDoc() {
     if (!docMarkdown) return;
-    try {
-      await navigator.clipboard.writeText(docMarkdown);
+    const copied = await copyMarkdown(docMarkdown);
+    if (copied) {
       message.success('已复制 Markdown');
-    } catch {
+    } else {
       message.warning('当前环境无法访问剪贴板');
     }
   }
 
-  function renderReviewRow(field: FieldReview) {
-    return (
-      <div className="review-row" key={field.key}>
-        <Checkbox
-          checked={accepted[field.key] ?? true}
-          onChange={(event) =>
-            setAccepted((current) => ({
-              ...current,
-              [field.key]: event.target.checked,
-            }))
-          }
-        />
-        <div className="review-field">
-          <div>
-            <code>{field.path}</code>
-            <em>{field.type}</em>
-            <b className={`review-source${field.source === '请求' ? ' req' : ' res'}`}>
-              {field.source}
-            </b>
-          </div>
-          <Input.TextArea
-            className="review-note-input"
-            value={notes[field.key] ?? field.note}
-            onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
-              setNotes((current) => ({ ...current, [field.key]: event.target.value }))
-            }
-            placeholder="补充字段说明（可留空）"
-            aria-label={`${field.path} 字段说明`}
-            autoSize={{ minRows: 1, maxRows: 3 }}
-            variant="borderless"
-          />
-        </div>
-        <div className="confidence">
-          <div className="confidence-bar">
-            <i
-              className={field.confidence < 90 ? 'low' : undefined}
-              style={{ width: `${field.confidence}%` }}
-            />
-          </div>
-          <span>{field.confidence}%</span>
-        </div>
-      </div>
-    );
+  function approvePreflight() {
+    setPreflightOpen(false);
+    recordAudit({
+      type: 'egress',
+      action: `出网审批 · ${activeRequest.method} ${activeRequest.path}`,
+      detail: `${route.endpoint} · 脱敏 ${preflight?.masks.length ?? 0} 项 · 人工审批通过`,
+      actor,
+      level: activeRequest.dataLevel,
+    });
+    executeAiAction(pendingAction, pendingChat);
+    setPendingChat('');
   }
 
   return (
     <aside className="ai-panel">
-      <div className="ai-head">
-        <div className="ai-title">
-          <span className="ai-spark">
-            <RobotOutlined />
-          </span>
-          <div>
-            <strong>AI 文档助手</strong>
-            <span>文档专用 · 可审计</span>
-          </div>
-        </div>
-        <Tag className={`model-tag tone-${network.tone}`}>
-          {gatewayConfig.model || network.modelName}
-        </Tag>
-        <Tooltip title="AI 网关设置">
-          <Button
-            type="text"
-            size="small"
-            icon={<SettingOutlined />}
-            aria-label="AI 网关设置"
-            onClick={() => setGatewayOpen(true)}
-          />
-        </Tooltip>
-        <Dropdown
-          trigger={['click']}
-          menu={{
-            items: [
-              { key: 'gateway', label: 'AI 网关设置', icon: <SettingOutlined /> },
-              { key: 'glossary', label: '字段术语表', icon: <BookOutlined /> },
-              { type: 'divider' },
-              {
-                key: 'clear',
-                label: '清空对话',
-                icon: <DeleteOutlined />,
-                danger: true,
-                disabled: messages.length === 0,
-              },
-            ],
-            onClick: ({ key }) => {
-              if (key === 'gateway') setGatewayOpen(true);
-              if (key === 'glossary') openGlossary();
-              if (key === 'clear') {
-                setMessages([]);
-                message.success('已清空对话');
-              }
-            },
-          }}
-        >
-          <Button type="text" size="small" icon={<MoreOutlined />} aria-label="更多" />
-        </Dropdown>
-      </div>
-
-      <div className="ai-context">
-        <div className="ai-context-request">
-          <MethodTag method={activeRequest.method} />
-          <code title={context?.url ?? activeRequest.path}>
-            {context?.url ?? activeRequest.path}
-          </code>
-        </div>
-        <Tag className={`level-tag level-${activeRequest.dataLevel.toLowerCase()}`}>
-          {activeRequest.dataLevel} 敏感
-        </Tag>
-      </div>
+      <AiPanelHead
+        modelLabel={gatewayConfig.model || network.modelName}
+        tone={network.tone}
+        messageCount={messages.length}
+        activeRequest={activeRequest}
+        context={context}
+        onOpenGateway={() => setGatewayOpen(true)}
+        onOpenGlossary={openGlossary}
+        onClearMessages={() => {
+          setMessages([]);
+          message.success('已清空对话');
+        }}
+      />
 
       <div className="ai-scroll">
         {messages.length === 0 && (
@@ -770,596 +505,112 @@ export function AiPanel({
           </div>
         )}
 
-        <div className="ai-task">
-          <div className="ai-task-head">
-            <strong>文档任务</strong>
-            <Tag className={`task-state${task ? ' ready' : ''}`}>
-              {task ? '上下文就绪' : '等待上下文'}
-            </Tag>
-          </div>
-          <div className="ai-task-sources">
-            <span>
-              <code>{task?.stats.requestFields ?? 0}</code> 请求字段
-            </span>
-            <span>
-              <code>{task?.stats.responseFields ?? 0}</code> 响应字段
-            </span>
-            <span>
-              <code>{task?.stats.glossaryHits ?? 0}</code> 术语命中
-            </span>
-          </div>
-          {task && task.glossary.length > 0 && (
-            <div className="ai-task-terms">
-              术语：{task.glossary.map((hit) => hit.entry.term).join(' · ')}
-            </div>
-          )}
-          <div className={`ai-route${routeBlocked ? ' blocked' : ''}`}>
-            <i className="ai-route-dot" />
-            <code>{gatewayConfig.baseUrl || route.endpoint}</code>
-            <span>
-              {gatewayAccess?.scope === 'public'
-                ? '公网地址'
-                : route.egress
-                  ? '出网'
-                  : '不出网'}
-            </span>
-            {route.approval && <span>需审批</span>}
-            {route.egress && <span>脱敏 {preflight?.masks.length ?? 0} 项</span>}
-          </div>
-          {routeReason && <div className="ai-route-warn">{routeReason}</div>}
-          <div className="ai-task-actions">
-            <Button
-              type="primary"
-              size="small"
-              icon={<FileTextOutlined />}
-              onClick={runTask}
-              disabled={!task}
-            >
-              建立文档任务
-            </Button>
-            <Button
-              variant="text"
-              size="small"
-              color="cyan"
-              icon={<EyeOutlined />}
-              onClick={() => setDocOpen(true)}
-              disabled={!task}
-            >
-              查看文档
-            </Button>
-            <span>生成后自动打开文档预览</span>
-          </div>
-        </div>
-
-        <Prompts
-          className="ai-prompts"
-          items={prompts.map((label) => ({ key: label, label }))}
-          wrap
-          onItemClick={({ data }) => {
-            const label = String(data.label ?? '');
-            if (label === '从文档生成接口') {
-              const text = composer.trim();
-              if (!text) {
-                message.info('把 Word 里的接口信息粘贴到输入框，再点「生成接口」或直接发送。');
-                return;
-              }
-              setComposer('');
-              void runAiAction('extract', text);
-              return;
-            }
-            if (label === '生成接口文档') {
-              runTask();
-              return;
-            }
-            if (label === '补全字段说明') {
-              runAiAction('descriptions');
-              return;
-            }
-            if (label === '生成测试用例') {
-              runAiAction('tests');
-              return;
-            }
-            setComposer(
-              label === '解释错误'
-                ? '请结合当前接口上下文，解释最近一次请求失败的可能原因和排查步骤。'
-                : label,
-            );
-          }}
+        <AiTaskPanel
+          task={task}
+          route={route}
+          routeBlocked={routeBlocked}
+          routeReason={routeReason}
+          gatewayBaseUrl={gatewayConfig.baseUrl}
+          gatewayScope={gatewayAccess?.scope ?? null}
+          maskCount={preflight?.masks.length ?? 0}
+          onRunTask={runTask}
+          onOpenDoc={() => setDocOpen(true)}
         />
 
-        {messages.map((item) => (
-          <Bubble
-            key={item.key}
-            className={`ai-bubble ai-bubble-${item.placement}`}
-            placement={item.placement}
-            variant={item.placement === 'end' ? 'filled' : 'outlined'}
-            content={item.text}
-          />
-        ))}
+        <AiPromptList
+          composer={composer}
+          onCompose={setComposer}
+          onGenerateFromDoc={(text) => void runAiAction('extract', text)}
+          onGenerateDoc={runTask}
+          onFillDescriptions={() => runAiAction('descriptions')}
+          onGenerateTests={() => runAiAction('tests')}
+        />
 
-        <div className="review-card">
-          <div className="review-head">
-            <strong>字段审阅</strong>
-            <span>
-              {task ? `${pending} 项待确认 · 共 ${review.length} 字段` : '等待文档任务'}
-            </span>
-            <Tooltip title="维护字段术语表">
-              <Button
-                className="review-glossary-btn"
-                variant="text"
-                size="small"
-                color="geekblue"
-                icon={<BookOutlined />}
-                onClick={openGlossary}
-                aria-label="维护字段术语表"
-              />
-            </Tooltip>
-            {applied && <Tag className="applied-tag">已应用</Tag>}
-          </div>
+        <AiChatMessages messages={messages} />
 
-          {requestReview.length > 0 && (
-            <>
-              <div className="review-group">
-                <span>请求参数</span>
-                <em>{requestReview.length}</em>
-              </div>
-              {requestReview.map(renderReviewRow)}
-            </>
-          )}
-
-          {responseReview.length > 0 && (
-            <>
-              <div className="review-group">
-                <span>响应字段</span>
-                <em>{responseReview.length}</em>
-              </div>
-              {responseReview.map(renderReviewRow)}
-            </>
-          )}
-
-          {review.length === 0 && (
-            <div className="review-empty">等待请求上下文后生成字段审阅。</div>
-          )}
-
-          <div className="review-actions">
-            <Button
-              color="green"
-              variant="solid"
-              size="small"
-              onClick={applyDraft}
-              disabled={applied || review.length === 0}
-            >
-              {applied ? '已应用' : '应用到文档'}
-            </Button>
-            <Button
-              size="small"
-              color="geekblue"
-              variant="filled"
-              icon={<ThunderboltOutlined />}
-              loading={descLoading}
-              onClick={() => runAiAction('descriptions')}
-              disabled={review.length === 0}
-            >
-              AI 生成说明
-            </Button>
-            <Button
-              size="small"
-              color="orange"
-              variant="filled"
-              icon={<ExperimentOutlined />}
-              loading={testsLoading}
-              onClick={() => runAiAction('tests')}
-              disabled={!task}
-            >
-              生成测试用例
-            </Button>
-            <Button size="small" onClick={() => setDiffOpen(true)}>
-              查看 diff
-            </Button>
-            <Dropdown
-              trigger={['click']}
-              disabled={!task}
-              menu={{
-                items: [
-                  { key: 'markdown', label: '导出 Markdown' },
-                  { key: 'openapi', label: '导出 OpenAPI' },
-                ],
-                onClick: ({ key }) => downloadDoc(key as 'markdown' | 'openapi'),
-              }}
-            >
-              <Button size="small" disabled={!task}>
-                导出 <DownOutlined />
-              </Button>
-            </Dropdown>
-            <Button type="text" size="small" onClick={() => message.info('已忽略本次建议')}>
-              忽略
-            </Button>
-          </div>
-        </div>
+        <AiReviewCard
+          task={task}
+          review={review}
+          pending={pending}
+          accepted={accepted}
+          notes={notes}
+          applied={applied}
+          descLoading={descLoading}
+          testsLoading={testsLoading}
+          onAcceptedChange={(key, checked) =>
+            setAccepted((current) => ({ ...current, [key]: checked }))
+          }
+          onNoteChange={(key, value) =>
+            setNotes((current) => ({ ...current, [key]: value }))
+          }
+          onOpenGlossary={openGlossary}
+          onApply={applyDraft}
+          onGenerateDescriptions={() => runAiAction('descriptions')}
+          onGenerateTests={() => runAiAction('tests')}
+          onOpenDiff={() => setDiffOpen(true)}
+          onExport={downloadDoc}
+          onIgnore={() => message.info('已忽略本次建议')}
+        />
 
         <div className="ai-footnote">
           <LockOutlined /> {network.modelNote} · 输出可追溯到请求与模型版本
         </div>
       </div>
 
-      <div className="composer">
-        <Sender
-          className="ai-sender"
-          value={composer}
-          onChange={(value) => setComposer(value)}
-          onSubmit={submit}
-          placeholder="粘贴接口文档自动生成接口，或描述目标…"
-          autoSize={{ minRows: 3, maxRows: 6 }}
-          footer={
-            <span className="composer-hint">{streaming ? 'AI 生成中…' : '⌘↵ 发送'}</span>
-          }
-          actions={
-            <>
-              <Tooltip title="把粘贴的接口文档解析为接口">
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<FileAddOutlined />}
-                  loading={draftLoading}
-                  disabled={!composer.trim() || streaming}
-                  onClick={() => {
-                    const text = composer.trim();
-                    if (!text) return;
-                    setComposer('');
-                    void runAiAction('extract', text);
-                  }}
-                  aria-label="从文档生成接口"
-                />
-              </Tooltip>
-              <Tooltip title="添加附件">
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<PaperClipOutlined />}
-                  aria-label="添加附件"
-                />
-              </Tooltip>
-              <Button
-                type="primary"
-                size="small"
-                icon={<SendOutlined />}
-                onClick={submit}
-                disabled={!composer.trim() || streaming}
-              >
-                {streaming ? '生成中' : '发送'}
-              </Button>
-            </>
-          }
-        />
-      </div>
+      <AiComposer
+        composer={composer}
+        streaming={streaming}
+        draftLoading={draftLoading}
+        onChange={setComposer}
+        // 粘贴的接口文档直接进入解析流程，普通消息仍走对话。
+        onSubmit={(text) => void runAiAction(looksLikeApiDoc(text) ? 'extract' : 'chat', text)}
+        onExtract={(text) => void runAiAction('extract', text)}
+      />
 
-      <Modal
+      <AiGlossaryModal
         open={glossaryOpen}
-        title="字段术语表"
-        width={720}
+        draft={glossaryDraft}
+        onChange={setGlossaryDraft}
         onCancel={() => setGlossaryOpen(false)}
-        footer={[
-          <Button
-            key="reset"
-            size="small"
-            onClick={() => setGlossaryDraft(defaultGlossary.map((entry) => ({ ...entry })))}
-          >
-            恢复默认
-          </Button>,
-          <Button key="cancel" size="small" onClick={() => setGlossaryOpen(false)}>
-            取消
-          </Button>,
-          <Button key="save" size="small" type="primary" onClick={saveGlossaryDraft}>
-            保存术语表
-          </Button>,
-        ]}
-      >
-        <p className="glossary-tip">
-          术语表用于预填字段说明并提升置信度；未命中的字段可以直接在字段审阅里填写说明。
-        </p>
-        <div className="glossary-head">
-          <span>字段名</span>
-          <span>中文名</span>
-          <span>说明</span>
-          <span />
-        </div>
-        <div className="glossary-list">
-          {glossaryDraft.map((entry, index) => (
-            <div className="glossary-row" key={index}>
-              <Input
-                size="small"
-                value={entry.term}
-                onChange={(event) => updateGlossaryRow(index, { term: event.target.value })}
-                placeholder="orderId"
-                aria-label={`术语名 ${index + 1}`}
-              />
-              <Input
-                size="small"
-                value={entry.label}
-                onChange={(event) => updateGlossaryRow(index, { label: event.target.value })}
-                placeholder="订单号"
-                aria-label={`术语中文名 ${index + 1}`}
-              />
-              <Input
-                size="small"
-                value={entry.description}
-                onChange={(event) =>
-                  updateGlossaryRow(index, { description: event.target.value })
-                }
-                placeholder="业务含义与取值规则"
-                aria-label={`术语说明 ${index + 1}`}
-              />
-              <Button
-                type="text"
-                size="small"
-                danger
-                icon={<DeleteOutlined />}
-                onClick={() => removeGlossaryRow(index)}
-                aria-label={`删除术语 ${index + 1}`}
-              />
-            </div>
-          ))}
-        </div>
-        <Button
-          type="dashed"
-          block
-          icon={<PlusOutlined />}
-          onClick={() =>
-            setGlossaryDraft((current) => [
-              ...current,
-              { term: '', label: '', description: '' },
-            ])
-          }
-        >
-          新增术语
-        </Button>
-      </Modal>
+        onSave={saveGlossaryDraft}
+      />
 
-      <Modal
+      <AiDocModal
         open={docOpen}
-        title={task ? `接口文档 · ${task.request.name}` : '接口文档'}
-        width={780}
-        onCancel={() => setDocOpen(false)}
-        footer={[
-          <Button key="copy" size="small" color="cyan" variant="filled" onClick={() => void copyDoc()}>
-            复制 Markdown
-          </Button>,
-          <Button key="md" size="small" color="green" variant="filled" onClick={() => downloadDoc('markdown')}>
-            下载 .md
-          </Button>,
-          <Button key="openapi" size="small" onClick={() => downloadDoc('openapi')}>
-            下载 OpenAPI
-          </Button>,
-          <Button key="close" size="small" type="primary" onClick={() => setDocOpen(false)}>
-            关闭
-          </Button>,
-        ]}
-      >
-        <div className="doc-meta">
-          <MethodTag method={task?.request.method ?? 'GET'} />
-          <code>{task?.request.url ?? '尚未选择接口'}</code>
-          <span>
-            {draft.length} 个已应用字段 · 识别请求空间 {task?.stats.requestFields ?? 0} / 响应{' '}
-            {task?.stats.responseFields ?? 0}
-          </span>
-        </div>
-        {draft.length === 0 && (
-          <div className="doc-tip">
-            当前为自动生成的文档骨架。在「字段审阅」中勾选并点击「应用到文档」后，字段说明会补进这份文档。
-          </div>
-        )}
-        <pre className="doc-preview">{docMarkdown || '暂无文档内容'}</pre>
-      </Modal>
+        task={task}
+        draftCount={draft.length}
+        docMarkdown={docMarkdown}
+        onClose={() => setDocOpen(false)}
+        onCopy={() => void copyDoc()}
+        onDownload={downloadDoc}
+      />
 
-      <Modal
+      <AiDiffModal
         open={diffOpen}
-        title="文档草稿 Diff"
-        width={480}
-        onCancel={() => setDiffOpen(false)}
-        footer={[
-          <Button key="close" size="small" onClick={() => setDiffOpen(false)}>
-            关闭
-          </Button>,
-          <Button
-            key="apply"
-            type="primary"
-            size="small"
-            onClick={applyDraft}
-            disabled={diff.length === 0}
-          >
-            应用到草稿
-          </Button>,
-        ]}
-      >
-        {diff.length === 0 ? (
-          <div className="diff-empty">当前草稿已包含所有选中字段。</div>
-        ) : (
-          <div className="diff-list">
-            {diff.map((row) => (
-              <div className={`diff-row ${row.kind}`} key={row.key}>
-                <span className="diff-sign">{row.kind === 'add' ? '+' : '~'}</span>
-                <div className="diff-body">
-                  <div className="diff-path">
-                    <code>{row.path}</code>
-                    <em>{row.type}</em>
-                  </div>
-                  {row.before !== null && <div className="diff-before">- {row.before}</div>}
-                  <div className="diff-after">+ {row.after}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-        <div className="diff-summary">
-          新增 {diff.filter((row) => row.kind === 'add').length} · 修改{' '}
-          {diff.filter((row) => row.kind === 'update').length}
-        </div>
-      </Modal>
+        diff={diff}
+        onClose={() => setDiffOpen(false)}
+        onApply={applyDraft}
+      />
 
-      <Modal
+      <AiPreflightModal
         open={preflightOpen}
-        title="出网预检"
-        width={460}
+        dataLevel={activeRequest.dataLevel}
+        endpoint={route.endpoint}
+        masks={preflight?.masks ?? []}
         onCancel={() => setPreflightOpen(false)}
-        footer={[
-          <Button key="cancel" size="small" onClick={() => setPreflightOpen(false)}>
-            取消
-          </Button>,
-          <Button
-            key="approve"
-            type="primary"
-            size="small"
-            onClick={() => {
-              setPreflightOpen(false);
-              recordAudit({
-                type: 'egress',
-                action: `出网审批 · ${activeRequest.method} ${activeRequest.path}`,
-                detail: `${route.endpoint} · 脱敏 ${preflight?.masks.length ?? 0} 项 · 人工审批通过`,
-                actor,
-                level: activeRequest.dataLevel,
-              });
-              executeAiAction(pendingAction, pendingChat);
-              setPendingChat('');
-            }}
-          >
-            确认出网并生成
-          </Button>,
-        ]}
-      >
-        <div className="preflight">
-          <div className="preflight-row">
-            <span>数据分级</span>
-            <b>{activeRequest.dataLevel}</b>
-          </div>
-          <div className="preflight-row">
-            <span>出网目标</span>
-            <code>{route.endpoint}</code>
-          </div>
-          <div className="preflight-row">
-            <span>审批状态</span>
-            <b className="warn">待人工审批</b>
-          </div>
-          <div className="preflight-row">
-            <span>脱敏项</span>
-            <b>{preflight?.masks.length ?? 0} 项</b>
-          </div>
-          <div className="preflight-masks">
-            {preflight?.masks.map((mask) => (
-              <div className="preflight-mask" key={`${mask.location}:${mask.path}`}>
-                <code>{mask.path}</code>
-                <span>{mask.before}</span>
-                <i>→</i>
-                <span>{mask.after}</span>
-              </div>
-            ))}
-            {preflight?.masks.length === 0 && (
-              <div className="preflight-none">未发现敏感字段。</div>
-            )}
-          </div>
-          <p className="preflight-note">
-            确认后将按脱敏结果发送到外部模型，操作会记入审计日志。
-          </p>
-        </div>
-      </Modal>
+        onApprove={approvePreflight}
+      />
 
-      <Modal
-        open={draftRequest !== null}
-        title="从文档创建接口"
-        width={640}
-        onCancel={() => setDraftRequest(null)}
-        footer={[
-          <Button key="cancel" size="small" onClick={() => setDraftRequest(null)}>
-            取消
-          </Button>,
-          <Button
-            key="create"
-            size="small"
-            type="primary"
-            loading={creatingDraft}
-            disabled={!draftRequest || !draftRequest.url.trim()}
-            onClick={() => void confirmCreateDraft()}
-          >
-            创建接口
-          </Button>,
-        ]}
-      >
-        {draftRequest && (
-          <>
-            <p className="draft-tip">
-              AI 已从文档中提取以下接口，确认后会加入所选集合并自动打开。
-              {collections.length === 0 && '当前还没有集合，创建时会自动新建「AI 生成接口」集合。'}
-            </p>
-            <div className="draft-field">
-              <label htmlFor="draft-name">接口名称</label>
-              <Input
-                id="draft-name"
-                value={draftRequest.name}
-                maxLength={60}
-                onChange={(event) =>
-                  setDraftRequest({ ...draftRequest, name: event.target.value })
-                }
-              />
-            </div>
-            <div className="draft-row">
-              <div className="draft-field">
-                <label>请求方法</label>
-                <Select<HttpMethod>
-                  value={draftRequest.method}
-                  onChange={(method) => setDraftRequest({ ...draftRequest, method })}
-                  options={httpMethods.map((method) => ({ value: method, label: method }))}
-                />
-              </div>
-              <div className="draft-field">
-                <label>所属集合</label>
-                <Select
-                  value={draftCollectionId || undefined}
-                  onChange={(value: string) => setDraftCollectionId(value)}
-                  placeholder={collections.length > 0 ? '选择集合' : '将新建「AI 生成接口」集合'}
-                  disabled={collections.length === 0}
-                  options={collections.map((collection) => ({
-                    value: collection.id,
-                    label: collection.name,
-                  }))}
-                />
-              </div>
-            </div>
-            <div className="draft-field">
-              <label htmlFor="draft-url">请求地址</label>
-              <Input
-                id="draft-url"
-                value={draftRequest.url}
-                onChange={(event) =>
-                  setDraftRequest({ ...draftRequest, url: event.target.value })
-                }
-              />
-            </div>
-            <div className="preflight">
-              <div className="preflight-row">
-                <span>请求头</span>
-                <b>{draftRequest.headers.length} 项</b>
-              </div>
-              {draftRequest.headers.length > 0 && (
-                <div className="preflight-masks">
-                  {draftRequest.headers.map((header, index) => (
-                    <div className="preflight-mask" key={`${header.name}-${index}`}>
-                      <code>{header.name}</code>
-                      <span>{header.value || '（空）'}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className="preflight-row">
-                <span>请求体</span>
-                <b>{draftRequest.body ? `${draftRequest.body.length} 字符` : '无'}</b>
-              </div>
-            </div>
-            {draftRequest.body && (
-              <pre className="doc-preview draft-body">{draftRequest.body}</pre>
-            )}
-            <p className="draft-tip">创建后可在请求面板中继续调整参数、认证与脚本。</p>
-          </>
-        )}
-      </Modal>
+      <AiCreateRequestModal
+        draftRequest={draftRequest}
+        collections={collections}
+        collectionId={draftCollectionId}
+        creating={creatingDraft}
+        onClose={() => setDraftRequest(null)}
+        onCollectionChange={setDraftCollectionId}
+        onDraftChange={setDraftRequest}
+        onCreate={() => void confirmCreateDraft()}
+      />
 
       <AiGatewayModal
         open={gatewayOpen}

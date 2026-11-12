@@ -10,6 +10,7 @@ export interface Collection {
   id: string;
   name: string;
   sort?: number;
+  parentId?: string | null;
   updatedAt?: string | null;
 }
 
@@ -40,6 +41,9 @@ export interface SendResponse {
   durationMs: number;
   ttfbMs?: number;
   downloadMs?: number;
+  dnsMs?: number;
+  tcpMs?: number;
+  tlsMs?: number;
   sizeBytes: number;
 }
 
@@ -382,12 +386,27 @@ export async function deleteCollection(id: string): Promise<void> {
   }
 
   cleanupLegacySeed();
+  const collections = readJson<Collection[]>(COLLECTIONS_KEY, []);
+  const descendants = new Set<string>([id]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const collection of collections) {
+      if (collection.parentId && descendants.has(collection.parentId) && !descendants.has(collection.id)) {
+        descendants.add(collection.id);
+        changed = true;
+      }
+    }
+  }
+
   writeJson(
     COLLECTIONS_KEY,
-    readJson<Collection[]>(COLLECTIONS_KEY, []).filter((collection) => collection.id !== id),
+    collections.filter((collection) => !descendants.has(collection.id)),
   );
   writeJson(
     SAVED_KEY,
-    readJson<SavedRequest[]>(SAVED_KEY, []).filter((request) => request.collectionId !== id),
+    readJson<SavedRequest[]>(SAVED_KEY, []).filter(
+      (request) => !descendants.has(request.collectionId ?? ''),
+    ),
   );
 }

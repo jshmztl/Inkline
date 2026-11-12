@@ -55,6 +55,8 @@ import { StatusBar } from './components/StatusBar';
 import { TestRunModal } from './components/TestRunModal';
 import { TopBar } from './components/TopBar';
 import { readSession, signOut, type Session } from './lib/session';
+import { useTeamPresence } from './lib/presence';
+import { readTeamKey } from './lib/teamCrypto';
 import { runCollectionTests, type TestCaseResult } from './lib/testRunner';
 
 const AiPanel = lazy(() =>
@@ -141,6 +143,7 @@ export function App() {
     url: string;
     nonce: number;
   } | null>(null);
+  const presence = useTeamPresence(session);
 
   useEffect(() => {
     let alive = true;
@@ -197,6 +200,7 @@ export function App() {
       collections.map((collection) => ({
         id: collection.id,
         name: collection.name,
+        parentId: collection.parentId ?? null,
         requests: savedRequests
           .filter((request) => (request.collectionId ?? '') === collection.id)
           .map(toApiRequest),
@@ -345,12 +349,13 @@ export function App() {
     void refreshWorkspace();
   }
 
-  async function handleCreateCollection(name: string) {
+  async function handleCreateCollection(name: string, parentId?: string) {
     const id = `collection-${Date.now().toString(36)}`;
     await apiSaveCollection({
       id,
       name,
       sort: collections.length,
+      parentId: parentId ?? null,
     });
     await refreshWorkspace();
     return id;
@@ -440,11 +445,18 @@ export function App() {
   }
 
   async function handleMoveCollection(id: string, direction: -1 | 1) {
-    const index = collections.findIndex((collection) => collection.id === id);
-    const target = index + direction;
-    if (index < 0 || target < 0 || target >= collections.length) return;
+    const source = collections.find((collection) => collection.id === id);
+    if (!source) return;
 
-    const reordered = [...collections];
+    const parentId = source.parentId ?? null;
+    const group = collections.filter(
+      (collection) => (collection.parentId ?? null) === parentId,
+    );
+    const index = group.findIndex((collection) => collection.id === id);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= group.length) return;
+
+    const reordered = [...group];
     [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
     await Promise.all(
       reordered.map((collection, order) =>
@@ -501,6 +513,7 @@ export function App() {
       id: newCollectionId,
       name: `${source.name} 副本`,
       sort: collections.length,
+      parentId: source.parentId ?? null,
     });
 
     const requests = savedRequests.filter(
@@ -656,9 +669,10 @@ export function App() {
       }
       const local = buildLocalSnapshot();
       const base = readTeamBase(session.team.id);
+      const encryptionKey = readTeamKey(session.team.id)?.key ?? null;
       let payload: Record<string, unknown>;
       let deltaChanges: number | undefined;
-      if (base) {
+      if (base && !encryptionKey) {
         const delta = buildSnapshotDelta(base, collections, savedRequests, local.documents);
         if (delta.changed === 0) {
           throw new TeamApiError(0, 'no_changes', '没有需要推送的变更');
@@ -666,6 +680,7 @@ export function App() {
         payload = buildDeltaPayload(delta, base.revision);
         deltaChanges = delta.changed;
       } else {
+        // 启用加密后先做一次整包推送，把历史明文内容全部转为密文。
         payload = buildRemotePayload(local);
       }
       try {
@@ -674,6 +689,7 @@ export function App() {
           session.team.id,
           payload,
           base?.revision ?? 0,
+          encryptionKey,
         );
         const snapshot: TeamSnapshot = {
           ...local,
@@ -689,7 +705,11 @@ export function App() {
         return snapshot;
       } catch (error) {
         if (error instanceof TeamApiError && error.code === 'revision_conflict') {
-          const latest = await fetchLatestSnapshot(connection, session.team.id);
+          const latest = await fetchLatestSnapshot(
+        connection,
+        session.team.id,
+        readTeamKey(session.team.id)?.key ?? null,
+      );
           if (latest) {
             writeTeamSnapshot(
               snapshotFromRemote(latest.payload as unknown as RemoteSnapshotPayload, {
@@ -723,7 +743,11 @@ export function App() {
       if (!connection) {
         throw new TeamApiError(401, 'not_connected', '团队服务连接已失效，请重新登录');
       }
-      const latest = await fetchLatestSnapshot(connection, session.team.id);
+      const latest = await fetchLatestSnapshot(
+        connection,
+        session.team.id,
+        readTeamKey(session.team.id)?.key ?? null,
+      );
       if (!latest) return null;
       const snapshot = snapshotFromRemote(latest.payload as unknown as RemoteSnapshotPayload, {
         revision: latest.revision,
@@ -799,6 +823,7 @@ export function App() {
             environment={environment}
             environments={workspaceEnvs}
             session={session}
+            presence={presence}
             onToggleMode={toggleMode}
             onDensityChange={changeDensity}
             onNetworkModeChange={setNetworkMode}

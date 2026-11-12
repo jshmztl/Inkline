@@ -13,6 +13,8 @@ pub struct Config {
     pub max_uncompressed_bytes: usize,
     pub default_snapshot_retention_days: i32,
     pub default_audit_retention_days: i32,
+    pub cleanup_interval_hours: u64,
+    pub cors_allowed_origins: Vec<String>,
     pub min_client_version: String,
     pub bootstrap_account: Option<String>,
     pub bootstrap_password: Option<String>,
@@ -42,6 +44,25 @@ impl Config {
         validate_retention(default_snapshot_retention_days)?;
         validate_retention(default_audit_retention_days)?;
 
+        let cleanup_interval_hours = parse_or("CLEANUP_INTERVAL_HOURS", 24_u64)?;
+        if cleanup_interval_hours == 0 {
+            return Err("CLEANUP_INTERVAL_HOURS 必须大于 0".to_string());
+        }
+
+        let cors_allowed_origins = env::var("CORS_ALLOWED_ORIGINS")
+            .unwrap_or_else(|_| {
+                "http://tauri.localhost,https://tauri.localhost,tauri://localhost,http://localhost:1420,http://127.0.0.1:1420"
+                    .to_string()
+            })
+            .split(',')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        if cors_allowed_origins.is_empty() {
+            return Err("CORS_ALLOWED_ORIGINS 不能为空；如需放开请显式填写 *".to_string());
+        }
+
         let min_client_version =
             env::var("MIN_CLIENT_VERSION").unwrap_or_else(|_| "0.1.20".to_string());
         let bootstrap_account = non_empty("BOOTSTRAP_ACCOUNT");
@@ -57,6 +78,8 @@ impl Config {
             max_uncompressed_bytes: uncompressed_mb * 1024 * 1024,
             default_snapshot_retention_days,
             default_audit_retention_days,
+            cleanup_interval_hours,
+            cors_allowed_origins,
             min_client_version,
             bootstrap_account,
             bootstrap_password,

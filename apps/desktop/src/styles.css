@@ -184,6 +184,46 @@ code,
   white-space: nowrap;
 }
 
+.presence-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--aw-surface-2);
+  color: var(--aw-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.presence-pill.tone-online {
+  color: var(--aw-success);
+}
+
+.presence-pill.tone-connecting {
+  color: var(--aw-warning);
+}
+
+.team-crypto {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--aw-border);
+}
+
+.team-crypto-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.team-crypto-note {
+  margin: 0 0 12px;
+  color: var(--aw-muted);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
 .topbar-spacer {
   flex: 1;
 }

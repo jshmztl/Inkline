@@ -15,6 +15,7 @@ export interface ApiRequest {
 export interface ApiFolder {
   id: string;
   name: string;
+  parentId?: string | null;
   requests: ApiRequest[];
 }
 
