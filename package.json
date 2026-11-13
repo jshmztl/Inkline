@@ -7,6 +7,7 @@
     "build": "pnpm --filter @inkline/desktop build",
     "release": "pnpm --filter @inkline/desktop release",
     "tauri": "pnpm --filter @inkline/desktop tauri",
-    "typecheck:ui": "pnpm --filter @inkline/ui typecheck"
+    "typecheck:ui": "pnpm --filter @inkline/ui typecheck",
+    "version:check": "node apps/desktop/scripts/check-version.mjs"
   }
 }

@@ -5,6 +5,17 @@ dist/
 apps/team-server/target/
 .screenshots/
 .trae-html-share-packages/
+# 个人规划文档，不提交
+ROADMAP.md
+# 本地构建产物
+output/*.exe
+output/*.msi
+output/*.sig
+output/inkline-team-deploy/
+# 团队服务 Docker 部署时的本地文件
+apps/team-server/deploy/.deploy-mode
+apps/team-server/deploy/admin-password.txt
+apps/team-server/deploy/backup/
 *.local
 *.log
 .env

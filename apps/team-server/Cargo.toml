@@ -3,7 +3,7 @@ name = "inkline-team-server"
 version = "0.1.0"
 edition = "2021"
 description = "Inkline 团队同步服务（M1）"
-license = "MIT"
+license = "AGPL-3.0-or-later"
 
 [dependencies]
 axum = { version = "0.8", features = ["ws"] }
