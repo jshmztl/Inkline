@@ -1,4 +1,6 @@
 import { kvGet, kvRemove, kvSet } from './kv';
+import { currentNetworkMode } from './network';
+import { checkNetworkAccessResolved } from './networkPolicy';
 import {
   CONNECTION_META_KEY,
   clearStoredTokens,
@@ -139,11 +141,19 @@ function errorFromResponse(status: number, data: unknown): TeamApiError {
   return new TeamApiError(status, code, message, payload?.error?.details);
 }
 
+async function ensureServerAccess(serverUrl: string): Promise<void> {
+  const access = await checkNetworkAccessResolved(serverUrl, currentNetworkMode());
+  if (!access.allowed) {
+    throw new TeamApiError(0, 'network_blocked', access.reason);
+  }
+}
+
 async function publicRequest(
   serverUrl: string,
   path: string,
   body: unknown,
 ): Promise<unknown> {
+  await ensureServerAccess(serverUrl);
   let response: Response;
   try {
     response = await fetch(`${serverUrl}${path}`, {
@@ -184,6 +194,7 @@ export async function teamRequest(
   init: { method?: string; body?: unknown; headers?: Record<string, string> } = {},
   retry = true,
 ): Promise<unknown> {
+  await ensureServerAccess(connection.serverUrl);
   const headers: Record<string, string> = {
     Authorization: `Bearer ${connection.accessToken}`,
     ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
@@ -215,7 +226,7 @@ export async function loginTeam(
   serverUrl: string,
   account: string,
   password: string,
-): Promise<{ connection: TeamConnection; teams: RemoteTeam[] }> {
+): Promise<{ connection: TeamConnection; teams: RemoteTeam[]; mustChangePassword: boolean }> {
   const url = normalizeServerUrl(serverUrl);
   const login = (await publicRequest(url, '/v1/auth/login', {
     account: account.trim(),
@@ -223,6 +234,7 @@ export async function loginTeam(
   })) as {
     accessToken?: string;
     refreshToken?: string;
+    mustChangePassword?: boolean;
     user?: TeamConnectionUser;
   } | null;
 
@@ -237,15 +249,46 @@ export async function loginTeam(
     user: login.user,
   };
 
+  if (login.mustChangePassword === true) {
+    rememberServer(url);
+    saveTeamConnection(connection);
+    return { connection, teams: [], mustChangePassword: true };
+  }
+
   try {
     const me = (await teamRequest(connection, '/v1/me')) as { teams?: RemoteTeam[] };
     rememberServer(url);
     saveTeamConnection(connection);
-    return { connection, teams: me.teams ?? [] };
+    return { connection, teams: me.teams ?? [], mustChangePassword: false };
   } catch (error) {
     clearTeamConnection();
     throw error;
   }
+}
+
+export async function changeTeamPassword(
+  connection: TeamConnection,
+  currentPassword: string,
+  newPassword: string,
+): Promise<TeamConnection> {
+  const result = (await teamRequest(connection, '/v1/auth/change-password', {
+    method: 'POST',
+    body: { currentPassword, newPassword },
+  })) as {
+    accessToken?: string;
+    refreshToken?: string;
+    user?: TeamConnectionUser;
+  } | null;
+
+  if (!result?.accessToken || !result.refreshToken) {
+    throw new TeamApiError(0, 'invalid_response', '团队服务返回了无法识别的口令修改结果');
+  }
+
+  connection.accessToken = result.accessToken;
+  connection.refreshToken = result.refreshToken;
+  if (result.user) connection.user = result.user;
+  saveTeamConnection(connection);
+  return connection;
 }
 
 export async function fetchTeams(connection: TeamConnection): Promise<RemoteTeam[]> {

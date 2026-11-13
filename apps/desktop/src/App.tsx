@@ -21,6 +21,7 @@ import type { RequestDraft } from './lib/requestDraft';
 import { migrateLegacyAudit } from './lib/audit';
 import { listEnvironments, saveEnvironmentVariables, writeEnvironments } from './lib/envStore';
 import { kvGet, kvSet } from './lib/kv';
+import { setActiveNetworkMode } from './lib/network';
 import { parseImport } from './lib/importer';
 import {
   buildDeltaPayload,
@@ -143,7 +144,11 @@ export function App() {
     url: string;
     nonce: number;
   } | null>(null);
-  const presence = useTeamPresence(session);
+  const presence = useTeamPresence(session, networkMode);
+
+  useEffect(() => {
+    setActiveNetworkMode(networkMode);
+  }, [networkMode]);
 
   useEffect(() => {
     let alive = true;

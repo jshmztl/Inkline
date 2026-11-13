@@ -227,7 +227,7 @@ function matchIntranetCidr(ip: string): string | null {
   return null;
 }
 
-async function probeNetwork(url: string): Promise<NetworkProbe | null> {
+async function probeNetwork(url: string, mode: NetworkMode): Promise<NetworkProbe | null> {
   if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return null;
   try {
     const parsed = new URL(url);
@@ -240,6 +240,7 @@ async function probeNetwork(url: string): Promise<NetworkProbe | null> {
     return await invoke<NetworkProbe>('probe_network', {
       host: parsed.hostname.replace(/^\[|\]$/g, ''),
       port,
+      mode,
     });
   } catch {
     return null;
@@ -259,7 +260,7 @@ export async function checkNetworkAccessResolved(
   const basic = checkNetworkAccess(url, mode);
   if (basic.allowed || basic.scope === 'invalid' || mode !== 'B') return basic;
 
-  const probe = await probeNetwork(url);
+  const probe = await probeNetwork(url, mode);
   if (!probe) return basic;
 
   const hostIsIp = ipv4ToNumber(basic.host) !== null || isIpv6Address(basic.host);

@@ -1,4 +1,6 @@
+import type { NetworkMode } from '../data/types';
 import { sendHttpRequest, type HeaderPair } from './api';
+import { backendNetworkOptions } from './network';
 
 const INTROSPECTION_QUERY = `query IntrospectionQuery {
   __schema {
@@ -65,6 +67,7 @@ export function formatTypeRef(type: GraphqlTypeRef | null | undefined): string {
 export async function fetchGraphqlSchema(
   url: string,
   headers: HeaderPair[],
+  networkMode: NetworkMode,
 ): Promise<GraphqlType[]> {
   const normalized = headers.filter(
     (header) => header.name.trim() && header.name.toLowerCase() !== 'content-type',
@@ -80,6 +83,7 @@ export async function fetchGraphqlSchema(
     ],
     body: JSON.stringify({ query: INTROSPECTION_QUERY }),
     timeoutMs: 30_000,
+    network: backendNetworkOptions(networkMode),
   });
 
   if (response.status >= 400) {

@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { setActiveNetworkMode } from './network';
 import {
+  changeTeamPassword,
   clearTeamConnection,
   fetchLatestSnapshot,
   loginTeam,
@@ -48,6 +50,7 @@ describe('teamClient', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     clearTeamConnection();
+    setActiveNetworkMode('B');
   });
 
   it('登录后携带令牌推送快照，并带上基础版本与幂等键', async () => {
@@ -186,5 +189,58 @@ describe('teamClient', () => {
     await expect(fetchLatestSnapshot(connection, 't1')).rejects.toMatchObject({
       code: 'encryption_key_missing',
     });
+  });
+
+  it('首次登录要求修改口令，修改后更新令牌', async () => {
+    let meCalls = 0;
+    const { calls } = installFetch((call) => {
+      if (call.url.endsWith('/v1/auth/login')) {
+        return jsonResponse(200, {
+          accessToken: 'access-old',
+          refreshToken: 'refresh-old',
+          mustChangePassword: true,
+          user: { id: 'u1', account: 'alice', displayName: 'Alice' },
+        });
+      }
+      if (call.url.endsWith('/v1/me')) {
+        meCalls += 1;
+        return jsonResponse(200, { teams: [] });
+      }
+      if (call.url.endsWith('/v1/auth/change-password')) {
+        return jsonResponse(200, {
+          accessToken: 'access-new',
+          refreshToken: 'refresh-new',
+          mustChangePassword: false,
+          user: { id: 'u1', account: 'alice', displayName: 'Alice' },
+        });
+      }
+      return jsonResponse(404, {});
+    });
+
+    const result = await loginTeam('team.local', 'alice', 'secret');
+    expect(result.mustChangePassword).toBe(true);
+    expect(result.teams).toEqual([]);
+    expect(meCalls).toBe(0);
+
+    const updated = await changeTeamPassword(result.connection, 'secret', 'NewSecret123');
+    expect(updated.accessToken).toBe('access-new');
+    expect(updated.refreshToken).toBe('refresh-new');
+
+    const changeCall = calls.find((call) => call.url.endsWith('/v1/auth/change-password'));
+    expect(changeCall?.headers.Authorization).toBe('Bearer access-old');
+    expect(changeCall?.body).toEqual({
+      currentPassword: 'secret',
+      newPassword: 'NewSecret123',
+    });
+  });
+
+  it('A 离线模式阻止非本机团队服务', async () => {
+    setActiveNetworkMode('A');
+    const { fetchMock } = installFetch(() => jsonResponse(200, {}));
+
+    await expect(
+      loginTeam('https://team.example.com', 'alice', 'secret'),
+    ).rejects.toMatchObject({ code: 'network_blocked' });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

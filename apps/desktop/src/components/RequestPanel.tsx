@@ -38,7 +38,7 @@ import {
   type AssertionRow,
 } from '../lib/assertions';
 import { runScript } from '../lib/scriptSandbox';
-import { readNetworkOptions } from '../lib/network';
+import { backendNetworkOptions } from '../lib/network';
 import { kvGet, kvSet } from '../lib/kv';
 import { RequestTabs } from './RequestTabs';
 import {
@@ -475,6 +475,7 @@ export function RequestPanel({
             if (event.kind === 'error') setError(event.payload);
           }
         },
+        networkMode,
         headers,
       );
     } catch (caught) {
@@ -496,7 +497,14 @@ export function RequestPanel({
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      await streamSse(finalUrl, resolvedHeaderPairs, null, appendStreamEvent, controller.signal);
+      await streamSse(
+        finalUrl,
+        resolvedHeaderPairs,
+        null,
+        appendStreamEvent,
+        controller.signal,
+        networkMode,
+      );
       setFeedback('SSE 流已结束');
     } catch (caught) {
       if (controller.signal.aborted) {
@@ -563,7 +571,14 @@ export function RequestPanel({
           value: resolveTemplate(row.value, variables).value,
         }));
 
-      setSchemaTypes(await fetchGraphqlSchema(finalUrl, baseHeaders));
+      const access = await checkNetworkAccessResolved(finalUrl, networkMode);
+      if (!access.allowed) {
+        setSchemaTypes([]);
+        setSchemaError(access.reason);
+        return;
+      }
+
+      setSchemaTypes(await fetchGraphqlSchema(finalUrl, baseHeaders, networkMode));
     } catch (error) {
       setSchemaError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -833,7 +848,7 @@ export function RequestPanel({
             : bodyText,
         multipart: multipartPayload,
         timeoutMs,
-        network: readNetworkOptions(),
+        network: backendNetworkOptions(networkMode),
       }, controller.signal);
 
       if (cancelledRef.current) {

@@ -1,6 +1,7 @@
 import { Channel, invoke } from '@tauri-apps/api/core';
+import type { NetworkMode } from '../data/types';
 import type { HeaderPair } from './api';
-import { readNetworkOptions } from './network';
+import { backendNetworkOptions } from './network';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -32,6 +33,7 @@ export function nextEventId() {
 export function openWebSocket(
   url: string,
   onEvent: (event: StreamEvent) => void,
+  networkMode: NetworkMode,
   headers: HeaderPair[] = [],
 ): WebSocketHandle {
   if (isTauri) {
@@ -45,7 +47,7 @@ export function openWebSocket(
         id,
         url,
         headers,
-        network: readNetworkOptions(),
+        network: backendNetworkOptions(networkMode),
       },
       onEvent: channel,
     }).catch((error) => {
@@ -138,6 +140,7 @@ export async function streamSse(
   body: string | null,
   onEvent: (event: StreamEvent) => void,
   signal: AbortSignal,
+  networkMode: NetworkMode,
 ): Promise<void> {
   if (isTauri) {
     const id = `sse-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -156,7 +159,7 @@ export async function streamSse(
           url,
           headers,
           body,
-          network: readNetworkOptions(),
+          network: backendNetworkOptions(networkMode),
         },
         onEvent: channel,
       });

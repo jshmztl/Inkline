@@ -152,6 +152,7 @@ export function AiPanel({
     messages,
     task,
     review: effectiveReview,
+    networkMode,
     setMessages,
   });
 
@@ -227,6 +228,7 @@ export function AiPanel({
           { role: 'user', content: prompt },
         ],
         20_000,
+        networkMode,
       );
       setMessages((current) => [
         ...current,
@@ -344,6 +346,7 @@ export function AiPanel({
           { role: 'user', content: prompt },
         ],
         120_000,
+        networkMode,
       );
       const parsed = parseDescriptionJson(reply.content);
       if (!parsed) throw new Error('AI 返回内容不是可解析的 JSON 对象');
@@ -402,6 +405,7 @@ export function AiPanel({
           { role: 'user', content: `接口文档如下：\n\n${source.slice(0, 6000)}` },
         ],
         120_000,
+        networkMode,
       );
       const parsed = parseRequestDraft(reply.content);
       if (!parsed) throw new Error('未识别到完整的请求方法、地址或 JSON 结构');

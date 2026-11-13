@@ -1,4 +1,5 @@
 import { useState, type Dispatch, type SetStateAction } from 'react';
+import type { NetworkMode } from '../data/types';
 import { chatWithGatewayStream, readGatewayConfig } from './aiGateway';
 import { buildContextPrompt } from './aiPrompt';
 import type { DocTask, FieldReview } from './docTask';
@@ -13,11 +14,18 @@ interface UseAiChatOptions {
   messages: ChatMessage[];
   task: DocTask | null;
   review: FieldReview[];
+  networkMode: NetworkMode;
   setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
 }
 
 // 管理对话流式输出状态与发送逻辑。
-export function useAiChat({ messages, task, review, setMessages }: UseAiChatOptions) {
+export function useAiChat({
+  messages,
+  task,
+  review,
+  networkMode,
+  setMessages,
+}: UseAiChatOptions) {
   const [streaming, setStreaming] = useState(false);
 
   async function sendChat(text: string) {
@@ -60,6 +68,7 @@ export function useAiChat({ messages, task, review, setMessages }: UseAiChatOpti
           { role: 'user', content: text },
         ],
         120_000,
+        networkMode,
         (delta) =>
           updateAssistant((current) =>
             current === '思考中…' ? delta : `${current}${delta}`,

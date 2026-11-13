@@ -3,6 +3,7 @@ mod db;
 mod http;
 mod mock;
 mod model;
+mod netpolicy;
 mod netprobe;
 mod secrets;
 mod sse;

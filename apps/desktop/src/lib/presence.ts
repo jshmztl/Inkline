@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
+import type { NetworkMode } from '../data/types';
 import type { Session } from './session';
+import { checkNetworkAccessResolved } from './networkPolicy';
 import { fetchTeams, readTeamConnection } from './teamClient';
 
 export interface PresenceMember {
@@ -22,7 +24,10 @@ const RECONNECT_BASE_MS = 1500;
 const RECONNECT_MAX_MS = 30_000;
 const HEARTBEAT_MS = 25_000;
 
-export function useTeamPresence(session: Session | null): PresenceSnapshot {
+export function useTeamPresence(
+  session: Session | null,
+  networkMode: NetworkMode,
+): PresenceSnapshot {
   const [status, setStatus] = useState<PresenceStatus>('offline');
   const [members, setMembers] = useState<PresenceMember[]>([]);
   const retryRef = useRef(0);
@@ -59,6 +64,13 @@ export function useTeamPresence(session: Session | null): PresenceSnapshot {
       if (!connection) {
         setStatus('offline');
         scheduleReconnect();
+        return;
+      }
+
+      const access = await checkNetworkAccessResolved(connection.serverUrl, networkMode);
+      if (!access.allowed) {
+        setStatus('offline');
+        setMembers([]);
         return;
       }
 
@@ -125,7 +137,7 @@ export function useTeamPresence(session: Session | null): PresenceSnapshot {
       if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
       socket?.close();
     };
-  }, [session?.mode, session?.team?.id]);
+  }, [session?.mode, session?.team?.id, networkMode]);
 
   return { status, members };
 }

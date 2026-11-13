@@ -5,6 +5,7 @@ import {
   type AssertionRow,
   type AssertionResult,
 } from './assertions';
+import { backendNetworkOptions } from './network';
 import { checkNetworkAccessResolved } from './networkPolicy';
 import { readRequestScripts } from './requestMeta';
 import { runScript } from './scriptSandbox';
@@ -138,6 +139,7 @@ export async function runCollectionTests(
         url: resolvedUrl.value,
         headers,
         body,
+        network: backendNetworkOptions(networkMode),
       });
 
       const assertions = evaluateAssertions(rows, response);

@@ -1,4 +1,6 @@
+import type { NetworkMode } from '../data/types';
 import { kvGet, kvSet } from './kv';
+import { backendNetworkOptions } from './network';
 
 export type AiProvider = 'deepseek' | 'qwen-cloud' | 'qwen-ollama' | 'qwen-vllm' | 'custom';
 
@@ -99,6 +101,7 @@ export async function chatWithGateway(
   config: AiGatewayConfig,
   messages: AiChatMessage[],
   timeoutMs = 60_000,
+  networkMode: NetworkMode,
 ): Promise<AiChatResult> {
   const baseUrl = config.baseUrl.trim().replace(/\/+$/, '');
   if (!baseUrl) throw new Error('AI 网关地址为空');
@@ -112,6 +115,7 @@ export async function chatWithGateway(
         model: config.model,
         messages,
         timeoutMs,
+        network: backendNetworkOptions(networkMode),
       },
     });
   }
@@ -165,6 +169,7 @@ export async function chatWithGatewayStream(
   config: AiGatewayConfig,
   messages: AiChatMessage[],
   timeoutMs = 120_000,
+  networkMode: NetworkMode,
   onDelta?: (delta: string) => void,
 ): Promise<AiChatResult> {
   const baseUrl = config.baseUrl.trim().replace(/\/+$/, '');
@@ -187,6 +192,7 @@ export async function chatWithGatewayStream(
         model: config.model,
         messages,
         timeoutMs,
+        network: backendNetworkOptions(networkMode),
       },
       onEvent: channel,
     });

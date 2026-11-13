@@ -53,6 +53,7 @@ export function AiGatewayModal({ open, networkMode, onClose }: AiGatewayModalPro
         config,
         [{ role: 'user', content: '请只回复 OK' }],
         20_000,
+        networkMode,
       );
       setResult({
         ok: true,

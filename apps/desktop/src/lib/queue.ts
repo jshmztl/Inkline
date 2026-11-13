@@ -1,7 +1,7 @@
 import { sendHttpRequest, type HeaderPair, type SendResponse } from './api';
 import { kvGet, kvSet } from './kv';
 import { checkNetworkAccessResolved } from './networkPolicy';
-import { readNetworkOptions } from './network';
+import { backendNetworkOptions } from './network';
 import type { NetworkMode } from '../data/types';
 
 export interface QueuedTask {
@@ -83,7 +83,7 @@ export async function retryTask(
       headers: task.headers,
       body: task.body ?? undefined,
       timeoutMs: 30_000,
-      network: readNetworkOptions(),
+      network: backendNetworkOptions(networkMode),
     });
     removeQueueTask(task.id);
     return result;

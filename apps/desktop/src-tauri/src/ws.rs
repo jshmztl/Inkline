@@ -227,6 +227,14 @@ pub async fn ws_connect(
 
     let parsed = reqwest::Url::parse(&payload.url)
         .map_err(|error| format!("WebSocket 地址无效：{error}"))?;
+
+    let policy = payload
+        .network
+        .as_ref()
+        .map(NetworkOptions::policy)
+        .unwrap_or_default();
+    policy.ensure_allowed_resolved(&payload.url).await?;
+
     let host = parsed
         .host_str()
         .ok_or_else(|| "WebSocket 地址缺少主机名".to_string())?

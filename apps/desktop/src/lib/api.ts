@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { NetworkOptions } from './network';
+import type { BackendNetworkOptions } from './network';
 
 export interface HeaderPair {
   name: string;
@@ -30,7 +30,7 @@ export interface SendRequestPayload {
   body?: string;
   timeoutMs?: number;
   multipart?: MultipartField[];
-  network?: NetworkOptions;
+  network?: BackendNetworkOptions;
 }
 
 export interface SendResponse {

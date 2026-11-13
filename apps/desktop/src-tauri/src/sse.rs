@@ -10,6 +10,7 @@ use tokio::sync::oneshot;
 
 use crate::http::NetworkOptions;
 use crate::model::HeaderPair;
+use crate::netpolicy::redirect_policy;
 
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -126,14 +127,18 @@ pub async fn start_sse_stream(
         return Err("SSE 仅支持 http/https 地址".to_string());
     }
 
+    let policy = payload
+        .network
+        .as_ref()
+        .map(NetworkOptions::policy)
+        .unwrap_or_default();
+    policy.ensure_allowed_resolved(&payload.url).await?;
+
     let mut client = reqwest::Client::builder().connect_timeout(Duration::from_secs(15));
 
     if let Some(network) = &payload.network {
         if network.accept_invalid_certs.unwrap_or(false) {
             client = client.danger_accept_invalid_certs(true);
-        }
-        if !network.follow_redirects.unwrap_or(true) {
-            client = client.redirect(reqwest::redirect::Policy::none());
         }
         if let Some(proxy) = network
             .proxy
@@ -158,6 +163,17 @@ pub async fn start_sse_stream(
             client = client.identity(identity);
         }
     }
+
+    let follow_redirects = payload
+        .network
+        .as_ref()
+        .and_then(|network| network.follow_redirects)
+        .unwrap_or(true);
+    client = client.redirect(if follow_redirects {
+        redirect_policy(policy)
+    } else {
+        reqwest::redirect::Policy::none()
+    });
 
     let client = client
         .build()

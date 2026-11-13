@@ -3,6 +3,9 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 
+use crate::http::NetworkOptions;
+use crate::netpolicy::redirect_policy;
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AiMessage {
     pub role: String,
@@ -18,6 +21,7 @@ pub struct AiChatPayload {
     pub messages: Vec<AiMessage>,
     pub temperature: Option<f32>,
     pub timeout_ms: Option<u64>,
+    pub network: Option<NetworkOptions>,
 }
 
 #[derive(Debug, Serialize)]
@@ -38,8 +42,24 @@ pub async fn ai_chat(payload: AiChatPayload) -> Result<AiChatResult, String> {
     }
 
     let url = format!("{base}/chat/completions");
+    let policy = payload
+        .network
+        .as_ref()
+        .map(NetworkOptions::policy)
+        .unwrap_or_default();
+    policy.ensure_allowed_resolved(&url).await?;
+    let follow_redirects = payload
+        .network
+        .as_ref()
+        .and_then(|network| network.follow_redirects)
+        .unwrap_or(true);
     let client = reqwest::Client::builder()
         .timeout(Duration::from_millis(payload.timeout_ms.unwrap_or(60_000)))
+        .redirect(if follow_redirects {
+            redirect_policy(policy)
+        } else {
+            reqwest::redirect::Policy::none()
+        })
         .build()
         .map_err(|error| format!("创建 AI 客户端失败：{error}"))?;
 
@@ -110,8 +130,24 @@ pub async fn ai_chat_stream(
     }
 
     let url = format!("{base}/chat/completions");
+    let policy = payload
+        .network
+        .as_ref()
+        .map(NetworkOptions::policy)
+        .unwrap_or_default();
+    policy.ensure_allowed_resolved(&url).await?;
+    let follow_redirects = payload
+        .network
+        .as_ref()
+        .and_then(|network| network.follow_redirects)
+        .unwrap_or(true);
     let client = reqwest::Client::builder()
         .timeout(Duration::from_millis(payload.timeout_ms.unwrap_or(120_000)))
+        .redirect(if follow_redirects {
+            redirect_policy(policy)
+        } else {
+            reqwest::redirect::Policy::none()
+        })
         .build()
         .map_err(|error| format!("创建 AI 客户端失败：{error}"))?;
 

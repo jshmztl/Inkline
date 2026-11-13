@@ -11,6 +11,7 @@ use tauri::State;
 use tokio::sync::oneshot;
 
 use crate::model::HeaderPair;
+use crate::netpolicy::{redirect_policy, NetworkPolicy};
 
 #[derive(Default)]
 pub struct CancelState(pub Mutex<HashMap<String, oneshot::Sender<()>>>);
@@ -28,13 +29,22 @@ pub struct MultipartField {
     pub content_type: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Default, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct NetworkOptions {
     pub proxy: Option<String>,
     pub client_cert_path: Option<String>,
     pub accept_invalid_certs: Option<bool>,
     pub follow_redirects: Option<bool>,
+    pub mode: Option<String>,
+    #[serde(default)]
+    pub intranet_cidrs: Vec<String>,
+}
+
+impl NetworkOptions {
+    pub fn policy(&self) -> NetworkPolicy {
+        NetworkPolicy::from_parts(self.mode.as_deref(), &self.intranet_cidrs)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -112,6 +122,13 @@ pub(crate) async fn send_with_cookie(
         return Err("仅支持 http/https 请求".to_string());
     }
 
+    let policy = payload
+        .network
+        .as_ref()
+        .map(NetworkOptions::policy)
+        .unwrap_or_default();
+    policy.ensure_allowed_resolved(&payload.url).await?;
+
     let method = Method::from_bytes(payload.method.to_uppercase().as_bytes())
         .map_err(|error| format!("请求方法无效：{error}"))?;
 
@@ -122,9 +139,6 @@ pub(crate) async fn send_with_cookie(
     if let Some(network) = &payload.network {
         if network.accept_invalid_certs.unwrap_or(false) {
             client = client.danger_accept_invalid_certs(true);
-        }
-        if !network.follow_redirects.unwrap_or(true) {
-            client = client.redirect(reqwest::redirect::Policy::none());
         }
         if let Some(proxy) = network
             .proxy
@@ -149,6 +163,17 @@ pub(crate) async fn send_with_cookie(
             client = client.identity(identity);
         }
     }
+
+    let follow_redirects = payload
+        .network
+        .as_ref()
+        .and_then(|network| network.follow_redirects)
+        .unwrap_or(true);
+    client = client.redirect(if follow_redirects {
+        redirect_policy(policy)
+    } else {
+        reqwest::redirect::Policy::none()
+    });
 
     let client = client
         .build()
@@ -228,7 +253,7 @@ pub(crate) async fn send_with_cookie(
         let response = request
             .send()
             .await
-            .map_err(|error| format!("请求失败：{error}"))?;
+            .map_err(describe_request_error)?;
         let ttfb_ms = started.elapsed().as_millis() as u64;
 
         let status = response.status();
@@ -309,6 +334,20 @@ pub fn clear_cookies(cookie: State<'_, CookieState>) -> Result<(), String> {
     Ok(())
 }
 
+/// reqwest 的重定向错误只展示外层描述，这里把 source 链里的原因拼进用户可见信息。
+fn describe_request_error(error: reqwest::Error) -> String {
+    let mut message = format!("请求失败：{error}");
+    let mut source = std::error::Error::source(&error);
+    while let Some(cause) = source {
+        let text = cause.to_string();
+        if !text.is_empty() && !message.contains(&text) {
+            message.push_str(&format!("：{text}"));
+        }
+        source = cause.source();
+    }
+    message
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::{Read, Write};
@@ -354,6 +393,42 @@ mod tests {
         });
 
         (format!("http://{address}/health"), handle)
+    }
+
+    fn spawn_redirect_server(location: &'static str) -> (String, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind redirect server");
+        let address = listener.local_addr().expect("local addr");
+        listener
+            .set_nonblocking(true)
+            .expect("set nonblocking listener");
+
+        let handle = thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(3);
+            while Instant::now() < deadline {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
+                        let mut buffer = [0_u8; 2048];
+                        let read = stream.read(&mut buffer).unwrap_or(0);
+                        if read == 0 {
+                            continue;
+                        }
+                        let response = format!(
+                            "HTTP/1.1 302 Found\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                        );
+                        let _ = stream.write_all(response.as_bytes());
+                        let _ = stream.flush();
+                        break;
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
+        (format!("http://{address}/start"), handle)
     }
 
     fn get_payload(url: &str) -> SendRequestPayload {
@@ -406,5 +481,25 @@ mod tests {
         .await
         .expect_err("file scheme should be rejected");
         assert!(error.contains("http/https"), "unexpected error: {error}");
+    }
+
+    #[tokio::test]
+    async fn blocks_redirect_to_public_host_in_intranet_mode() {
+        let (url, handle) = spawn_redirect_server("http://example.com/landing");
+        let mut payload = get_payload(&url);
+        payload.network = Some(NetworkOptions {
+            mode: Some("B".to_string()),
+            ..Default::default()
+        });
+
+        let error = send_with_cookie(payload, Arc::new(Jar::default()), None)
+            .await
+            .expect_err("redirect to public host should be blocked");
+        assert!(
+            error.contains("B 内网模式已阻止"),
+            "unexpected error: {error}"
+        );
+
+        handle.join().expect("server thread");
     }
 }
