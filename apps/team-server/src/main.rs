@@ -4,6 +4,7 @@ mod cleanup;
 mod config;
 mod db;
 mod error;
+mod login_guard;
 mod models;
 mod policy;
 mod presence;
@@ -27,6 +28,10 @@ use crate::state::AppState;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    if std::env::args().nth(1).as_deref() == Some("healthcheck") {
+        return run_healthcheck();
+    }
+
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
@@ -34,6 +39,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .init();
 
     let config = Config::from_env().map_err(io_error)?;
+    warn_insecure_bootstrap(&config);
     let pool = db::connect(&config).await?;
     db::migrate(&pool).await?;
     bootstrap_user(&pool, &config).await?;
@@ -42,6 +48,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         pool,
         config: Arc::new(config),
         presence: Default::default(),
+        login_guard: Default::default(),
     };
 
     let cors = build_cors(&state.config.cors_allowed_origins)?;
@@ -98,6 +105,24 @@ fn build_cors(origins: &[String]) -> Result<CorsLayer, Box<dyn Error>> {
         .max_age(Duration::from_secs(3600)))
 }
 
+fn warn_insecure_bootstrap(config: &Config) {
+    if config.bootstrap_account.is_none() {
+        return;
+    }
+    let Some(password) = &config.bootstrap_password else {
+        return;
+    };
+    if password == "change-me-please"
+        || password == "ChangeMe2026"
+        || auth::validate_password_policy(password).is_err()
+    {
+        tracing::warn!(
+            account = ?config.bootstrap_account,
+            "BOOTSTRAP_PASSWORD 使用默认或不符合口令策略，请立即通过环境变量改为至少 8 位且包含字母与数字的强口令"
+        );
+    }
+}
+
 async fn bootstrap_user(pool: &sqlx::PgPool, config: &Config) -> Result<(), Box<dyn Error>> {
     let (Some(account), Some(password)) = (&config.bootstrap_account, &config.bootstrap_password)
     else {
@@ -113,9 +138,11 @@ async fn bootstrap_user(pool: &sqlx::PgPool, config: &Config) -> Result<(), Box<
         return Ok(());
     }
 
+    auth::validate_password_policy(password).map_err(io_error)?;
     let password_hash = auth::hash_password(password).map_err(io_error)?;
     sqlx::query(
-        "INSERT INTO users (id, account, display_name, password_hash) VALUES ($1, $2, $3, $4)",
+        "INSERT INTO users (id, account, display_name, password_hash, must_change_password)
+         VALUES ($1, $2, $3, $4, true)",
     )
     .bind(Uuid::new_v4())
     .bind(account)
@@ -130,4 +157,33 @@ async fn bootstrap_user(pool: &sqlx::PgPool, config: &Config) -> Result<(), Box<
 
 fn io_error(message: String) -> Box<dyn Error> {
     Box::new(std::io::Error::new(ErrorKind::InvalidInput, message))
+}
+
+fn run_healthcheck() -> Result<(), Box<dyn Error>> {
+    use std::io::{Read, Write};
+    use std::net::{TcpStream, ToSocketAddrs};
+
+    let mut args = std::env::args().skip(2);
+    let addr = args.next().unwrap_or_else(|| "127.0.0.1:8080".to_string());
+    let path = args.next().unwrap_or_else(|| "/readyz".to_string());
+
+    let target = addr
+        .to_socket_addrs()?
+        .next()
+        .ok_or_else(|| io_error(format!("无法解析健康检查地址：{addr}")))?;
+    let mut stream = TcpStream::connect_timeout(&target, Duration::from_secs(3))?;
+    stream.set_read_timeout(Some(Duration::from_secs(3)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(3)))?;
+    write!(
+        stream,
+        "GET {path} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n"
+    )?;
+
+    let mut response = String::new();
+    stream.read_to_string(&mut response)?;
+    if response.starts_with("HTTP/1.1 200") || response.starts_with("HTTP/1.0 200") {
+        Ok(())
+    } else {
+        Err(io_error(format!("健康检查返回异常：{}", response.lines().next().unwrap_or("-"))))
+    }
 }

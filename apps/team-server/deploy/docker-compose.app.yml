@@ -1,0 +1,20 @@
+version: "2.4"
+
+services:
+  server:
+    image: ${INKLINE_IMAGE:-inkline-team-server:latest}
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?请在 .env 中设置外部数据库 DATABASE_URL}
+    ports:
+      - "${INKLINE_PORT:-8080}:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "/inkline-team-server", "healthcheck", "127.0.0.1:8080", "/readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s

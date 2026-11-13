@@ -9,6 +9,7 @@ pub struct UserRow {
     pub display_name: String,
     pub password_hash: String,
     pub disabled_at: Option<DateTime<Utc>>,
+    pub must_change_password: bool,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]

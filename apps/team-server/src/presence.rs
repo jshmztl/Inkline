@@ -177,9 +177,10 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, team_id: Uuid) {
         return;
     };
 
-    let Ok(Some((account, display_name))) =
-        sqlx::query_as::<_, (String, String)>(
-            "SELECT account, display_name FROM users WHERE id = $1",
+    let Ok(Some((account, display_name, must_change_password))) =
+        sqlx::query_as::<_, (String, String, bool)>(
+            "SELECT account, display_name, must_change_password
+             FROM users WHERE id = $1 AND disabled_at IS NULL",
         )
         .bind(user_id)
         .fetch_optional(&state.pool)
@@ -187,6 +188,18 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, team_id: Uuid) {
     else {
         return;
     };
+    if must_change_password {
+        let _ = socket
+            .send(Message::Text(
+                serde_json::to_string(&Outgoing::Error {
+                    message: "首次登录需要修改口令".to_string(),
+                })
+                .unwrap_or_default()
+                .into(),
+            ))
+            .await;
+        return;
+    }
 
     let mut receiver = state.presence.join(
         team_id,

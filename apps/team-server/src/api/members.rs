@@ -5,7 +5,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use crate::auth::{hash_password, AuthUser};
+use crate::auth::{hash_password, validate_password_policy, AuthUser};
 use crate::db;
 use crate::error::AppError;
 use crate::state::AppState;
@@ -67,11 +67,7 @@ fn validate_account(account: &str) -> Result<String, AppError> {
 }
 
 fn validate_password(password: &str) -> Result<(), AppError> {
-    let length = password.chars().count();
-    if !(10..=128).contains(&length) {
-        return Err(AppError::validation("口令长度需要在 10–128 个字符之间"));
-    }
-    Ok(())
+    validate_password_policy(password).map_err(AppError::validation)
 }
 
 fn parse_role(value: &str, actor_role: &str) -> Result<&'static str, AppError> {
@@ -175,8 +171,8 @@ pub async fn add_member(
             }
 
             sqlx::query(
-                "INSERT INTO users (id, account, display_name, password_hash)
-                 VALUES ($1, $2, $3, $4)",
+                "INSERT INTO users (id, account, display_name, password_hash, must_change_password)
+                 VALUES ($1, $2, $3, $4, true)",
             )
             .bind(user_id)
             .bind(&account)
@@ -404,7 +400,9 @@ pub async fn reset_password(
 
     let password_hash = hash_password(&body.new_password).map_err(AppError::internal)?;
     let mut tx = state.pool.begin().await?;
-    sqlx::query("UPDATE users SET password_hash = $2 WHERE id = $1")
+    sqlx::query(
+        "UPDATE users SET password_hash = $2, must_change_password = true WHERE id = $1",
+    )
         .bind(target_user_id)
         .bind(&password_hash)
         .execute(&mut *tx)

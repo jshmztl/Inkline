@@ -7,7 +7,8 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::auth::{
-    create_access_token, new_refresh_token, refresh_token_hash, verify_password, AuthUser,
+    create_access_token, hash_password, new_refresh_token, refresh_token_hash,
+    validate_password_policy, verify_password, AuthUser,
 };
 use crate::db;
 use crate::error::AppError;
@@ -26,6 +27,28 @@ pub struct RefreshRequest {
     pub refresh_token: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ChangePasswordRequest {
+    #[serde(rename = "currentPassword")]
+    pub current_password: String,
+    #[serde(rename = "newPassword")]
+    pub new_password: String,
+}
+
+async fn record_login_failure(state: &AppState, key: &str, account: &str) {
+    if state.login_guard.record_failure(key) {
+        let _ = db::write_audit(
+            &state.pool,
+            None,
+            None,
+            "auth",
+            "auth.login_locked",
+            json!({ "account": account }),
+        )
+        .await;
+    }
+}
+
 pub async fn login(
     State(state): State<AppState>,
     Json(body): Json<LoginRequest>,
@@ -35,8 +58,19 @@ pub async fn login(
         return Err(AppError::validation("请输入账号与口令"));
     }
 
+    let guard_key = account.to_ascii_lowercase();
+    if let Err(block) = state.login_guard.check(&guard_key) {
+        tracing::warn!(account = %account, "登录失败次数过多，已暂时锁定");
+        return Err(AppError::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "too_many_login_attempts",
+            "登录失败次数过多，请稍后再试",
+        )
+        .with_details(json!({ "retryAfterSeconds": block.retry_after_seconds })));
+    }
+
     let user: Option<UserRow> = sqlx::query_as(
-        "SELECT id, account, display_name, password_hash, disabled_at
+        "SELECT id, account, display_name, password_hash, disabled_at, must_change_password
          FROM users WHERE lower(account) = lower($1)",
     )
     .bind(account)
@@ -44,14 +78,17 @@ pub async fn login(
     .await?;
 
     let Some(user) = user else {
+        record_login_failure(&state, &guard_key, account).await;
         return Err(AppError::unauthorized("账号或口令错误"));
     };
     if user.disabled_at.is_some() {
         return Err(AppError::forbidden("账号已停用"));
     }
     if !verify_password(&user.password_hash, &body.password) {
+        record_login_failure(&state, &guard_key, account).await;
         return Err(AppError::unauthorized("账号或口令错误"));
     }
+    state.login_guard.record_success(&guard_key);
 
     let access_token = create_access_token(
         &state.config.jwt_secret,
@@ -86,10 +123,92 @@ pub async fn login(
         "accessToken": access_token,
         "expiresIn": state.config.access_token_ttl_seconds,
         "refreshToken": refresh_token,
+        "mustChangePassword": user.must_change_password,
         "user": {
             "id": user.id,
             "account": user.account,
             "displayName": user.display_name,
+        }
+    })))
+}
+
+pub async fn change_password(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(body): Json<ChangePasswordRequest>,
+) -> Result<Json<Value>, AppError> {
+    validate_password_policy(&body.new_password).map_err(AppError::validation)?;
+    if body.current_password == body.new_password {
+        return Err(AppError::validation("新口令不能与当前口令相同"));
+    }
+
+    let row: Option<(String, String, String)> = sqlx::query_as(
+        "SELECT account, display_name, password_hash
+         FROM users WHERE id = $1 AND disabled_at IS NULL",
+    )
+    .bind(user.0)
+    .fetch_optional(&state.pool)
+    .await?;
+    let Some((account, display_name, password_hash)) = row else {
+        return Err(AppError::unauthorized("账号不存在或已停用"));
+    };
+    if !verify_password(&password_hash, &body.current_password) {
+        return Err(AppError::unauthorized("当前口令不正确"));
+    }
+
+    let new_hash = hash_password(&body.new_password).map_err(AppError::internal)?;
+    let access_token = create_access_token(
+        &state.config.jwt_secret,
+        user.0,
+        state.config.access_token_ttl_seconds,
+    )
+    .map_err(AppError::internal)?;
+    let (refresh_token, refresh_hash) = new_refresh_token();
+    let expires_at = Utc::now() + Duration::days(state.config.refresh_token_ttl_days);
+
+    let mut tx = state.pool.begin().await?;
+    sqlx::query("UPDATE users SET password_hash = $2, must_change_password = false WHERE id = $1")
+        .bind(user.0)
+        .bind(&new_hash)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(
+        "UPDATE refresh_tokens SET revoked_at = now()
+         WHERE user_id = $1 AND revoked_at IS NULL",
+    )
+    .bind(user.0)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(user.0)
+    .bind(refresh_hash)
+    .bind(expires_at)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    let _ = db::write_audit(
+        &state.pool,
+        None,
+        Some(user.0),
+        "auth",
+        "auth.password_change",
+        json!({ "account": account }),
+    )
+    .await;
+
+    Ok(Json(json!({
+        "accessToken": access_token,
+        "expiresIn": state.config.access_token_ttl_seconds,
+        "refreshToken": refresh_token,
+        "mustChangePassword": false,
+        "user": {
+            "id": user.0,
+            "account": account,
+            "displayName": display_name,
         }
     })))
 }
@@ -172,7 +291,8 @@ pub async fn me(
     user: AuthUser,
 ) -> Result<Json<Value>, AppError> {
     let row: Option<UserRow> = sqlx::query_as(
-        "SELECT id, account, display_name, password_hash, disabled_at FROM users WHERE id = $1",
+        "SELECT id, account, display_name, password_hash, disabled_at, must_change_password
+         FROM users WHERE id = $1",
     )
     .bind(user.0)
     .fetch_optional(&state.pool)

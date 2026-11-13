@@ -1,0 +1,11 @@
+FROM scratch
+
+COPY inkline-team-server /inkline-team-server
+
+ENV BIND_ADDR=0.0.0.0:8080
+EXPOSE 8080
+
+HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=6 \
+  CMD ["/inkline-team-server", "healthcheck", "127.0.0.1:8080", "/readyz"]
+
+ENTRYPOINT ["/inkline-team-server"]

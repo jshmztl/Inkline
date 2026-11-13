@@ -4,6 +4,7 @@ use argon2::Argon2;
 use axum::extract::FromRequestParts;
 use axum::http::header::AUTHORIZATION;
 use axum::http::request::Parts;
+use axum::http::StatusCode;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::Utc;
 use hmac::{Hmac, Mac};
@@ -46,6 +47,24 @@ pub fn verify_password(hash: &str, password: &str) -> bool {
                 .is_ok()
         })
         .unwrap_or(false)
+}
+
+/// 新口令策略：至少 8 位，且同时包含字母与数字。
+pub fn validate_password_policy(password: &str) -> Result<(), String> {
+    let length = password.chars().count();
+    if length < 8 {
+        return Err("口令至少需要 8 个字符".to_string());
+    }
+    if length > 128 {
+        return Err("口令长度不能超过 128 个字符".to_string());
+    }
+    if !password.chars().any(|ch| ch.is_ascii_alphabetic()) {
+        return Err("口令需要至少包含一个字母".to_string());
+    }
+    if !password.chars().any(|ch| ch.is_ascii_digit()) {
+        return Err("口令需要至少包含一个数字".to_string());
+    }
+    Ok(())
 }
 
 pub fn create_access_token(
@@ -135,6 +154,27 @@ impl FromRequestParts<AppState> for AuthUser {
         let claims = verify_access_token(&state.config.jwt_secret, token)
             .map_err(|_| AppError::unauthorized("访问令牌无效或已过期"))?;
 
+        let flags: Option<(bool, Option<chrono::DateTime<Utc>>)> = sqlx::query_as(
+            "SELECT must_change_password, disabled_at FROM users WHERE id = $1",
+        )
+        .bind(claims.sub)
+        .fetch_optional(&state.pool)
+        .await?;
+
+        let Some((must_change_password, disabled_at)) = flags else {
+            return Err(AppError::unauthorized("账号不存在"));
+        };
+        if disabled_at.is_some() {
+            return Err(AppError::forbidden("账号已停用"));
+        }
+        if must_change_password && parts.uri.path() != "/v1/auth/change-password" {
+            return Err(AppError::new(
+                StatusCode::FORBIDDEN,
+                "password_change_required",
+                "首次登录需要修改口令",
+            ));
+        }
+
         Ok(AuthUser(claims.sub))
     }
 }
@@ -165,5 +205,14 @@ mod tests {
     fn rejects_expired_token() {
         let token = create_access_token(SECRET, Uuid::new_v4(), -10).expect("token");
         assert!(verify_access_token(SECRET, &token).is_err());
+    }
+
+    #[test]
+    fn enforces_password_policy() {
+        assert!(validate_password_policy("abc12345").is_ok());
+        assert!(validate_password_policy("Abcdefg1!").is_ok());
+        assert!(validate_password_policy("abc1234").is_err());
+        assert!(validate_password_policy("abcdefgh").is_err());
+        assert!(validate_password_policy("12345678").is_err());
     }
 }

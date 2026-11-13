@@ -8,6 +8,7 @@ RUN mkdir src \
     && rm -rf src
 
 COPY migrations ./migrations
+COPY admin ./admin
 COPY src ./src
 RUN cargo build --release
 

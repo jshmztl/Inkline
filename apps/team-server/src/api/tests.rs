@@ -45,6 +45,7 @@ async fn test_state() -> Option<AppState> {
             bootstrap_password: None,
         }),
         presence: Default::default(),
+        login_guard: Default::default(),
     })
 }
 
@@ -96,7 +97,8 @@ async fn login_push_and_rollback_flow() {
     };
     let password_hash = hash_password("Passw0rd!2026").expect("hash password");
     sqlx::query(
-        "INSERT INTO users (id, account, display_name, password_hash) VALUES ($1, $2, $3, $4)",
+        "INSERT INTO users (id, account, display_name, password_hash, must_change_password)
+         VALUES ($1, $2, $3, $4, true)",
     )
     .bind(Uuid::new_v4())
     .bind("admin")
@@ -118,7 +120,55 @@ async fn login_push_and_rollback_flow() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "login failed: {login}");
+    assert_eq!(login["mustChangePassword"], true);
     let token = login["accessToken"].as_str().expect("access token").to_string();
+
+    let (status, blocked) = call(&app, "GET", "/v1/me", Some(&token), None, &[]).await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "must-change account should be blocked: {blocked}"
+    );
+
+    let (status, invalid) = call(
+        &app,
+        "POST",
+        "/v1/auth/change-password",
+        Some(&token),
+        Some(json!({
+            "currentPassword": "Passw0rd!2026",
+            "newPassword": "onlyletters",
+        })),
+        &[],
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "weak password should be rejected: {invalid}"
+    );
+
+    let (status, changed) = call(
+        &app,
+        "POST",
+        "/v1/auth/change-password",
+        Some(&token),
+        Some(json!({
+            "currentPassword": "Passw0rd!2026",
+            "newPassword": "NewPassw0rd!2026",
+        })),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "change password failed: {changed}");
+    assert_eq!(changed["mustChangePassword"], false);
+    let token = changed["accessToken"]
+        .as_str()
+        .expect("new access token")
+        .to_string();
+
+    let (status, me) = call(&app, "GET", "/v1/me", Some(&token), None, &[]).await;
+    assert_eq!(status, StatusCode::OK, "me after change failed: {me}");
 
     let (status, team) = call(
         &app,
@@ -201,4 +251,32 @@ async fn login_push_and_rollback_flow() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(latest["revision"], 2);
+
+    for _ in 0..5 {
+        let (status, _) = call(
+            &app,
+            "POST",
+            "/v1/auth/login",
+            None,
+            Some(json!({ "account": "admin", "password": "wrong-password" })),
+            &[],
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    let (status, blocked) = call(
+        &app,
+        "POST",
+        "/v1/auth/login",
+        None,
+        Some(json!({ "account": "admin", "password": "NewPassw0rd!2026" })),
+        &[],
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::TOO_MANY_REQUESTS,
+        "login should be blocked: {blocked}"
+    );
 }
