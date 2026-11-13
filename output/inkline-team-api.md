@@ -281,9 +281,20 @@ refresh_tokens (
   "accessToken": "eyJ...",
   "expiresIn": 900,
   "refreshToken": "rt_...",
+  "mustChangePassword": false,
   "user": { "id": "u1", "account": "zhangsan", "displayName": "张三" }
 }
 ```
+
+首次登录、新建成员或被重置口令的账号 `mustChangePassword` 为 `true`；除 `/v1/auth/change-password` 外，其他鉴权接口返回 `403 password_change_required`。
+
+#### POST /v1/auth/change-password
+
+```json
+{ "currentPassword": "••••••", "newPassword": "••••••" }
+```
+
+新口令至少 8 位且同时包含字母与数字；成功后清除 `must_change_password`、撤销该账号全部刷新令牌并返回新的 accessToken / refreshToken。
 
 #### POST /v1/auth/refresh
 
@@ -362,7 +373,7 @@ refresh_tokens (
 }
 ```
 
-- `mode = create`：账号不存在时创建服务账号并加入团队；需要 10–128 位初始口令。
+- `mode = create`：账号不存在时创建服务账号并加入团队；需要至少 8 位、同时包含字母与数字的初始口令，首次登录强制修改。
 - `mode = existing`：按账号添加已有用户，沿用原口令。
 - 仅 `owner` / `admin`；`admin` 不能授予 `admin`，`owner` 角色不能通过成员接口授予。
 
@@ -678,7 +689,7 @@ sequenceDiagram
 - **能力**：团队列表与新建、概览统计、最新快照查看 / 下载、历史版本分页、成员增删与角色调整、口令重置、资源权限树与成员授权矩阵、接口内容查看（请求头 / 请求体 / 字段文档）、单接口与集合导出（Markdown / HTML / JSON）、审计日志、团队设置（名称 / 数据分级上限 / 保留天数）。
 - **内容接口**：`GET /v1/teams/{teamId}/workspace` 返回最近一次完整快照（仅 owner / admin），供管理台展示接口详情与生成导出文档；普通成员仍使用裁剪后的快照接口。
 - **客户端导出**：桌面端集合右键「导出集合 / 文档」支持 Markdown、HTML、JSON（Postman）与 curl / fetch，Markdown / HTML 包含字段说明。
-- **交付形态**：`admin/index.html` 通过 `include_str!` 编入二进制，无外部依赖，便于离线内网部署。
+- **交付形态**：`admin/index.html`、`admin/assets/styles.css` 与 `admin/assets/*.js` ES 模块通过 `include_str!` 编入二进制，由 `/admin/assets/*` 路由直接托管；无构建步骤、无外部依赖，便于离线内网部署。
 - **安全**：响应头带 CSP、`X-Frame-Options: DENY`、`nosniff`、`Referrer-Policy: no-referrer`；令牌仅存 `sessionStorage`；口令错误与令牌失效统一回到登录页。
 
 ## 7. 安全与合规
