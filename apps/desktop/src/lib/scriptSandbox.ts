@@ -103,7 +103,13 @@ self.onmessage = function (event) {
   }
 
   try {
-    var runner = new Function('pm', 'console', '"use strict";\n' + source);
+    var runner;
+    try {
+      runner = new Function('pm', 'console', '"use strict";\n' + source);
+    } catch (cspError) {
+      reply('脚本沙箱无法执行：当前环境禁止动态脚本（' + String(cspError) + '）。本版未放宽 CSP，安装包内若出现此提示属于已知残留风险。');
+      return;
+    }
     var result = runner(pm, scriptConsole);
     if (result && typeof result.then === 'function') {
       result.then(

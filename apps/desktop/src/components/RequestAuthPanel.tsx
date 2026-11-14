@@ -102,7 +102,7 @@ export function RequestAuthPanel({
         )}
 
         <p>
-          支持 <code>{'{{变量}}'}</code> 引用环境变量。鉴权信息在发送时写入请求头，不额外落盘。
+          支持 <code>{'{{变量}}'}</code> 引用环境变量。Token、口令与 API Key 会写入系统凭据库（由主密钥加密后保存在本地仓库），不会以明文写入 settings 或 inkline.db。
         </p>
       </div>
     </div>

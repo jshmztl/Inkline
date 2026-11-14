@@ -64,6 +64,12 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     level  TEXT,
     at     TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS secrets (
+    key         TEXT PRIMARY KEY,
+    ciphertext  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
 "#;
 
 const LEGACY_SEED_REQUESTS: &[&str] = &[

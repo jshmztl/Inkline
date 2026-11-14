@@ -1,6 +1,7 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use if_addrs::IfAddr;
+use serde::Serialize;
 
 const INTRANET_SUFFIXES: [&str; 7] = [
     ".internal", ".local", ".lan", ".corp", ".intra", ".home", ".svc",
@@ -277,6 +278,40 @@ fn cidr_contains(cidr: &str, ip: IpAddr) -> bool {
     }
 }
 
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NetworkAccessDecision {
+    pub allowed: bool,
+    pub reason: String,
+}
+
+#[tauri::command]
+pub async fn check_network_access(
+    url: String,
+    mode: Option<String>,
+    intranet_cidrs: Option<Vec<String>>,
+    resolve: Option<bool>,
+) -> Result<NetworkAccessDecision, String> {
+    let cidrs = intranet_cidrs.unwrap_or_default();
+    let policy = NetworkPolicy::from_parts(mode.as_deref(), &cidrs);
+    let result = if resolve.unwrap_or(true) {
+        policy.ensure_allowed_resolved(&url).await
+    } else {
+        policy.ensure_allowed(&url)
+    };
+    match result {
+        Ok(()) => Ok(NetworkAccessDecision {
+            allowed: true,
+            reason: "允许访问".to_string(),
+        }),
+        Err(reason) => Ok(NetworkAccessDecision {
+            allowed: false,
+            reason,
+        }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -350,5 +385,29 @@ mod tests {
         assert!(policy.ensure_probe_allowed("localhost").is_ok());
         assert!(policy.ensure_probe_allowed("127.0.0.1").is_ok());
         assert!(policy.ensure_probe_allowed("example.com").is_err());
+    }
+
+    #[tokio::test]
+    async fn check_network_access_command_matches_policy() {
+        let allowed = check_network_access(
+            "http://127.0.0.1:8080/health".to_string(),
+            Some("A".to_string()),
+            None,
+            Some(false),
+        )
+        .await
+        .expect("command should succeed");
+        assert!(allowed.allowed);
+
+        let blocked = check_network_access(
+            "https://example.com".to_string(),
+            Some("B".to_string()),
+            None,
+            Some(false),
+        )
+        .await
+        .expect("command should succeed");
+        assert!(!blocked.allowed);
+        assert!(blocked.reason.contains("B 内网模式已阻止"));
     }
 }

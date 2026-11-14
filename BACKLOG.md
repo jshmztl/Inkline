@@ -1,6 +1,6 @@
 # 问题清单与改进计划
 
-> 基线版本：0.1.22 · 更新日期：2026-11-12
+> 基线版本：0.1.24 · 更新日期：2026-11-14
 > 说明：本清单只记录经代码核查确认的问题，每项附证据与验收标准。完成一项勾选一项并提交 Git。
 
 ## 优先级定义
@@ -325,11 +325,41 @@
 
 **验收**：A 模式仅放行本机；B 模式放行私网、白名单与同网段并拦截公网；C 模式全放行；重定向到公网被拦截；绕过前端直接 invoke 也无法出网。DNS 重绑定需自定义 resolver，另行评估。
 
+### P0-8 密钥存储不统一，业务密钥明文写入 settings
+
+- [x] 统一密钥仓库：主密钥进系统凭据库，业务密钥 AES-GCM 加密后写入 SQLite `secrets` 表
+- [x] 迁移请求鉴权、环境变量、AI Key、团队端到端密钥及团队令牌
+- [x] 迁移成功后再删除明文残留；鉴权面板文案与实际一致
+
+**进展（2026-11-14）**：Windows 将 32 字节主密钥存入凭据管理器；Linux 开发/测试在凭据库不可用时回退到应用数据目录权限受限的 `master.key`。业务密钥不再以明文写入 `settings`。启动时 `migratePlaintextSecrets` 扫描旧键并迁移，仅在写入成功后删除明文。浏览器 / 非 Tauri 环境保留带前缀的 localStorage 回退，供开发与单测使用。
+
+**验收**：升级后 `settings` 中不再出现请求 Token / 口令 / API Key、环境变量值、AI Key、团队 E2E 密钥或团队令牌明文；卸载或拷贝 `inkline.db` 单独无法还原这些密钥。
+
+### P0-9 团队同步改走 Rust 网络栈
+
+- [x] 登录、刷新令牌、团队 REST 在打包应用中走 `send_http_request`
+- [x] 在线状态 WebSocket 走 `ws_connect` / `ws_send` / `ws_close`
+- [x] 前端预检改为调用 Rust `check_network_access`，出站以 Rust 策略为准
+
+**进展（2026-11-14）**：`teamClient` 在 Tauri 下复用 HTTP 引擎（关闭 Cookie 与耗时探测），代理、忽略证书、客户端证书与 A/B/C 策略与普通请求一致。浏览器开发模式仍用 `fetch` 以便单测。在线状态改用 `protocol.openWebSocket`。
+
+**验收**：打包应用中团队登录 / 同步 / 在线状态不再使用 WebView `fetch` 或 `new WebSocket`；A 模式无法连接非本机团队服务。
+
+### P0-10 超大响应体可能打满内存
+
+- [x] HTTP 引擎增加 10 MiB 响应体上限，超出后截断并在界面标明
+- [x] 不改变历史记录只存元数据的语义
+
+**进展（2026-11-14）**：`http.rs` 按流读取响应体，默认上限 `DEFAULT_MAX_RESPONSE_BYTES`（10 MiB），返回 `truncated` 与完整或已声明的 `sizeBytes`。响应面板显示「已截断」。
+
+**验收**：超过上限的响应不会把进程内存打满；界面明确提示截断；历史记录仍不保存正文。
+
 ### P1-10 团队同步绕过网络策略
 
 - [x] 团队服务请求复用统一网络策略
+- [x] 打包应用中团队通道改走 Rust HTTP / WS 引擎
 
-**进展（2026-11-13）**：`teamClient` 的 `publicRequest` / `teamRequest` 与在线状态 WebSocket 在发起前统一读取当前网络模式并执行 `checkNetworkAccessResolved`；A 模式仅放行本机团队服务，B 模式按私网、白名单与同网段放行，拦截时返回 `network_blocked` 与具体原因。底层仍是 WebView `fetch` / `WebSocket`，devtools 直连属于残余风险。
+**进展（2026-11-14）**：团队 REST 与在线状态在 Tauri 下改走 Rust 网络栈，策略、代理与证书设置与普通请求一致。`checkNetworkAccessResolved` 在 Tauri 下改为调用 `check_network_access`，TypeScript 实现仅用于浏览器回退与单测。
 
 **问题**：`teamClient.ts` 通过 WebView `fetch` 直接访问团队服务，不经过 Rust 命令层。即使用户处于 A 离线或 B 内网模式，只要配置了公网团队服务地址仍可同步，与“离线 / 内网”承诺不一致。
 
@@ -372,11 +402,13 @@
 ### P1-14 CSP 与脚本沙箱可能冲突
 
 - [ ] 在安装包内验证脚本沙箱
-- [ ] 根据结果收敛 CSP 或沙箱实现
+- [ ] 根据结果收敛 CSP 或沙箱实现（不放宽 `script-src`）
+
+**进展（2026-11-14）**：未放宽 Tauri CSP。Worker 若因禁止动态脚本导致 `new Function` 失败，会返回明确错误，而不是静默中断。`script-src 'self'` 很可能在正式安装包中阻止预/后置脚本执行，这是已知残留风险，需在 Windows 安装包中验证后再决定是否改为不依赖 `eval` 的实现。
 
 **问题**：CSP 为 `script-src 'self'`，禁止 eval；脚本沙箱通过 `new Function` 执行用户脚本。两者可能互相阻断，需真机安装后验证。
 
-**证据**：`apps/desktop/src-tauri/tauri.conf.json:26`；`apps/desktop/src/lib/scriptSandbox.ts:85`。
+**证据**：`apps/desktop/src-tauri/tauri.conf.json:26`；`apps/desktop/src/lib/scriptSandbox.ts`。
 
 ### P2-15 App.tsx 编排层耦合
 
@@ -424,6 +456,8 @@
 1. 团队服务 M2：评论、单请求协作等按需推进
 2. 如后续接入真实安装包，可补一次 Tauri IPC 命令层冒烟测试
 3. 邀请码与企业 SSO 不做；浏览器预览不投入
+
+已完成（2026-11-14）：P0-8 统一密钥仓库并迁移明文；P0-9 团队同步 / 在线状态改走 Rust 网络栈；P0-10 响应体 10 MiB 上限与截断提示；请求失败与团队会话过期 / 快照冲突给出可见错误。P1-14 安装包脚本沙箱仍待真机验证，未放宽 CSP。
 
 已完成（2026-11-13）：P0-7 网络模式下沉 Rust、重定向逐跳校验与策略测试；P1-10 团队同步网络策略；P1-11 团队服务 AGPL-3.0；P1-12 登录限流、口令策略与首次登录强制改密；P1-13 CI 桌面端 Rust 测试；P2-16 版本一致性校验；P2-17 构建产物忽略；P2-18 管理台模块化与 Docker 一键部署/更新。
 

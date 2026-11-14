@@ -45,6 +45,7 @@ pub fn run() {
             ws::ws_send,
             ws::ws_close,
             netprobe::probe_network,
+            netpolicy::check_network_access,
             mock::start_mock_server,
             mock::stop_mock_server,
             ai::ai_chat,
@@ -67,6 +68,7 @@ pub fn run() {
             db::delete_settings,
             secrets::save_secret,
             secrets::load_secret,
+            secrets::load_all_secrets,
             secrets::delete_secret
         ])
         .run(tauri::generate_context!())

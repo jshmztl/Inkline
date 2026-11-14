@@ -1966,6 +1966,11 @@ html[data-theme='dark'] .method-option.method-delete {
   font-size: 12px;
 }
 
+.response-meta.warn {
+  color: var(--aw-warning);
+  font-weight: 600;
+}
+
 .response-meta.bad {
   color: var(--aw-error, #c0392b);
 }

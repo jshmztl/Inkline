@@ -1,8 +1,12 @@
-import { invoke } from '@tauri-apps/api/core';
 import { kvGet, kvRemove, kvSet } from './kv';
+import {
+  deleteSecretNow,
+  persistSecretNow,
+  secretGet,
+  secretSet,
+} from './secretStore';
+import { TEAM_TOKENS_SECRET_KEY } from './secretMigration';
 
-const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-const TOKENS_KEY = 'team-tokens-v1';
 const LEGACY_CONNECTION_KEY = 'aw-team-connection';
 
 export const CONNECTION_META_KEY = 'aw-team-connection-meta';
@@ -32,21 +36,18 @@ export function setCachedTokens(tokens: TeamTokens | null) {
   cachedTokens = tokens;
 }
 
-async function loadTokens(): Promise<TeamTokens | null> {
-  if (!isTauri) {
-    const raw = kvGet(TOKENS_KEY);
-    return raw ? (JSON.parse(raw) as TeamTokens) : null;
-  }
+function parseTokens(raw: string | null): TeamTokens | null {
+  if (!raw) return null;
   try {
-    const raw = await invoke<string | null>('load_secret', { key: TOKENS_KEY });
-    return raw ? (JSON.parse(raw) as TeamTokens) : null;
-  } catch (error) {
-    console.warn('从系统凭据库读取团队令牌失败', error);
+    const parsed = JSON.parse(raw) as Partial<TeamTokens>;
+    if (!parsed?.accessToken || !parsed.refreshToken) return null;
+    return { accessToken: parsed.accessToken, refreshToken: parsed.refreshToken };
+  } catch {
     return null;
   }
 }
 
-/** 启动时从系统凭据库加载令牌，并把旧版明文连接信息迁移出去。 */
+/** 启动时从密钥仓库加载令牌，并把旧版明文连接信息迁移出去。 */
 export async function hydrateTeamSecrets(): Promise<void> {
   if (hydrated) return;
   hydrated = true;
@@ -59,7 +60,7 @@ export async function hydrateTeamSecrets(): Promise<void> {
     legacy = null;
   }
 
-  cachedTokens = await loadTokens();
+  cachedTokens = parseTokens(secretGet(TEAM_TOKENS_SECRET_KEY));
 
   if (legacy?.accessToken && legacy.refreshToken) {
     cachedTokens = {
@@ -72,46 +73,28 @@ export async function hydrateTeamSecrets(): Promise<void> {
         JSON.stringify({ serverUrl: legacy.serverUrl, user: legacy.user }),
       );
     }
-    await persistTokens();
+    const saved = await persistTokens();
+    if (saved) kvRemove(LEGACY_CONNECTION_KEY);
+    return;
   }
 
   if (legacy) kvRemove(LEGACY_CONNECTION_KEY);
 }
 
-export async function persistTokens(): Promise<void> {
-  if (!cachedTokens) return;
-
-  if (!isTauri) {
-    kvSet(TOKENS_KEY, JSON.stringify(cachedTokens));
-    return;
-  }
-
-  try {
-    await invoke('save_secret', {
-      key: TOKENS_KEY,
-      value: JSON.stringify(cachedTokens),
-    });
-  } catch (error) {
-    console.warn('保存团队令牌到系统凭据库失败', error);
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(
-        new CustomEvent('aw-kv-error', {
-          detail: error instanceof Error ? error.message : String(error),
-        }),
-      );
-    }
-  }
+export async function persistTokens(): Promise<boolean> {
+  if (!cachedTokens) return true;
+  const payload = JSON.stringify(cachedTokens);
+  secretSet(TEAM_TOKENS_SECRET_KEY, payload);
+  return persistSecretNow(TEAM_TOKENS_SECRET_KEY, payload);
 }
 
 export async function clearStoredTokens(): Promise<void> {
   cachedTokens = null;
-  if (!isTauri) {
-    kvRemove(TOKENS_KEY);
-    return;
-  }
-  try {
-    await invoke('delete_secret', { key: TOKENS_KEY });
-  } catch (error) {
-    console.warn('删除系统凭据库中的团队令牌失败', error);
-  }
+  await deleteSecretNow(TEAM_TOKENS_SECRET_KEY);
+}
+
+/** 测试辅助：重置内存令牌与hydrate标记。 */
+export function resetTeamSecretsForTests() {
+  cachedTokens = null;
+  hydrated = false;
 }

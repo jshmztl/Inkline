@@ -31,7 +31,13 @@ export interface SendRequestPayload {
   timeoutMs?: number;
   multipart?: MultipartField[];
   network?: BackendNetworkOptions;
+  useCookies?: boolean;
+  skipProbe?: boolean;
+  maxBodyBytes?: number;
 }
+
+/** 与 Rust `DEFAULT_MAX_RESPONSE_BYTES` 保持一致。 */
+export const DEFAULT_MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
 
 export interface SendResponse {
   status: number;
@@ -45,6 +51,7 @@ export interface SendResponse {
   tcpMs?: number;
   tlsMs?: number;
   sizeBytes: number;
+  truncated?: boolean;
 }
 
 export interface SavedRequest {
@@ -197,8 +204,50 @@ async function browserSendRequest(
     signal,
   });
   const ttfbMs = Math.round(performance.now() - started);
-  const body = await response.text();
+  const maxBytes = payload.maxBodyBytes && payload.maxBodyBytes > 0
+    ? payload.maxBodyBytes
+    : DEFAULT_MAX_RESPONSE_BYTES;
+  const declared = Number(response.headers.get('content-length') ?? '');
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  let truncated = false;
+  if (response.body) {
+    const reader = response.body.getReader();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      if (received >= maxBytes) {
+        truncated = true;
+        await reader.cancel();
+        break;
+      }
+      const remaining = maxBytes - received;
+      if (value.byteLength > remaining) {
+        chunks.push(value.subarray(0, remaining));
+        received += remaining;
+        truncated = true;
+        await reader.cancel();
+        break;
+      }
+      chunks.push(value);
+      received += value.byteLength;
+    }
+  } else {
+    const buffer = new Uint8Array(await response.arrayBuffer());
+    truncated = buffer.byteLength > maxBytes;
+    chunks.push(truncated ? buffer.subarray(0, maxBytes) : buffer);
+    received = buffer.byteLength;
+  }
+  const merged = new Uint8Array(Math.min(received, maxBytes));
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  const body = new TextDecoder().decode(merged);
   const durationMs = Math.round(performance.now() - started);
+  const sizeBytes = Number.isFinite(declared) && declared > received ? declared : received;
 
   return {
     status: response.status,
@@ -211,7 +260,8 @@ async function browserSendRequest(
     durationMs,
     ttfbMs,
     downloadMs: Math.max(0, durationMs - ttfbMs),
-    sizeBytes: new TextEncoder().encode(body).length,
+    sizeBytes,
+    truncated,
   };
 }
 

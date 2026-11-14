@@ -1,4 +1,6 @@
 import { kvGet, kvSet } from './kv';
+import { envValuesSecretKey } from './secretMigration';
+import { deleteSecretNow, secretGet, secretSet } from './secretStore';
 
 export interface WorkspaceEnvironment {
   value: string;
@@ -27,13 +29,32 @@ function sanitize(list: WorkspaceEnvironment[]) {
   return list.filter((environment) => !isLegacyPreset(environment));
 }
 
+function readStoredEnvValues(environmentId: string, fallback: Record<string, string>): Record<string, string> {
+  const raw = secretGet(envValuesSecretKey(environmentId));
+  if (!raw) return fallback;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, string>;
+    return parsed && typeof parsed === 'object' ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function withSecretValues(list: WorkspaceEnvironment[]): WorkspaceEnvironment[] {
+  return list.map((environment) => ({
+    ...environment,
+    variables: readStoredEnvValues(environment.value, environment.variables ?? {}),
+  }));
+}
+
 export function listEnvironments(): WorkspaceEnvironment[] {
   try {
     const raw = kvGet(STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as WorkspaceEnvironment[];
     if (!Array.isArray(parsed)) return [];
-    const cleaned = sanitize(parsed);
+    const merged = withSecretValues(parsed);
+    const cleaned = sanitize(merged);
     if (cleaned.length !== parsed.length) {
       writeEnvironments(cleaned);
     }
@@ -45,7 +66,28 @@ export function listEnvironments(): WorkspaceEnvironment[] {
 
 export function writeEnvironments(list: WorkspaceEnvironment[]) {
   try {
-    kvSet(STORAGE_KEY, JSON.stringify(list));
+    const stored = list.map((environment) => {
+      const variables = environment.variables ?? {};
+      secretSet(envValuesSecretKey(environment.value), JSON.stringify(variables));
+      const placeholders: Record<string, string> = {};
+      for (const name of Object.keys(variables)) placeholders[name] = '';
+      return { ...environment, variables: placeholders };
+    });
+    const previous = (() => {
+      try {
+        const raw = kvGet(STORAGE_KEY);
+        return raw ? (JSON.parse(raw) as WorkspaceEnvironment[]) : [];
+      } catch {
+        return [];
+      }
+    })();
+    const nextIds = new Set(list.map((item) => item.value));
+    for (const item of previous) {
+      if (!nextIds.has(item.value)) {
+        void deleteSecretNow(envValuesSecretKey(item.value));
+      }
+    }
+    kvSet(STORAGE_KEY, JSON.stringify(stored));
   } catch {
     // 存储不可用时仅对本次会话生效。
   }
