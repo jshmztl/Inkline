@@ -401,10 +401,10 @@
 
 ### P1-14 CSP 与脚本沙箱可能冲突
 
-- [ ] 在 Windows 安装包内验证前置 / 后置脚本可运行
+- [x] 在 Windows 安装包内验证前置 / 后置脚本可运行
 - [x] 根据结果收敛 CSP 或沙箱实现（不放宽 `script-src`）
 
-**进展（2026-11-15）**：未放宽 Tauri CSP（仍为 `script-src 'self'`）。脚本沙箱改为基于 Acorn AST 的同步解释器，不再使用 `eval` / `new Function`，因此正式安装包的 CSP 不会阻断预/后置脚本。用户脚本仍禁止 `fetch`、`XMLHttpRequest`、`WebSocket`、`importScripts` 等出网能力，错误会返回到界面。Worker 仅用于超时强制终止；Worker 不可用时回退到同进程解释器。仍需在 Windows 安装包中做一次真机确认。
+**进展（2026-11-15）**：未放宽 Tauri CSP（仍为 `script-src 'self'`）。脚本沙箱改为基于 Acorn AST 的同步解释器，不再使用 `eval` / `new Function`，因此正式安装包的 CSP 不会阻断预/后置脚本。用户脚本仍禁止 `fetch`、`XMLHttpRequest`、`WebSocket`、`importScripts` 等出网能力，错误会返回到界面。Worker 仅用于超时强制终止；Worker 不可用时回退到同进程解释器。已在未签名的本地 Windows 安装包中完成真机确认：预/后置脚本可运行，响应区 Console 有输出，网络访问会被拦截并提示「脚本沙箱禁止网络访问」。
 
 **问题**：CSP 为 `script-src 'self'`，禁止 eval；旧实现通过 `new Function` 执行用户脚本，两者会互相阻断。
 
@@ -457,7 +457,7 @@
 2. 如后续接入真实安装包，可补一次 Tauri IPC 命令层冒烟测试
 3. 邀请码与企业 SSO 不做；浏览器预览不投入
 
-已完成（2026-11-15）：P1-14 脚本沙箱改为不依赖 eval 的 AST 解释器，未放宽 CSP；Windows 安装包真机验证仍待补。
+已完成（2026-11-15）：P1-14 脚本沙箱改为不依赖 eval 的 AST 解释器，未放宽 CSP，并在 Windows 安装包中完成真机验证。
 
 已完成（2026-11-14）：P0-8 统一密钥仓库并迁移明文；P0-9 团队同步 / 在线状态改走 Rust 网络栈；P0-10 响应体 10 MiB 上限与截断提示；请求失败与团队会话过期 / 快照冲突给出可见错误。
 
