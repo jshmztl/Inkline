@@ -43,7 +43,8 @@ export function RequestScriptsPanel({
       <p className="script-tip">
         沙箱内可用 <code>pm.variables.get/set/unset</code>、
         <code>pm.request</code>、<code>pm.response.status/body/json()</code> 与{' '}
-        <code>console.log</code>。执行结果见响应区「Console」，超时 2 秒强制终止。
+        <code>console.log</code>。脚本在解释器中同步执行，不依赖 eval，且禁止网络访问。
+        执行结果见响应区「Console」，超时 2 秒强制终止。
       </p>
     </div>
   );

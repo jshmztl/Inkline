@@ -401,14 +401,14 @@
 
 ### P1-14 CSP 与脚本沙箱可能冲突
 
-- [ ] 在安装包内验证脚本沙箱
-- [ ] 根据结果收敛 CSP 或沙箱实现（不放宽 `script-src`）
+- [ ] 在 Windows 安装包内验证前置 / 后置脚本可运行
+- [x] 根据结果收敛 CSP 或沙箱实现（不放宽 `script-src`）
 
-**进展（2026-11-14）**：未放宽 Tauri CSP。Worker 若因禁止动态脚本导致 `new Function` 失败，会返回明确错误，而不是静默中断。`script-src 'self'` 很可能在正式安装包中阻止预/后置脚本执行，这是已知残留风险，需在 Windows 安装包中验证后再决定是否改为不依赖 `eval` 的实现。
+**进展（2026-11-15）**：未放宽 Tauri CSP（仍为 `script-src 'self'`）。脚本沙箱改为基于 Acorn AST 的同步解释器，不再使用 `eval` / `new Function`，因此正式安装包的 CSP 不会阻断预/后置脚本。用户脚本仍禁止 `fetch`、`XMLHttpRequest`、`WebSocket`、`importScripts` 等出网能力，错误会返回到界面。Worker 仅用于超时强制终止；Worker 不可用时回退到同进程解释器。仍需在 Windows 安装包中做一次真机确认。
 
-**问题**：CSP 为 `script-src 'self'`，禁止 eval；脚本沙箱通过 `new Function` 执行用户脚本。两者可能互相阻断，需真机安装后验证。
+**问题**：CSP 为 `script-src 'self'`，禁止 eval；旧实现通过 `new Function` 执行用户脚本，两者会互相阻断。
 
-**证据**：`apps/desktop/src-tauri/tauri.conf.json:26`；`apps/desktop/src/lib/scriptSandbox.ts`。
+**证据**：`apps/desktop/src-tauri/tauri.conf.json`；`apps/desktop/src/lib/scriptSandbox.ts`；`apps/desktop/src/lib/scriptInterpreter.ts`。
 
 ### P2-15 App.tsx 编排层耦合
 
@@ -457,7 +457,9 @@
 2. 如后续接入真实安装包，可补一次 Tauri IPC 命令层冒烟测试
 3. 邀请码与企业 SSO 不做；浏览器预览不投入
 
-已完成（2026-11-14）：P0-8 统一密钥仓库并迁移明文；P0-9 团队同步 / 在线状态改走 Rust 网络栈；P0-10 响应体 10 MiB 上限与截断提示；请求失败与团队会话过期 / 快照冲突给出可见错误。P1-14 安装包脚本沙箱仍待真机验证，未放宽 CSP。
+已完成（2026-11-15）：P1-14 脚本沙箱改为不依赖 eval 的 AST 解释器，未放宽 CSP；Windows 安装包真机验证仍待补。
+
+已完成（2026-11-14）：P0-8 统一密钥仓库并迁移明文；P0-9 团队同步 / 在线状态改走 Rust 网络栈；P0-10 响应体 10 MiB 上限与截断提示；请求失败与团队会话过期 / 快照冲突给出可见错误。
 
 已完成（2026-11-13）：P0-7 网络模式下沉 Rust、重定向逐跳校验与策略测试；P1-10 团队同步网络策略；P1-11 团队服务 AGPL-3.0；P1-12 登录限流、口令策略与首次登录强制改密；P1-13 CI 桌面端 Rust 测试；P2-16 版本一致性校验；P2-17 构建产物忽略；P2-18 管理台模块化与 Docker 一键部署/更新。
 
