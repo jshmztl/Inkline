@@ -72,9 +72,29 @@ export interface HistoryEntry {
   createdAt?: string | null;
 }
 
+export interface ResponseCacheEntry {
+  requestId: string;
+  requestHash: string;
+  status?: number | null;
+  statusText?: string | null;
+  headers: HeaderPair[];
+  body?: string | null;
+  truncated: boolean;
+  durationMs?: number | null;
+  ttfbMs?: number | null;
+  downloadMs?: number | null;
+  dnsMs?: number | null;
+  tcpMs?: number | null;
+  tlsMs?: number | null;
+  sizeBytes?: number | null;
+  error?: string | null;
+  receivedAt: string;
+}
+
 const HISTORY_KEY = 'aw-request-history';
 const SAVED_KEY = 'aw-saved-requests';
 const COLLECTIONS_KEY = 'aw-collections';
+const RESPONSE_CACHE_PREFIX = 'aw-response-cache:';
 
 const legacySeedRequestIds = new Set([
   'orders-list',
@@ -152,6 +172,16 @@ function writeJson(key: string, value: unknown) {
     localStorage.setItem(key, JSON.stringify(value));
   } catch {
     // 本地存储不可用时忽略；历史不是关键路径。
+  }
+}
+
+function removeBrowserResponseCaches(requestIds: string[]) {
+  try {
+    for (const requestId of requestIds) {
+      localStorage.removeItem(RESPONSE_CACHE_PREFIX + requestId);
+    }
+  } catch {
+    // 忽略浏览器存储不可用。
   }
 }
 
@@ -292,6 +322,61 @@ export async function listHistory(limit = 6, offset = 0): Promise<HistoryEntry[]
   return readJson<HistoryEntry[]>(HISTORY_KEY, []).slice(offset, offset + limit);
 }
 
+export async function saveResponseCache(entry: ResponseCacheEntry): Promise<void> {
+  if (isTauri) {
+    await invoke('save_response_cache', { entry });
+    return;
+  }
+  try {
+    localStorage.setItem(RESPONSE_CACHE_PREFIX + entry.requestId, JSON.stringify(entry));
+  } catch {
+    // 浏览器存储容量不足时放弃缓存，不影响请求结果。
+  }
+}
+
+export async function loadResponseCache(requestId: string): Promise<ResponseCacheEntry | null> {
+  if (isTauri) {
+    return invoke<ResponseCacheEntry | null>('load_response_cache', { requestId });
+  }
+  try {
+    const raw = localStorage.getItem(RESPONSE_CACHE_PREFIX + requestId);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as ResponseCacheEntry;
+    return parsed?.requestId === requestId ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function deleteResponseCache(requestId: string): Promise<void> {
+  if (isTauri) {
+    await invoke('delete_response_cache', { requestId });
+    return;
+  }
+  try {
+    localStorage.removeItem(RESPONSE_CACHE_PREFIX + requestId);
+  } catch {
+    // 忽略浏览器存储不可用。
+  }
+}
+
+export async function clearResponseCache(): Promise<void> {
+  if (isTauri) {
+    await invoke('clear_response_cache');
+    return;
+  }
+  try {
+    const keys: string[] = [];
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (key?.startsWith(RESPONSE_CACHE_PREFIX)) keys.push(key);
+    }
+    for (const key of keys) localStorage.removeItem(key);
+  } catch {
+    // 忽略浏览器存储不可用。
+  }
+}
+
 export async function saveRequest(request: SavedRequest): Promise<SavedRequest> {
   if (isTauri) {
     return invoke<SavedRequest>('save_request', { request });
@@ -328,6 +413,7 @@ export async function deleteRequest(id: string): Promise<void> {
   }
 
   cleanupLegacySeed();
+  removeBrowserResponseCaches([id]);
   writeJson(
     SAVED_KEY,
     readJson<SavedRequest[]>(SAVED_KEY, []).filter((request) => request.id !== id),
@@ -403,10 +489,12 @@ export async function deleteCollection(id: string): Promise<void> {
     COLLECTIONS_KEY,
     collections.filter((collection) => !descendants.has(collection.id)),
   );
-  writeJson(
-    SAVED_KEY,
-    readJson<SavedRequest[]>(SAVED_KEY, []).filter(
-      (request) => !descendants.has(request.collectionId ?? ''),
-    ),
+  const remainingRequests = readJson<SavedRequest[]>(SAVED_KEY, []).filter(
+    (request) => !descendants.has(request.collectionId ?? ''),
   );
+  const removedRequestIds = readJson<SavedRequest[]>(SAVED_KEY, [])
+    .filter((request) => descendants.has(request.collectionId ?? ''))
+    .map((request) => request.id);
+  removeBrowserResponseCaches(removedRequestIds);
+  writeJson(SAVED_KEY, remainingRequests);
 }

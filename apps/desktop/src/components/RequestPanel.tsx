@@ -15,8 +15,12 @@ import { recordAudit } from '../lib/audit';
 import { enqueueTask } from '../lib/queue';
 import {
   cancelHttpRequest,
+  clearResponseCache,
+  deleteResponseCache,
+  loadResponseCache,
   recordHistory,
   saveRequest,
+  saveResponseCache,
   sendHttpRequest,
   type SavedRequest,
   type SendResponse,
@@ -40,6 +44,12 @@ import {
 import { runScript } from '../lib/scriptSandbox';
 import { backendNetworkOptions } from '../lib/network';
 import { kvGet, kvSet } from '../lib/kv';
+import {
+  RESPONSE_CACHE_ENABLED_KEY,
+  buildRequestFingerprint,
+  truncateResponseBody,
+  type ResponseCacheMeta,
+} from '../lib/responseCache';
 import { RequestTabs } from './RequestTabs';
 import {
   RequestResponsePanel,
@@ -214,7 +224,7 @@ export function RequestPanel({
   onContextChange,
   onVariablesChange,
 }: RequestPanelProps) {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [method, setMethod] = useState<HttpMethod>(activeRequest.method);
   const [url, setUrl] = useState(`{{host}}${activeRequest.path}`);
   const [requestTab, setRequestTab] = useState<RequestTabKey>('body');
@@ -261,6 +271,11 @@ export function RequestPanel({
   const cancelledRef = useRef(false);
   const [sending, setSending] = useState(false);
   const [response, setResponse] = useState<SendResponse | null>(null);
+  const [cacheMeta, setCacheMeta] = useState<ResponseCacheMeta | null>(null);
+  const [cacheEnabled, setCacheEnabled] = useState(
+    () => kvGet(RESPONSE_CACHE_ENABLED_KEY) !== '0',
+  );
+  const cacheLoadToken = useRef(0);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [requestName, setRequestName] = useState(activeRequest.name);
@@ -269,6 +284,47 @@ export function RequestPanel({
   useEffect(() => {
     setRequestName(saved?.name ?? activeRequest.name);
   }, [activeRequest.id, activeRequest.name, saved?.name]);
+
+  async function restoreCachedResponse(savedRequest: SavedRequest) {
+    if (!cacheEnabled) return;
+    const token = ++cacheLoadToken.current;
+    try {
+      const cached = await loadResponseCache(savedRequest.id);
+      if (!cached || token !== cacheLoadToken.current) return;
+      const fingerprint = buildRequestFingerprint({
+        method: savedRequest.method,
+        url: savedRequest.url,
+        headers: savedRequest.headers,
+        body: savedRequest.body ?? '',
+      });
+      setCacheMeta({
+        cachedAt: cached.receivedAt,
+        truncated: cached.truncated,
+        stale: cached.requestHash !== fingerprint,
+      });
+      if (cached.status !== null && cached.status !== undefined) {
+        setResponse({
+          status: cached.status,
+          statusText: cached.statusText ?? '',
+          headers: cached.headers ?? [],
+          body: cached.body ?? '',
+          durationMs: cached.durationMs ?? 0,
+          ttfbMs: cached.ttfbMs ?? undefined,
+          downloadMs: cached.downloadMs ?? undefined,
+          dnsMs: cached.dnsMs ?? undefined,
+          tcpMs: cached.tcpMs ?? undefined,
+          tlsMs: cached.tlsMs ?? undefined,
+          sizeBytes: cached.sizeBytes ?? 0,
+        });
+        setError(null);
+      } else {
+        setResponse(null);
+        setError(cached.error ?? '上次请求失败');
+      }
+    } catch {
+      // 缓存读取失败时保持空响应。
+    }
+  }
 
   useEffect(() => {
     const key = `${activeRequest.id}:${saved ? 'saved' : 'new'}`;
@@ -293,6 +349,13 @@ export function RequestPanel({
     setError(null);
     setFeedback(null);
     setResponseQuery('');
+    setCacheMeta(null);
+    setAssertionResults([]);
+    setScriptLogs([]);
+    cacheLoadToken.current += 1;
+    if (saved) {
+      void restoreCachedResponse(saved);
+    }
   }, [activeRequest, saved]);
 
   useEffect(() => {
@@ -835,6 +898,17 @@ export function RequestPanel({
         )
       : resolvedHeaders.headers;
 
+    const cacheRequestId = saved?.id ?? null;
+    const cacheEnabledNow = cacheEnabled;
+    const cacheFingerprint = buildRequestFingerprint({
+      method,
+      url,
+      headers: headers
+        .filter((row) => row.enabled && row.key.trim())
+        .map((row) => ({ name: row.key.trim(), value: row.value })),
+      body,
+    });
+
     try {
       const result = await sendHttpRequest({
         id: requestId,
@@ -857,6 +931,29 @@ export function RequestPanel({
       }
 
       setResponse(result);
+      cacheLoadToken.current += 1;
+      setCacheMeta(null);
+      if (cacheRequestId && cacheEnabledNow) {
+        const storedBody = truncateResponseBody(result.body);
+        void saveResponseCache({
+          requestId: cacheRequestId,
+          requestHash: cacheFingerprint,
+          status: result.status,
+          statusText: result.statusText,
+          headers: result.headers,
+          body: storedBody.body,
+          truncated: storedBody.truncated,
+          durationMs: result.durationMs,
+          ttfbMs: result.ttfbMs ?? null,
+          downloadMs: result.downloadMs ?? null,
+          dnsMs: result.dnsMs ?? null,
+          tcpMs: result.tcpMs ?? null,
+          tlsMs: result.tlsMs ?? null,
+          sizeBytes: result.sizeBytes,
+          error: null,
+          receivedAt: new Date().toISOString(),
+        }).catch(() => {});
+      }
       const results = evaluateAssertions(assertionRows, result);
       setAssertionResults(results);
       const failedCount = results.filter((row) => !row.passed).length;
@@ -930,6 +1027,28 @@ export function RequestPanel({
         setError(null);
         setFeedback('请求已取消');
         return;
+      }
+      cacheLoadToken.current += 1;
+      setCacheMeta(null);
+      if (cacheRequestId && cacheEnabledNow) {
+        void saveResponseCache({
+          requestId: cacheRequestId,
+          requestHash: cacheFingerprint,
+          status: null,
+          statusText: null,
+          headers: [],
+          body: null,
+          truncated: false,
+          durationMs: Math.round(performance.now() - started),
+          ttfbMs: null,
+          downloadMs: null,
+          dnsMs: null,
+          tcpMs: null,
+          tlsMs: null,
+          sizeBytes: null,
+          error: text,
+          receivedAt: new Date().toISOString(),
+        }).catch(() => {});
       }
       setError(text);
       setFeedback('请求失败 · 已加入离线队列');
@@ -1072,12 +1191,44 @@ export function RequestPanel({
   }
 
   function clearResponse() {
+    cacheLoadToken.current += 1;
+    if (saved) {
+      void deleteResponseCache(saved.id).catch(() => {});
+    }
     setResponse(null);
     setError(null);
     setAssertionResults([]);
     setStreamEvents([]);
     setFeedback(null);
+    setCacheMeta(null);
     message.success('已清空响应');
+  }
+
+  function toggleResponseCache() {
+    const next = !cacheEnabled;
+    setCacheEnabled(next);
+    kvSet(RESPONSE_CACHE_ENABLED_KEY, next ? '1' : '0');
+    if (next) {
+      if (saved) void restoreCachedResponse(saved);
+      message.success('已开启本机响应缓存');
+    } else {
+      message.success('已关闭本机响应缓存');
+    }
+  }
+
+  function clearAllResponseCache() {
+    modal.confirm({
+      title: '清除全部响应缓存？',
+      content: '将删除本机保存的所有最近响应，不影响请求、集合和历史记录。',
+      okText: '清除',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        await clearResponseCache();
+        cacheLoadToken.current += 1;
+        setCacheMeta(null);
+        message.success('已清除全部响应缓存');
+      },
+    });
   }
 
   function readResponseBaseline(): ResponseBaseline | null {
@@ -1398,6 +1549,10 @@ export function RequestPanel({
         responseMatchCount={responseMatchCount}
         hasResponseContent={hasResponseContent}
         hasBaseline={Boolean(readResponseBaseline())}
+        cacheMeta={cacheMeta}
+        cacheEnabled={cacheEnabled}
+        onToggleCache={toggleResponseCache}
+        onClearAllCache={clearAllResponseCache}
         streamEvents={streamEvents}
         draftMessage={draftMessage}
         onDraftMessageChange={setDraftMessage}

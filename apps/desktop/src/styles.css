@@ -1970,6 +1970,20 @@ html[data-theme='dark'] .method-option.method-delete {
   color: var(--aw-error, #c0392b);
 }
 
+.response-meta.cache-meta {
+  color: var(--aw-accent);
+}
+
+.response-cache-note {
+  margin: 10px 14px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--aw-warning-soft);
+  border-radius: 6px;
+  background: var(--aw-warning-soft);
+  color: var(--aw-warning);
+  font-size: 12px;
+}
+
 .response-search {
   width: 156px;
 }
@@ -2632,6 +2646,16 @@ html[data-theme='dark'] .ai-panel .ai-bubble-end .ant-bubble-content {
   color: var(--aw-faint);
   font-size: 12px;
   font-style: normal;
+}
+
+.review-sample {
+  max-width: 220px;
+  overflow: hidden;
+  color: var(--aw-faint);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .review-source {

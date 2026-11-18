@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 use chrono::Utc;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 
@@ -44,6 +44,25 @@ CREATE TABLE IF NOT EXISTS history (
     created_at   TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS response_cache (
+    request_id   TEXT PRIMARY KEY,
+    request_hash TEXT NOT NULL,
+    status       INTEGER,
+    status_text  TEXT,
+    headers      TEXT NOT NULL DEFAULT '[]',
+    body         TEXT,
+    truncated    INTEGER NOT NULL DEFAULT 0,
+    duration_ms  INTEGER,
+    ttfb_ms      INTEGER,
+    download_ms  INTEGER,
+    dns_ms       INTEGER,
+    tcp_ms       INTEGER,
+    tls_ms       INTEGER,
+    size_bytes   INTEGER,
+    error        TEXT,
+    received_at  TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS app_meta (
     key    TEXT PRIMARY KEY,
     value  TEXT NOT NULL
@@ -65,6 +84,8 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     at     TEXT NOT NULL
 );
 "#;
+
+const RESPONSE_CACHE_MAX_BODY_BYTES: usize = 2 * 1024 * 1024;
 
 const LEGACY_SEED_REQUESTS: &[&str] = &[
     "orders-list",
@@ -243,6 +264,38 @@ pub struct HistoryEntry {
     pub created_at: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ResponseCacheEntry {
+    pub request_id: String,
+    pub request_hash: String,
+    pub status: Option<i64>,
+    pub status_text: Option<String>,
+    pub headers: Vec<HeaderPair>,
+    pub body: Option<String>,
+    pub truncated: bool,
+    pub duration_ms: Option<i64>,
+    pub ttfb_ms: Option<i64>,
+    pub download_ms: Option<i64>,
+    pub dns_ms: Option<i64>,
+    pub tcp_ms: Option<i64>,
+    pub tls_ms: Option<i64>,
+    pub size_bytes: Option<i64>,
+    pub error: Option<String>,
+    pub received_at: String,
+}
+
+fn truncate_utf8(text: &str, max_bytes: usize) -> (&str, bool) {
+    if text.len() <= max_bytes {
+        return (text, false);
+    }
+    let mut end = max_bytes;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    (&text[..end], true)
+}
+
 #[tauri::command]
 pub fn list_collections(state: State<'_, DbState>) -> Result<Vec<Collection>, String> {
     let connection = state.0.lock().map_err(|error| error.to_string())?;
@@ -309,6 +362,17 @@ pub fn delete_collection(state: State<'_, DbState>, id: String) -> Result<(), St
 }
 
 fn delete_collection_recursive(connection: &Connection, id: &str) -> Result<(), rusqlite::Error> {
+    connection.execute(
+        "WITH RECURSIVE descendants(id) AS (
+            SELECT id FROM collections WHERE id = ?1
+            UNION ALL
+            SELECT c.id FROM collections c JOIN descendants d ON c.parent_id = d.id
+         )
+         DELETE FROM response_cache WHERE request_id IN (
+            SELECT id FROM requests WHERE collection_id IN (SELECT id FROM descendants)
+         )",
+        params![id],
+    )?;
     connection.execute(
         "WITH RECURSIVE descendants(id) AS (
             SELECT id FROM collections WHERE id = ?1
@@ -426,6 +490,9 @@ pub fn list_requests(state: State<'_, DbState>) -> Result<Vec<SavedRequest>, Str
 pub fn delete_request(state: State<'_, DbState>, id: String) -> Result<(), String> {
     let connection = state.0.lock().map_err(|error| error.to_string())?;
     connection
+        .execute("DELETE FROM response_cache WHERE request_id = ?1", params![&id])
+        .map_err(|error| error.to_string())?;
+    connection
         .execute("DELETE FROM requests WHERE id = ?1", params![&id])
         .map_err(|error| error.to_string())?;
     Ok(())
@@ -530,6 +597,167 @@ pub fn delete_history(state: State<'_, DbState>, id: i64) -> Result<(), String> 
     let connection = state.0.lock().map_err(|error| error.to_string())?;
     connection
         .execute("DELETE FROM history WHERE id = ?1", params![id])
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn save_response_cache(
+    state: State<'_, DbState>,
+    entry: ResponseCacheEntry,
+) -> Result<(), String> {
+    let connection = state.0.lock().map_err(|error| error.to_string())?;
+    save_response_cache_to(&connection, entry)
+}
+
+fn save_response_cache_to(
+    connection: &Connection,
+    entry: ResponseCacheEntry,
+) -> Result<(), String> {
+    let exists: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM requests WHERE id = ?1)",
+            params![&entry.request_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    if !exists {
+        return Ok(());
+    }
+
+    let headers = serde_json::to_string(&entry.headers).map_err(|error| error.to_string())?;
+    let (body, cut) = match entry.body.as_deref() {
+        Some(text) => {
+            let (slice, cut) = truncate_utf8(text, RESPONSE_CACHE_MAX_BODY_BYTES);
+            (Some(slice.to_string()), cut)
+        }
+        None => (None, false),
+    };
+    let truncated = entry.truncated || cut;
+    let received_at = if entry.received_at.trim().is_empty() {
+        Utc::now().to_rfc3339()
+    } else {
+        entry.received_at.clone()
+    };
+
+    connection
+        .execute(
+            "INSERT INTO response_cache
+             (request_id, request_hash, status, status_text, headers, body, truncated,
+              duration_ms, ttfb_ms, download_ms, dns_ms, tcp_ms, tls_ms, size_bytes, error, received_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+             ON CONFLICT(request_id) DO UPDATE SET
+               request_hash = excluded.request_hash,
+               status = excluded.status,
+               status_text = excluded.status_text,
+               headers = excluded.headers,
+               body = excluded.body,
+               truncated = excluded.truncated,
+               duration_ms = excluded.duration_ms,
+               ttfb_ms = excluded.ttfb_ms,
+               download_ms = excluded.download_ms,
+               dns_ms = excluded.dns_ms,
+               tcp_ms = excluded.tcp_ms,
+               tls_ms = excluded.tls_ms,
+               size_bytes = excluded.size_bytes,
+               error = excluded.error,
+               received_at = excluded.received_at",
+            params![
+                &entry.request_id,
+                &entry.request_hash,
+                entry.status,
+                &entry.status_text,
+                headers,
+                &body,
+                truncated,
+                entry.duration_ms,
+                entry.ttfb_ms,
+                entry.download_ms,
+                entry.dns_ms,
+                entry.tcp_ms,
+                entry.tls_ms,
+                entry.size_bytes,
+                &entry.error,
+                &received_at,
+            ],
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn load_response_cache(
+    state: State<'_, DbState>,
+    request_id: String,
+) -> Result<Option<ResponseCacheEntry>, String> {
+    let connection = state.0.lock().map_err(|error| error.to_string())?;
+    load_response_cache_from(&connection, &request_id)
+}
+
+fn load_response_cache_from(
+    connection: &Connection,
+    request_id: &str,
+) -> Result<Option<ResponseCacheEntry>, String> {
+    connection
+        .query_row(
+            "SELECT request_id, request_hash, status, status_text, headers, body, truncated,
+                    duration_ms, ttfb_ms, download_ms, dns_ms, tcp_ms, tls_ms, size_bytes, error, received_at
+             FROM response_cache WHERE request_id = ?1",
+            params![request_id],
+            |row| {
+                let headers: String = row.get(4)?;
+                Ok(ResponseCacheEntry {
+                    request_id: row.get(0)?,
+                    request_hash: row.get(1)?,
+                    status: row.get(2)?,
+                    status_text: row.get(3)?,
+                    headers: serde_json::from_str(&headers).unwrap_or_default(),
+                    body: row.get(5)?,
+                    truncated: row.get(6)?,
+                    duration_ms: row.get(7)?,
+                    ttfb_ms: row.get(8)?,
+                    download_ms: row.get(9)?,
+                    dns_ms: row.get(10)?,
+                    tcp_ms: row.get(11)?,
+                    tls_ms: row.get(12)?,
+                    size_bytes: row.get(13)?,
+                    error: row.get(14)?,
+                    received_at: row.get(15)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn delete_response_cache(
+    state: State<'_, DbState>,
+    request_id: String,
+) -> Result<(), String> {
+    let connection = state.0.lock().map_err(|error| error.to_string())?;
+    delete_response_cache_from(&connection, &request_id)
+}
+
+fn delete_response_cache_from(connection: &Connection, request_id: &str) -> Result<(), String> {
+    connection
+        .execute(
+            "DELETE FROM response_cache WHERE request_id = ?1",
+            params![request_id],
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn clear_response_cache(state: State<'_, DbState>) -> Result<(), String> {
+    let connection = state.0.lock().map_err(|error| error.to_string())?;
+    clear_response_cache_from(&connection)
+}
+
+fn clear_response_cache_from(connection: &Connection) -> Result<(), String> {
+    connection
+        .execute("DELETE FROM response_cache", [])
         .map_err(|error| error.to_string())?;
     Ok(())
 }
@@ -766,6 +994,13 @@ mod tests {
                     params![id, collection_id, &now],
                 )
                 .expect("insert request");
+            connection
+                .execute(
+                    "INSERT INTO response_cache (request_id, request_hash, headers, received_at)
+                     VALUES (?1, 'hash', '[]', ?2)",
+                    params![id, &now],
+                )
+                .expect("insert response cache");
         }
 
         delete_collection_recursive(&connection, "root").expect("delete tree");
@@ -776,8 +1011,125 @@ mod tests {
         let requests: i64 = connection
             .query_row("SELECT COUNT(*) FROM requests", [], |row| row.get(0))
             .expect("count requests");
+        let cached: i64 = connection
+            .query_row("SELECT COUNT(*) FROM response_cache", [], |row| row.get(0))
+            .expect("count response cache");
         assert_eq!(collections, 0);
         assert_eq!(requests, 0);
+        assert_eq!(cached, 0);
+    }
+
+    #[test]
+    fn response_cache_round_trip_and_truncation() {
+        let connection = test_connection();
+        let now = Utc::now().to_rfc3339();
+        connection
+            .execute(
+                "INSERT INTO requests (id, name, method, url, headers, body, data_level, collection_id, sort, updated_at)
+                 VALUES ('r1', '请求', 'GET', '/', '[]', NULL, 'L1', 'c1', 0, ?1)",
+                params![&now],
+            )
+            .expect("insert request");
+
+        let big_body = "中".repeat(RESPONSE_CACHE_MAX_BODY_BYTES / 3 + 64);
+        save_response_cache_to(
+            &connection,
+            ResponseCacheEntry {
+                request_id: "r1".to_string(),
+                request_hash: "hash-1".to_string(),
+                status: Some(200),
+                status_text: Some("OK".to_string()),
+                headers: vec![crate::model::HeaderPair {
+                    name: "content-type".to_string(),
+                    value: "application/json".to_string(),
+                }],
+                body: Some(big_body),
+                truncated: false,
+                duration_ms: Some(12),
+                ttfb_ms: Some(4),
+                download_ms: Some(8),
+                dns_ms: None,
+                tcp_ms: None,
+                tls_ms: None,
+                size_bytes: Some(999),
+                error: None,
+                received_at: now.clone(),
+            },
+        )
+        .expect("save response cache");
+
+        let loaded = load_response_cache_from(&connection, "r1")
+            .expect("load response cache")
+            .expect("cached response");
+        assert_eq!(loaded.status, Some(200));
+        assert_eq!(loaded.headers.len(), 1);
+        assert!(loaded.truncated);
+        assert!(loaded.body.as_ref().expect("body").len() <= RESPONSE_CACHE_MAX_BODY_BYTES);
+
+        save_response_cache_to(
+            &connection,
+            ResponseCacheEntry {
+                request_id: "r1".to_string(),
+                request_hash: "hash-2".to_string(),
+                status: Some(201),
+                status_text: Some("Created".to_string()),
+                headers: vec![],
+                body: Some("ok".to_string()),
+                truncated: false,
+                duration_ms: Some(5),
+                ttfb_ms: None,
+                download_ms: None,
+                dns_ms: None,
+                tcp_ms: None,
+                tls_ms: None,
+                size_bytes: Some(2),
+                error: None,
+                received_at: now,
+            },
+        )
+        .expect("upsert response cache");
+
+        let loaded = load_response_cache_from(&connection, "r1")
+            .expect("load response cache")
+            .expect("cached response");
+        assert_eq!(loaded.status, Some(201));
+        assert_eq!(loaded.body.as_deref(), Some("ok"));
+        assert!(!loaded.truncated);
+
+        delete_response_cache_from(&connection, "r1").expect("delete response cache");
+        assert!(load_response_cache_from(&connection, "r1")
+            .expect("load response cache")
+            .is_none());
+    }
+
+    #[test]
+    fn response_cache_is_ignored_for_missing_request() {
+        let connection = test_connection();
+        save_response_cache_to(
+            &connection,
+            ResponseCacheEntry {
+                request_id: "missing".to_string(),
+                request_hash: "hash".to_string(),
+                status: Some(200),
+                status_text: Some("OK".to_string()),
+                headers: vec![],
+                body: Some("ok".to_string()),
+                truncated: false,
+                duration_ms: None,
+                ttfb_ms: None,
+                download_ms: None,
+                dns_ms: None,
+                tcp_ms: None,
+                tls_ms: None,
+                size_bytes: None,
+                error: None,
+                received_at: Utc::now().to_rfc3339(),
+            },
+        )
+        .expect("save response cache");
+        assert!(load_response_cache_from(&connection, "missing")
+            .expect("load response cache")
+            .is_none());
     }
 
     #[test]

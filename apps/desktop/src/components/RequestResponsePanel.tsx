@@ -2,6 +2,7 @@ import {
   CheckCircleFilled,
   CloseCircleOutlined,
   CopyOutlined,
+  DatabaseOutlined,
   DeleteOutlined,
   DiffOutlined,
   DownloadOutlined,
@@ -15,6 +16,10 @@ import type { AssertionResult } from '../lib/assertions';
 import { operatorLabel } from '../lib/assertions';
 import type { SendResponse } from '../lib/api';
 import type { ProtocolKind, StreamEvent } from '../lib/protocol';
+import {
+  RESPONSE_CACHE_MAX_BODY_LABEL,
+  type ResponseCacheMeta,
+} from '../lib/responseCache';
 import { ResponseCode } from './ResponseCode';
 
 export type ResponseTabKey = 'body' | 'headers' | 'cookies' | 'console' | 'assertions';
@@ -43,6 +48,10 @@ interface RequestResponsePanelProps {
   responseMatchCount: number;
   hasResponseContent: boolean;
   hasBaseline: boolean;
+  cacheMeta: ResponseCacheMeta | null;
+  cacheEnabled: boolean;
+  onToggleCache: () => void;
+  onClearAllCache: () => void;
   streamEvents: StreamEvent[];
   draftMessage: string;
   onDraftMessageChange: (value: string) => void;
@@ -62,6 +71,18 @@ function formatBytes(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function formatCacheTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
 export function RequestResponsePanel({
   protocol,
   method,
@@ -79,6 +100,10 @@ export function RequestResponsePanel({
   responseMatchCount,
   hasResponseContent,
   hasBaseline,
+  cacheMeta,
+  cacheEnabled,
+  onToggleCache,
+  onClearAllCache,
   streamEvents,
   draftMessage,
   onDraftMessageChange,
@@ -139,9 +164,27 @@ export function RequestResponsePanel({
               </span>
             )}
             <span className="response-meta">{formatBytes(response.sizeBytes)}</span>
+            {cacheMeta && (
+              <span
+                className={`response-meta cache-meta${cacheMeta.stale ? ' bad' : ''}`}
+                title={`缓存于 ${formatCacheTime(cacheMeta.cachedAt)}`}
+              >
+                缓存 · {formatCacheTime(cacheMeta.cachedAt)}
+              </span>
+            )}
           </>
+        ) : cacheMeta && error ? (
+          <span className="status-pill bad">上次失败</span>
         ) : (
           <span className="status-pill">未发送</span>
+        )}
+        {!streamMode && cacheMeta && !response && (
+          <span
+            className={`response-meta cache-meta${cacheMeta.stale ? ' bad' : ''}`}
+            title={`缓存于 ${formatCacheTime(cacheMeta.cachedAt)}`}
+          >
+            缓存 · {formatCacheTime(cacheMeta.cachedAt)}
+          </span>
         )}
         {feedback && (
           <span className="send-feedback">
@@ -225,6 +268,19 @@ export function RequestResponsePanel({
                 icon: <DiffOutlined />,
                 disabled: !response || streamMode || !hasBaseline,
               },
+              {
+                key: 'cache',
+                label: cacheEnabled ? '关闭本机响应缓存' : '开启本机响应缓存',
+                icon: <DatabaseOutlined />,
+                disabled: streamMode,
+              },
+              {
+                key: 'clear-cache',
+                label: '清除全部响应缓存',
+                icon: <DeleteOutlined />,
+                danger: true,
+                disabled: streamMode,
+              },
               { type: 'divider' },
               {
                 key: 'clear',
@@ -239,6 +295,8 @@ export function RequestResponsePanel({
               if (key === 'download') onDownload();
               if (key === 'baseline') onSaveBaseline();
               if (key === 'diff') onOpenDiff();
+              if (key === 'cache') onToggleCache();
+              if (key === 'clear-cache') onClearAllCache();
               if (key === 'clear') onClear();
             },
           }}
@@ -338,6 +396,18 @@ export function RequestResponsePanel({
           </>
         ) : (
           <>
+            {cacheMeta && (cacheMeta.stale || cacheMeta.truncated) && (
+              <div className="response-cache-note">
+                {[
+                  cacheMeta.stale ? '请求已修改，以下为上次发送的响应。' : '',
+                  cacheMeta.truncated
+                    ? `响应过大，仅缓存了前 ${RESPONSE_CACHE_MAX_BODY_LABEL}。`
+                    : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+              </div>
+            )}
             {responseTab === 'body' &&
               (error ? (
                 <div className="response-error-panel">
