@@ -7,8 +7,8 @@ Inkline 的团队同步服务端，负责账号、团队、成员、资源权限
 推荐使用 Docker（内置 PostgreSQL）：
 
 1. 生成部署包（包含静态二进制、`deploy.sh` 与 compose 文件）：
-   - Windows：`powershell -ExecutionPolicy Bypass -File apps/team-server/deploy/build-image.ps1 -Version 0.1.29`
-   - Linux / macOS：`sh apps/team-server/deploy/build-image.sh 0.1.29`
+   - Windows：`powershell -ExecutionPolicy Bypass -File apps/team-server/deploy/build-image.ps1 -Version 0.1.30`
+   - Linux / macOS：`sh apps/team-server/deploy/build-image.sh 0.1.30`
    - 产物位于 `output/inkline-team-deploy`。
 2. 将产物上传到服务器，例如 `/opt/inkline-team`，然后执行：
 
