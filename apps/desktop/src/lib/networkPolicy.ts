@@ -248,6 +248,10 @@ async function probeNetwork(url: string, mode: NetworkMode): Promise<NetworkProb
 }
 
 /**
+ * 正式安装包 / Tauri 环境下，访问判定以 Rust `check_network_access` 为准，
+ * 与 HTTP / WS / SSE / 团队同步实际出站使用同一套 A/B/C 规则。
+ * 本文件中的 TypeScript 实现仅用于浏览器开发回退、同步 UI 预检和单元测试，不作为打包后的出站决策。
+ *
  * B 内网模式下，除 RFC1918 私网地址外，还允许：
  * - 与任一本地网卡处于同一网段的目标 IP；
  * - 解析结果落在本机同网段或私网范围内的内网域名。
@@ -258,6 +262,33 @@ export async function checkNetworkAccessResolved(
   mode: NetworkMode,
 ): Promise<NetworkAccess> {
   const basic = checkNetworkAccess(url, mode);
+  if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const decision = await invoke<{ allowed: boolean; reason: string }>('check_network_access', {
+        url,
+        mode,
+        intranetCidrs: readIntranetCidrs(),
+        resolve: true,
+      });
+      if (basic.scope === 'invalid') return basic;
+      return {
+        allowed: decision.allowed,
+        scope: decision.allowed ? (basic.allowed ? basic.scope : 'intranet') : basic.scope,
+        host: basic.host,
+        reason: decision.reason || basic.reason,
+      };
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      return {
+        allowed: false,
+        scope: basic.scope,
+        host: basic.host,
+        reason: reason || basic.reason,
+      };
+    }
+  }
+
   if (basic.allowed || basic.scope === 'invalid' || mode !== 'B') return basic;
 
   const probe = await probeNetwork(url, mode);

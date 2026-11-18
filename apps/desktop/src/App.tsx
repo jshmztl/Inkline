@@ -21,6 +21,7 @@ import type { RequestDraft } from './lib/requestDraft';
 import { migrateLegacyAudit } from './lib/audit';
 import { listEnvironments, saveEnvironmentVariables, writeEnvironments } from './lib/envStore';
 import { kvGet, kvSet } from './lib/kv';
+import { copyRequestAuthSecrets, deleteRequestAuthSecrets } from './lib/secretMigration';
 import { setActiveNetworkMode } from './lib/network';
 import { parseImport } from './lib/importer';
 import {
@@ -106,6 +107,36 @@ function KvErrorNotifier() {
     }
     window.addEventListener('aw-kv-error', handle);
     return () => window.removeEventListener('aw-kv-error', handle);
+  }, [message]);
+
+  useEffect(() => {
+    function handle(event: Event) {
+      const detail = (event as CustomEvent<string>).detail;
+      message.error({ content: `凭据保存失败：${detail}`, duration: 4 });
+    }
+    window.addEventListener('aw-secret-error', handle);
+    return () => window.removeEventListener('aw-secret-error', handle);
+  }, [message]);
+
+  useEffect(() => {
+    function handle(event: Event) {
+      const detail = (event as CustomEvent<string>).detail;
+      message.error({
+        content: detail || '登录已过期，请重新连接团队服务',
+        duration: 4,
+      });
+    }
+    window.addEventListener('aw-team-session-expired', handle);
+    return () => window.removeEventListener('aw-team-session-expired', handle);
+  }, [message]);
+
+  useEffect(() => {
+    function handle(event: Event) {
+      const detail = (event as CustomEvent<string>).detail;
+      if (detail) message.error({ content: detail, duration: 4 });
+    }
+    window.addEventListener('aw-app-error', handle);
+    return () => window.removeEventListener('aw-app-error', handle);
   }, [message]);
 
   return null;
@@ -506,6 +537,7 @@ export function App() {
     });
     const meta = kvGet(`aw-request-meta:${source.id}`);
     if (meta) kvSet(`aw-request-meta:${newId}`, meta);
+    await copyRequestAuthSecrets(source.id, newId);
     await refreshWorkspace();
   }
 
@@ -535,6 +567,7 @@ export function App() {
       });
       const meta = kvGet(`aw-request-meta:${request.id}`);
       if (meta) kvSet(`aw-request-meta:${newId}`, meta);
+      await copyRequestAuthSecrets(request.id, newId);
     }
 
     await refreshWorkspace();
@@ -542,6 +575,7 @@ export function App() {
 
   async function handleDeleteRequest(id: string) {
     await apiDeleteRequest(id);
+    await deleteRequestAuthSecrets(id);
     setOpenTabIds((current) => current.filter((tabId) => tabId !== id));
     await refreshWorkspace();
   }
@@ -637,8 +671,13 @@ export function App() {
     }
     try {
       setTeamAccess(await fetchTeamAccess(connection, session.team.id));
-    } catch {
+    } catch (error) {
       setTeamAccess(null);
+      if (error instanceof TeamApiError && error.code === 'session_expired') {
+        window.dispatchEvent(
+          new CustomEvent('aw-team-session-expired', { detail: error.message }),
+        );
+      }
     }
   }
 
@@ -725,6 +764,13 @@ export function App() {
               }),
               session.team.id,
             );
+          } else {
+            throw new TeamApiError(
+              409,
+              'revision_conflict',
+              '团队已有更新版本，但未能获取远端快照。请稍后重试拉取，不要在未合并前再次推送。',
+              (error as TeamApiError).details,
+            );
           }
         }
         throw error;
@@ -760,7 +806,16 @@ export function App() {
         createdBy: latest.createdBy,
         workspace: session.workspace,
       });
-      await applySnapshotToWorkspace(snapshot);
+      try {
+        await applySnapshotToWorkspace(snapshot);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        throw new TeamApiError(
+          0,
+          'snapshot_apply_failed',
+          `快照未完整应用到本机工作区：${reason}。请重试拉取，避免在未完成应用前继续推送。`,
+        );
+      }
       writeTeamSnapshot(snapshot, session.team.id);
       writeTeamBase(snapshot, session.team.id);
       refreshSaved();
@@ -794,8 +849,10 @@ export function App() {
     try {
       const results = await runCollectionTests(folder.id, currentVariables, networkMode);
       setTestRun({ name: folder.name, running: false, results });
-    } catch {
+    } catch (error) {
       setTestRun({ name: folder.name, running: false, results: [] });
+      const reason = error instanceof Error ? error.message : String(error);
+      window.dispatchEvent(new CustomEvent('aw-app-error', { detail: `集合测试失败：${reason}` }));
     }
   }
 

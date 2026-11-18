@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
+use futures_util::StreamExt;
 use reqwest::cookie::Jar;
 use reqwest::multipart::{Form, Part};
 use reqwest::Method;
@@ -59,7 +60,19 @@ pub struct SendRequestPayload {
     pub timeout_ms: Option<u64>,
     pub multipart: Option<Vec<MultipartField>>,
     pub network: Option<NetworkOptions>,
+    /// 默认启用 Cookie 容器；团队同步等内部请求应关闭，避免与调试会话互相污染。
+    #[serde(default)]
+    pub use_cookies: Option<bool>,
+    /// 跳过并行的 DNS/TCP/TLS 探测，内部请求不需要分阶段耗时。
+    #[serde(default)]
+    pub skip_probe: Option<bool>,
+    /// 响应体读取上限，默认 10 MiB。超出后截断并标记 truncated。
+    #[serde(default)]
+    pub max_body_bytes: Option<usize>,
 }
+
+/// 默认响应体上限，避免超大响应把进程内存打满。
+pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 10 * 1024 * 1024;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -75,6 +88,7 @@ pub struct SendResponse {
     pub tcp_ms: Option<u64>,
     pub tls_ms: Option<u64>,
     pub size_bytes: usize,
+    pub truncated: bool,
 }
 
 #[tauri::command]
@@ -117,6 +131,13 @@ pub(crate) async fn send_with_cookie(
     cookie_provider: Arc<Jar>,
     cancel_rx: Option<oneshot::Receiver<()>>,
 ) -> Result<SendResponse, String> {
+    let use_cookies = payload.use_cookies.unwrap_or(true);
+    let cookie_provider = if use_cookies {
+        cookie_provider
+    } else {
+        Arc::new(Jar::default())
+    };
+
     let url = reqwest::Url::parse(&payload.url).map_err(|error| format!("URL 无效：{error}"))?;
     if !matches!(url.scheme(), "http" | "https") {
         return Err("仅支持 http/https 请求".to_string());
@@ -180,23 +201,29 @@ pub(crate) async fn send_with_cookie(
         .map_err(|error| format!("创建 HTTP 客户端失败：{error}"))?;
 
     let probe_url = url.clone();
-    let probe_enabled = payload
-        .network
-        .as_ref()
-        .map(|network| {
-            let has_proxy = network
-                .proxy
-                .as_deref()
-                .map(str::trim)
-                .is_some_and(|value| !value.is_empty());
-            let has_client_cert = network
-                .client_cert_path
-                .as_deref()
-                .map(str::trim)
-                .is_some_and(|value| !value.is_empty());
-            !has_proxy && !has_client_cert
-        })
-        .unwrap_or(true);
+    let skip_probe = payload.skip_probe.unwrap_or(false);
+    let probe_enabled = !skip_probe
+        && payload
+            .network
+            .as_ref()
+            .map(|network| {
+                let has_proxy = network
+                    .proxy
+                    .as_deref()
+                    .map(str::trim)
+                    .is_some_and(|value| !value.is_empty());
+                let has_client_cert = network
+                    .client_cert_path
+                    .as_deref()
+                    .map(str::trim)
+                    .is_some_and(|value| !value.is_empty());
+                !has_proxy && !has_client_cert
+            })
+            .unwrap_or(true);
+    let max_body_bytes = payload
+        .max_body_bytes
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_MAX_RESPONSE_BYTES);
     let accept_invalid_certs = payload
         .network
         .as_ref()
@@ -265,11 +292,11 @@ pub(crate) async fn send_with_cookie(
                 value: value.to_str().unwrap_or("").to_string(),
             })
             .collect();
-        let body = response
-            .text()
-            .await
-            .map_err(|error| format!("读取响应失败：{error}"))?;
-        let size_bytes = body.len();
+        let declared_size = response
+            .content_length()
+            .map(|value| value as usize);
+        let (body, size_bytes, truncated) =
+            read_body_limited(response, max_body_bytes, declared_size).await?;
         let duration_ms = started.elapsed().as_millis() as u64;
 
         Ok::<SendResponse, String>(SendResponse {
@@ -284,6 +311,7 @@ pub(crate) async fn send_with_cookie(
             tcp_ms: None,
             tls_ms: None,
             size_bytes,
+            truncated,
         })
     };
 
@@ -332,6 +360,40 @@ pub fn clear_cookies(cookie: State<'_, CookieState>) -> Result<(), String> {
     let mut jar = cookie.0.lock().map_err(|error| error.to_string())?;
     *jar = Arc::new(Jar::default());
     Ok(())
+}
+
+
+async fn read_body_limited(
+    response: reqwest::Response,
+    max_body_bytes: usize,
+    declared_size: Option<usize>,
+) -> Result<(String, usize, bool), String> {
+    let mut received = Vec::new();
+    let mut truncated = false;
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| format!("读取响应失败：{error}"))?;
+        if received.len() >= max_body_bytes {
+            truncated = true;
+            break;
+        }
+        let remaining = max_body_bytes - received.len();
+        if chunk.len() > remaining {
+            received.extend_from_slice(&chunk[..remaining]);
+            truncated = true;
+            break;
+        }
+        received.extend_from_slice(&chunk);
+    }
+    let size_bytes = if truncated {
+        declared_size
+            .filter(|value| *value >= received.len())
+            .unwrap_or(received.len())
+    } else {
+        declared_size.unwrap_or(received.len()).max(received.len())
+    };
+    let body = String::from_utf8_lossy(&received).into_owned();
+    Ok((body, size_bytes, truncated))
 }
 
 /// reqwest 的重定向错误只展示外层描述，这里把 source 链里的原因拼进用户可见信息。
@@ -444,6 +506,9 @@ mod tests {
             timeout_ms: Some(5_000),
             multipart: None,
             network: None,
+            use_cookies: None,
+            skip_probe: None,
+            max_body_bytes: None,
         }
     }
 
@@ -502,4 +567,46 @@ mod tests {
 
         handle.join().expect("server thread");
     }
+
+    fn spawn_http_server_with_length(body: &'static str) -> (String, thread::JoinHandle<()>) {
+        spawn_http_server(body)
+    }
+
+    #[tokio::test]
+    async fn truncates_oversized_response_body() {
+        let body = "0123456789abcdef0123456789abcdef";
+        let (url, handle) = spawn_http_server_with_length(body);
+        let mut payload = get_payload(&url);
+        payload.max_body_bytes = Some(8);
+        payload.skip_probe = Some(true);
+
+        let response = send_with_cookie(payload, Arc::new(Jar::default()), None)
+            .await
+            .expect("request should succeed");
+
+        assert_eq!(response.body, "01234567");
+        assert!(response.truncated);
+        assert!(response.size_bytes >= response.body.len());
+
+        handle.join().expect("server thread");
+    }
+
+    #[tokio::test]
+    async fn keeps_small_response_untruncated() {
+        let (url, handle) = spawn_http_server("ok");
+        let mut payload = get_payload(&url);
+        payload.max_body_bytes = Some(1024);
+        payload.skip_probe = Some(true);
+
+        let response = send_with_cookie(payload, Arc::new(Jar::default()), None)
+            .await
+            .expect("request should succeed");
+
+        assert_eq!(response.body, "ok");
+        assert!(!response.truncated);
+        assert_eq!(response.size_bytes, 2);
+
+        handle.join().expect("server thread");
+    }
+
 }

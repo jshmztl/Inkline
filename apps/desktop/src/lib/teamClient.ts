@@ -1,5 +1,6 @@
+import { sendHttpRequest } from './api';
 import { kvGet, kvRemove, kvSet } from './kv';
-import { currentNetworkMode } from './network';
+import { backendNetworkOptions, currentNetworkMode } from './network';
 import { checkNetworkAccessResolved } from './networkPolicy';
 import {
   CONNECTION_META_KEY,
@@ -119,15 +120,76 @@ function rememberServer(url: string) {
   kvSet(SERVER_HINT_KEY, url);
 }
 
-async function parseResponse(response: Response): Promise<unknown> {
-  if (response.status === 204) return null;
-  const text = await response.text();
-  if (!text) return null;
+const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+
+function parseBody(status: number, text: string): unknown {
+  if (status === 204 || !text) return null;
   try {
     return JSON.parse(text);
   } catch {
     return text;
   }
+}
+
+function notifySessionExpired(message: string) {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('aw-team-session-expired', { detail: message }));
+  }
+}
+
+interface TeamHttpResult {
+  status: number;
+  text: string;
+}
+
+function mapTransportError(error: unknown): TeamApiError {
+  if (error instanceof TeamApiError) return error;
+  const text = error instanceof Error ? error.message : String(error);
+  if (
+    text.includes('已阻止') ||
+    text.includes('离线模式') ||
+    text.includes('禁止解析') ||
+    text.includes('只允许本机')
+  ) {
+    return new TeamApiError(0, 'network_blocked', text);
+  }
+  return new TeamApiError(0, 'network_error', '无法连接团队服务，请检查地址与网络');
+}
+
+async function teamHttp(
+  url: string,
+  init: { method?: string; headers?: Record<string, string>; body?: string },
+): Promise<TeamHttpResult> {
+  if (isTauri) {
+    try {
+      const headers = Object.entries(init.headers ?? {}).map(([name, value]) => ({ name, value }));
+      const response = await sendHttpRequest({
+        method: init.method ?? 'GET',
+        url,
+        headers,
+        body: init.body,
+        timeoutMs: 30_000,
+        network: backendNetworkOptions(currentNetworkMode()),
+        useCookies: false,
+        skipProbe: true,
+      });
+      return { status: response.status, text: response.body };
+    } catch (error) {
+      throw mapTransportError(error);
+    }
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: init.method ?? 'GET',
+      headers: init.headers,
+      body: init.body,
+    });
+  } catch (error) {
+    throw mapTransportError(error);
+  }
+  return { status: response.status, text: await response.text() };
 }
 
 function errorFromResponse(status: number, data: unknown): TeamApiError {
@@ -153,19 +215,18 @@ async function publicRequest(
   path: string,
   body: unknown,
 ): Promise<unknown> {
-  await ensureServerAccess(serverUrl);
-  let response: Response;
-  try {
-    response = await fetch(`${serverUrl}${path}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-  } catch {
-    throw new TeamApiError(0, 'network_error', '无法连接团队服务，请检查地址与网络');
+  if (!isTauri) {
+    await ensureServerAccess(serverUrl);
   }
-  const data = await parseResponse(response);
-  if (!response.ok) throw errorFromResponse(response.status, data);
+  const result = await teamHttp(`${serverUrl}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = parseBody(result.status, result.text);
+  if (result.status < 200 || result.status >= 300) {
+    throw errorFromResponse(result.status, data);
+  }
   return data;
 }
 
@@ -177,11 +238,15 @@ async function refreshConnection(connection: TeamConnection): Promise<void> {
     })) as { accessToken?: string; refreshToken?: string } | null;
   } catch {
     clearTeamConnection();
-    throw new TeamApiError(401, 'session_expired', '登录已过期，请重新连接团队服务');
+    const expired = new TeamApiError(401, 'session_expired', '登录已过期，请重新连接团队服务');
+    notifySessionExpired(expired.message);
+    throw expired;
   }
   if (!data?.accessToken || !data?.refreshToken) {
     clearTeamConnection();
-    throw new TeamApiError(401, 'session_expired', '登录已过期，请重新连接团队服务');
+    const expired = new TeamApiError(401, 'session_expired', '登录已过期，请重新连接团队服务');
+    notifySessionExpired(expired.message);
+    throw expired;
   }
   connection.accessToken = data.accessToken;
   connection.refreshToken = data.refreshToken;
@@ -194,31 +259,30 @@ export async function teamRequest(
   init: { method?: string; body?: unknown; headers?: Record<string, string> } = {},
   retry = true,
 ): Promise<unknown> {
-  await ensureServerAccess(connection.serverUrl);
+  if (!isTauri) {
+    await ensureServerAccess(connection.serverUrl);
+  }
   const headers: Record<string, string> = {
     Authorization: `Bearer ${connection.accessToken}`,
     ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
     ...(init.headers ?? {}),
   };
 
-  let response: Response;
-  try {
-    response = await fetch(`${connection.serverUrl}${path}`, {
-      method: init.method ?? 'GET',
-      headers,
-      body: init.body === undefined ? undefined : JSON.stringify(init.body),
-    });
-  } catch {
-    throw new TeamApiError(0, 'network_error', '无法连接团队服务，请检查地址与网络');
-  }
+  const result = await teamHttp(`${connection.serverUrl}${path}`, {
+    method: init.method ?? 'GET',
+    headers,
+    body: init.body === undefined ? undefined : JSON.stringify(init.body),
+  });
 
-  if (response.status === 401 && retry) {
+  if (result.status === 401 && retry) {
     await refreshConnection(connection);
     return teamRequest(connection, path, init, false);
   }
 
-  const data = await parseResponse(response);
-  if (!response.ok) throw errorFromResponse(response.status, data);
+  const data = parseBody(result.status, result.text);
+  if (result.status < 200 || result.status >= 300) {
+    throw errorFromResponse(result.status, data);
+  }
   return data;
 }
 

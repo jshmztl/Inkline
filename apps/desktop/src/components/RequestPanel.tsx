@@ -50,6 +50,12 @@ import {
   truncateResponseBody,
   type ResponseCacheMeta,
 } from '../lib/responseCache';
+import {
+  extractRequestAuthSecrets,
+  mergeRequestAuthSecrets,
+  readRequestAuthSecrets,
+  writeRequestAuthSecrets,
+} from '../lib/secretMigration';
 import { RequestTabs } from './RequestTabs';
 import {
   RequestResponsePanel,
@@ -151,11 +157,15 @@ const defaultMeta: RequestMeta = {
 function readRequestMeta(id: string): RequestMeta {
   try {
     const raw = kvGet(`aw-request-meta:${id}`);
-    if (!raw) return { ...defaultMeta };
+    if (!raw) {
+      const secrets = readRequestAuthSecrets(id);
+      return { ...defaultMeta, ...secrets };
+    }
     const parsed = JSON.parse(raw) as Partial<RequestMeta>;
+    const merged = mergeRequestAuthSecrets(parsed as Record<string, unknown>, readRequestAuthSecrets(id));
     return {
       ...defaultMeta,
-      ...parsed,
+      ...(merged as Partial<RequestMeta>),
       formRows: parsed.formRows ?? defaultMeta.formRows,
       params: parsed.params ?? defaultMeta.params,
       fileRows: parsed.fileRows ?? defaultMeta.fileRows,
@@ -168,7 +178,9 @@ function readRequestMeta(id: string): RequestMeta {
 
 function writeRequestMeta(id: string, meta: RequestMeta) {
   try {
-    kvSet(`aw-request-meta:${id}`, JSON.stringify(meta));
+    const { publicMeta, secrets } = extractRequestAuthSecrets(meta as unknown as Record<string, unknown>);
+    writeRequestAuthSecrets(id, secrets);
+    kvSet(`aw-request-meta:${id}`, JSON.stringify(publicMeta));
   } catch {
     // 存储不可用时仅保留在内存中。
   }
@@ -963,7 +975,9 @@ export function RequestPanel({
       setFeedback(
         failedCount > 0
           ? `请求完成 · ${result.status} ${result.statusText} · ${failedCount} 条断言失败`
-          : `请求完成 · ${result.status} ${result.statusText}`,
+          : result.truncated
+            ? `请求完成 · ${result.status} ${result.statusText} · 响应体已截断（超过 10 MiB）`
+            : `请求完成 · ${result.status} ${result.statusText}`,
       );
 
       const postResult = await runScript(postScript, {
@@ -1051,8 +1065,8 @@ export function RequestPanel({
         }).catch(() => {});
       }
       setError(text);
-      setFeedback('请求失败 · 已加入离线队列');
-      message.error({ content: '请求失败，已加入离线队列', duration: 2.2 });
+      setFeedback(`请求失败 · 已加入离线队列`);
+      message.error({ content: `请求失败：${text}。已加入离线队列`, duration: 4 });
 
       enqueueTask({
         requestId: activeRequest.id,

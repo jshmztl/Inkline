@@ -1,3 +1,6 @@
+import { executeScript } from './scriptInterpreter';
+import ScriptWorker from './scriptSandbox.worker.ts?worker';
+
 export interface ScriptRequestContext {
   method: string;
   url: string;
@@ -25,118 +28,22 @@ export interface ScriptRunResult {
   error: string | null;
 }
 
-const WORKER_SOURCE = String.raw`
-// 脚本沙箱禁止一切网络与外部资源能力，避免绕过应用的网络模式策略。
-function blockNetwork() {
-  var blocked = function () {
-    throw new Error('脚本沙箱禁止网络访问');
-  };
-  self.fetch = blocked;
-  self.XMLHttpRequest = blocked;
-  self.WebSocket = blocked;
-  self.EventSource = blocked;
-  self.importScripts = blocked;
-  if (self.navigator) {
-    try {
-      Object.defineProperty(self.navigator, 'sendBeacon', { value: blocked });
-    } catch (error) {
-      // 部分环境不允许改写 navigator，忽略即可。
-    }
-  }
+export { executeScript };
+
+function shouldUseWorker(): boolean {
+  if (typeof Worker === 'undefined') return false;
+  const env = import.meta.env as { VITEST?: boolean };
+  if (env && env.VITEST) return false;
+  return true;
 }
 
-blockNetwork();
-
-function formatValue(value) {
-  if (typeof value === 'string') return value;
-  try {
-    return JSON.stringify(value);
-  } catch (error) {
-    return String(value);
-  }
-}
-
-self.onmessage = function (event) {
-  var source = event.data.source;
-  var context = event.data.context;
-  var logs = [];
-  var state = { variables: Object.assign({}, context.variables) };
-  var variablesApi = {
-    get: function (name) { return state.variables[name]; },
-    set: function (name, value) { state.variables[name] = String(value); },
-    unset: function (name) { delete state.variables[name]; },
-    toObject: function () { return Object.assign({}, state.variables); }
-  };
-  var pm = {
-    variables: variablesApi,
-    environment: variablesApi,
-    request: context.request,
-    response: context.response ? {
-      status: context.response.status,
-      statusText: context.response.statusText,
-      headers: context.response.headers,
-      body: context.response.body,
-      durationMs: context.response.durationMs,
-      json: function () {
-        try {
-          return JSON.parse(context.response.body);
-        } catch (error) {
-          return null;
-        }
-      }
-    } : null
-  };
-  var scriptConsole = {
-    log: function () {
-      logs.push(Array.prototype.slice.call(arguments).map(formatValue).join(' '));
-    },
-    warn: function () {
-      logs.push('[warn] ' + Array.prototype.slice.call(arguments).map(formatValue).join(' '));
-    },
-    error: function () {
-      logs.push('[error] ' + Array.prototype.slice.call(arguments).map(formatValue).join(' '));
-    }
-  };
-
-  function reply(error) {
-    self.postMessage({ logs: logs, variables: state.variables, error: error || null });
-  }
-
-  try {
-    var runner = new Function('pm', 'console', '"use strict";\n' + source);
-    var result = runner(pm, scriptConsole);
-    if (result && typeof result.then === 'function') {
-      result.then(
-        function () { reply(null); },
-        function (error) { reply(String(error)); }
-      );
-    } else {
-      reply(null);
-    }
-  } catch (error) {
-    reply(String(error));
-  }
-};
-`;
-
-export async function runScript(
+function runInWorker(
   source: string,
   context: ScriptContext,
-  timeoutMs = 2000,
+  timeoutMs: number,
+  fallbackVariables: Record<string, string>,
 ): Promise<ScriptRunResult> {
-  const variables = { ...context.variables };
-  if (!source.trim()) {
-    return { logs: [], variables, error: null };
-  }
-
-  if (typeof Worker === 'undefined') {
-    return { logs: [], variables, error: '当前环境不支持脚本沙箱' };
-  }
-
-  const blob = new Blob([WORKER_SOURCE], { type: 'text/javascript' });
-  const url = URL.createObjectURL(blob);
-  const worker = new Worker(url);
-
+  const worker = new ScriptWorker();
   return new Promise<ScriptRunResult>((resolve) => {
     let settled = false;
 
@@ -145,12 +52,11 @@ export async function runScript(
       settled = true;
       window.clearTimeout(timer);
       worker.terminate();
-      URL.revokeObjectURL(url);
       resolve(result);
     }
 
     const timer = window.setTimeout(() => {
-      finish({ logs: [], variables, error: `脚本执行超时（>${timeoutMs}ms）` });
+      finish({ logs: [], variables: fallbackVariables, error: `脚本执行超时（>${timeoutMs}ms）` });
     }, timeoutMs);
 
     worker.onmessage = (event: MessageEvent) => {
@@ -161,15 +67,45 @@ export async function runScript(
       };
       finish({
         logs: Array.isArray(data.logs) ? data.logs : [],
-        variables: data.variables ?? variables,
+        variables: data.variables ?? fallbackVariables,
         error: data.error ?? null,
       });
     };
 
     worker.onerror = (event) => {
-      finish({ logs: [], variables, error: event.message || '脚本执行失败' });
+      finish({
+        logs: [],
+        variables: fallbackVariables,
+        error: event.message || '脚本执行失败',
+      });
     };
 
-    worker.postMessage({ source, context });
+    worker.postMessage({ source, context, timeoutMs });
   });
+}
+
+/**
+ * 在 CSP 不允许 eval / new Function 的环境中执行前置 / 后置脚本。
+ * 优先放入 Worker，以便超时后强制终止；Worker 不可用时回退到同进程解释器。
+ */
+export async function runScript(
+  source: string,
+  context: ScriptContext,
+  timeoutMs = 2000,
+): Promise<ScriptRunResult> {
+  const variables = { ...context.variables };
+  if (!source.trim()) {
+    return { logs: [], variables, error: null };
+  }
+
+  if (shouldUseWorker()) {
+    try {
+      return await runInWorker(source, context, timeoutMs, variables);
+    } catch {
+      // Worker 构造失败时回退到同进程解释器，保证安装包内仍可执行脚本。
+      return executeScript(source, context, { timeoutMs });
+    }
+  }
+
+  return executeScript(source, context, { timeoutMs });
 }

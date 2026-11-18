@@ -31,3 +31,5 @@ if-addrs = "0.13"
 tauri-plugin-updater = "2.14.1"
 tauri-plugin-process = "2.4.0"
 keyring = { version = "3", features = ["windows-native"] }
+aes-gcm = "0.10"
+getrandom = "0.2"

@@ -1,5 +1,7 @@
 import type { NetworkMode } from '../data/types';
 import { kvGet, kvSet } from './kv';
+import { AI_GATEWAY_SECRET_KEY } from './secretMigration';
+import { secretGet, secretSet } from './secretStore';
 import { backendNetworkOptions } from './network';
 
 export type AiProvider = 'deepseek' | 'qwen-cloud' | 'qwen-ollama' | 'qwen-vllm' | 'custom';
@@ -77,9 +79,12 @@ export const defaultGatewayConfig: AiGatewayConfig = {
 export function readGatewayConfig(): AiGatewayConfig {
   try {
     const raw = kvGet(STORAGE_KEY);
-    if (!raw) return { ...defaultGatewayConfig };
+    if (!raw) {
+      return { ...defaultGatewayConfig, apiKey: secretGet(AI_GATEWAY_SECRET_KEY) ?? '' };
+    }
     const parsed = JSON.parse(raw) as Partial<AiGatewayConfig>;
-    return { ...defaultGatewayConfig, ...parsed };
+    const apiKey = secretGet(AI_GATEWAY_SECRET_KEY) ?? parsed.apiKey ?? '';
+    return { ...defaultGatewayConfig, ...parsed, apiKey };
   } catch {
     return { ...defaultGatewayConfig };
   }
@@ -87,7 +92,8 @@ export function readGatewayConfig(): AiGatewayConfig {
 
 export function writeGatewayConfig(config: AiGatewayConfig) {
   try {
-    kvSet(STORAGE_KEY, JSON.stringify(config));
+    secretSet(AI_GATEWAY_SECRET_KEY, config.apiKey ?? '');
+    kvSet(STORAGE_KEY, JSON.stringify({ ...config, apiKey: '' }));
   } catch {
     // 本地存储不可用时仅保留内存配置。
   }

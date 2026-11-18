@@ -164,6 +164,14 @@ export function RequestResponsePanel({
               </span>
             )}
             <span className="response-meta">{formatBytes(response.sizeBytes)}</span>
+            {response.truncated && (
+              <span
+                className="response-meta warn"
+                title="响应体超过 10 MiB 上限，仅保留开头部分。历史记录仍只保存元数据，不保存响应正文。"
+              >
+                已截断
+              </span>
+            )}
             {cacheMeta && (
               <span
                 className={`response-meta cache-meta${cacheMeta.stale ? ' bad' : ''}`}

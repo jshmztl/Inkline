@@ -31,6 +31,9 @@ importers:
       '@tauri-apps/plugin-updater':
         specifier: ^2.14.1
         version: 2.14.1
+      acorn:
+        specifier: ^8.19.0
+        version: 8.19.0
       antd:
         specifier: ^5
         version: 5.29.3(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -446,6 +449,11 @@ packages:
 
   '@vitest/spy@5.1.0':
     resolution: {integrity: sha512-2DPO5OMHWKrBngC+fCmTQqemNF0gidRhp3lxbBmRhW+M1XJrfgPpqNqWVevXtn2f2ufD5ZaR1B6B641aAlcX5A==}
+
+  acorn@8.19.0:
+    resolution: {integrity: sha512-oJlA3XiRm7Cyk6qFD2Jn8ak9B7jSy0qy00ADO3+8dpT0LSjFihQYv4C02LFCSYJV3Q37xYwwRy5m+IpIiUzqWw==}
+    engines: {node: '>=0.4.0'}
+    hasBin: true
 
   antd@5.29.3:
     resolution: {integrity: sha512-3DdbGCa9tWAJGcCJ6rzR8EJFsv2CtyEbkVabZE14pfgUHfCicWCj0/QzQVLDYg8CPfQk9BH7fHCoTXHTy7MP/A==}
@@ -1276,6 +1284,8 @@ snapshots:
       vite: 8.3.6
 
   '@vitest/spy@5.1.0': {}
+
+  acorn@8.19.0: {}
 
   antd@5.29.3(react-dom@19.3.1(react@19.3.1))(react@19.3.1):
     dependencies:

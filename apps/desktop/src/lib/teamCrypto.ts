@@ -1,6 +1,6 @@
-import { kvGet, kvRemove, kvSet } from './kv';
+import { deleteSecretNow, secretGet, secretSet } from './secretStore';
+import { teamKeySecretKey } from './secretMigration';
 
-const KEY_PREFIX = 'aw-team-key:';
 const ENCRYPTED_PREFIX = 'enc:v1:';
 
 export interface TeamKeyInfo {
@@ -18,7 +18,7 @@ type SnapshotPayload = Record<string, unknown>;
 
 export function readTeamKey(teamId: string): TeamKeyInfo | null {
   try {
-    const raw = kvGet(`${KEY_PREFIX}${teamId}`);
+    const raw = secretGet(teamKeySecretKey(teamId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<TeamKeyInfo>;
     if (!parsed?.key || !isValidTeamKey(parsed.key)) return null;
@@ -34,12 +34,12 @@ export function saveTeamKey(teamId: string, key: string): TeamKeyInfo {
     throw new Error('团队密钥必须是 32 字节的 Base64 字符串');
   }
   const info: TeamKeyInfo = { key: trimmed, createdAt: new Date().toISOString() };
-  kvSet(`${KEY_PREFIX}${teamId}`, JSON.stringify(info));
+  secretSet(teamKeySecretKey(teamId), JSON.stringify(info));
   return info;
 }
 
 export function clearTeamKey(teamId: string) {
-  kvRemove(`${KEY_PREFIX}${teamId}`);
+  void deleteSecretNow(teamKeySecretKey(teamId));
 }
 
 export function isValidTeamKey(key: string): boolean {
