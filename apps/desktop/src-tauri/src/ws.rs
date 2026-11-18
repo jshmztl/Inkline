@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use futures_util::{SinkExt, StreamExt};
@@ -263,16 +264,20 @@ pub async fn ws_connect(
     let connector = build_connector(payload.network.as_ref())?;
     let proxy = proxy_address(payload.network.as_ref())?;
 
-    let (stream, _) = if let Some(proxy_address) = proxy {
-        let tunnel = connect_proxy_tunnel(proxy_address, &host, port).await?;
-        client_async_tls_with_config(request, tunnel, None, Some(connector))
-            .await
-            .map_err(|error| format!("WebSocket 连接失败：{error}"))?
-    } else {
-        connect_async_tls_with_config(request, None, false, Some(connector))
-            .await
-            .map_err(|error| format!("WebSocket 连接失败：{error}"))?
-    };
+    let (stream, _) = tokio::time::timeout(Duration::from_secs(15), async {
+        if let Some(proxy_address) = proxy {
+            let tunnel = connect_proxy_tunnel(proxy_address, &host, port).await?;
+            client_async_tls_with_config(request, tunnel, None, Some(connector))
+                .await
+                .map_err(|error| format!("WebSocket 连接失败：{error}"))
+        } else {
+            connect_async_tls_with_config(request, None, false, Some(connector))
+                .await
+                .map_err(|error| format!("WebSocket 连接失败：{error}"))
+        }
+    })
+    .await
+    .map_err(|_| "WebSocket 连接超时".to_string())??;
 
     let (mut write, mut read) = stream.split();
     let (sender, mut receiver) = mpsc::unbounded_channel::<Message>();

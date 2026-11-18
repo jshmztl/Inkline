@@ -51,6 +51,8 @@ export interface TeamAccess {
 
 const SERVER_HINT_KEY = 'aw-team-server-hint';
 
+let refreshInFlight: Promise<void> | null = null;
+
 export class TeamApiError extends Error {
   status: number;
   code: string;
@@ -231,17 +233,20 @@ async function publicRequest(
   return data;
 }
 
-async function refreshConnection(connection: TeamConnection): Promise<void> {
+async function performRefresh(connection: TeamConnection): Promise<void> {
   let data: { accessToken?: string; refreshToken?: string } | null;
   try {
     data = (await publicRequest(connection.serverUrl, '/v1/auth/refresh', {
       refreshToken: connection.refreshToken,
     })) as { accessToken?: string; refreshToken?: string } | null;
-  } catch {
-    clearTeamConnection();
-    const expired = new TeamApiError(401, 'session_expired', '登录已过期，请重新连接团队服务');
-    notifySessionExpired(expired.message);
-    throw expired;
+  } catch (error) {
+    if (error instanceof TeamApiError && (error.status === 401 || error.status === 403)) {
+      clearTeamConnection();
+      const expired = new TeamApiError(401, 'session_expired', '登录已过期，请重新连接团队服务');
+      notifySessionExpired(expired.message);
+      throw expired;
+    }
+    throw error;
   }
   if (!data?.accessToken || !data?.refreshToken) {
     clearTeamConnection();
@@ -252,6 +257,20 @@ async function refreshConnection(connection: TeamConnection): Promise<void> {
   connection.accessToken = data.accessToken;
   connection.refreshToken = data.refreshToken;
   saveTeamConnection(connection);
+}
+
+async function refreshConnection(connection: TeamConnection): Promise<void> {
+  if (!refreshInFlight) {
+    refreshInFlight = performRefresh(connection).finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  await refreshInFlight;
+  const latest = readTeamConnection();
+  if (latest) {
+    connection.accessToken = latest.accessToken;
+    connection.refreshToken = latest.refreshToken;
+  }
 }
 
 export async function teamRequest(

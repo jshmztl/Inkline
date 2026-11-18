@@ -24,6 +24,7 @@ export interface PresenceSnapshot {
 const RECONNECT_BASE_MS = 1500;
 const RECONNECT_MAX_MS = 30_000;
 const HEARTBEAT_MS = 25_000;
+const CONNECT_TIMEOUT_MS = 12_000;
 
 export function useTeamPresence(
   session: Session | null,
@@ -46,12 +47,21 @@ export function useTeamPresence(
     let disposed = false;
     let socket: WebSocketHandle | null = null;
     let reconnectTimer: number | null = null;
+    let connectTimer: number | null = null;
     let opened = false;
     let online = false;
     let reconnecting = false;
 
+    function clearConnectTimer() {
+      if (connectTimer !== null) {
+        window.clearTimeout(connectTimer);
+        connectTimer = null;
+      }
+    }
+
     function scheduleReconnect() {
       if (disposed || reconnecting) return;
+      clearConnectTimer();
       reconnecting = true;
       retryRef.current += 1;
       const delay = Math.min(
@@ -66,6 +76,7 @@ export function useTeamPresence(
     async function connect() {
       if (disposed) return;
       reconnecting = false;
+      clearConnectTimer();
       let connection = readTeamConnection();
       if (!connection) {
         setStatus('offline');
@@ -86,16 +97,35 @@ export function useTeamPresence(
       // 先走一次普通请求，访问令牌过期时由 teamRequest 自动续期。
       try {
         await fetchTeams(connection);
-        connection = readTeamConnection() ?? connection;
       } catch {
         // 网络不可用时继续用现有令牌尝试建立连接。
       }
       if (disposed) return;
 
+      const latest = readTeamConnection();
+      if (!latest) {
+        setStatus('offline');
+        setMembers([]);
+        scheduleReconnect();
+        return;
+      }
+      connection = latest;
+
       const wsBase = connection.serverUrl.replace(/^http/i, 'ws');
       setStatus('connecting');
       opened = false;
       online = false;
+      clearConnectTimer();
+      connectTimer = window.setTimeout(() => {
+        if (disposed || online) return;
+        connectTimer = null;
+        opened = false;
+        socket?.close();
+        socket = null;
+        setStatus('offline');
+        setMembers([]);
+        scheduleReconnect();
+      }, CONNECT_TIMEOUT_MS);
       const token = connection.accessToken;
       socket = openWebSocket(`${wsBase}/v1/teams/${teamId}/presence`, (event) => {
         if (disposed) return;
@@ -112,13 +142,19 @@ export function useTeamPresence(
               members?: PresenceMember[];
             };
             if (data.type === 'presence' && Array.isArray(data.members)) {
+              clearConnectTimer();
               retryRef.current = 0;
               online = true;
               setMembers(data.members);
               setStatus('online');
             }
             if (data.type === 'error') {
+              clearConnectTimer();
+              setStatus('offline');
+              setMembers([]);
               socket?.close();
+              socket = null;
+              scheduleReconnect();
             }
           } catch {
             // 忽略无法解析的消息。
@@ -127,6 +163,7 @@ export function useTeamPresence(
         }
         if (event.kind === 'error' || event.kind === 'close') {
           if (disposed) return;
+          clearConnectTimer();
           const shouldReconnect = opened || event.kind === 'error' || event.kind === 'close';
           opened = false;
           online = false;
@@ -154,6 +191,7 @@ export function useTeamPresence(
     return () => {
       disposed = true;
       window.clearInterval(heartbeat);
+      clearConnectTimer();
       if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
       socket?.close();
     };
