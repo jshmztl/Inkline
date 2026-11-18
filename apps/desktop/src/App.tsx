@@ -22,7 +22,7 @@ import { migrateLegacyAudit } from './lib/audit';
 import { listEnvironments, saveEnvironmentVariables, writeEnvironments } from './lib/envStore';
 import { kvGet, kvSet } from './lib/kv';
 import { copyRequestAuthSecrets, deleteRequestAuthSecrets } from './lib/secretMigration';
-import { setActiveNetworkMode } from './lib/network';
+import { readNetworkMode, writeNetworkMode } from './lib/network';
 import { parseImport } from './lib/importer';
 import {
   buildDeltaPayload,
@@ -58,7 +58,7 @@ import { TestRunModal } from './components/TestRunModal';
 import { TopBar } from './components/TopBar';
 import { readSession, signOut, type Session } from './lib/session';
 import { useTeamPresence } from './lib/presence';
-import { readTeamKey } from './lib/teamCrypto';
+import { ensureTeamEncryption } from './lib/teamE2E';
 import { runCollectionTests, type TestCaseResult } from './lib/testRunner';
 
 const AiPanel = lazy(() =>
@@ -146,12 +146,13 @@ export function App() {
   const [session, setSession] = useState<Session | null>(readSession);
   const [mode, setMode] = useState<ThemeMode>(readStoredMode);
   const [density, setDensity] = useState<Density>(readStoredDensity);
-  const [networkMode, setNetworkMode] = useState<NetworkMode>('B');
+  const [networkMode, setNetworkMode] = useState<NetworkMode>(readNetworkMode);
   const [environment, setEnvironment] = useState('');
   const [workspaceEnvs, setWorkspaceEnvs] = useState(listEnvironments);
   const [activeRequestId, setActiveRequestId] = useState('');
   const [openTabIds, setOpenTabIds] = useState<string[]>([]);
   const autoOpenRef = useRef(true);
+  const encryptionNotifiedRef = useRef(new Set<string>());
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historyHasMore, setHistoryHasMore] = useState(false);
   const [savedRequests, setSavedRequests] = useState<SavedRequest[]>([]);
@@ -177,9 +178,10 @@ export function App() {
   } | null>(null);
   const presence = useTeamPresence(session, networkMode);
 
-  useEffect(() => {
-    setActiveNetworkMode(networkMode);
-  }, [networkMode]);
+  function changeNetworkMode(mode: NetworkMode) {
+    setNetworkMode(mode);
+    writeNetworkMode(mode);
+  }
 
   useEffect(() => {
     let alive = true;
@@ -692,6 +694,56 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.mode, session?.team?.id]);
 
+  useEffect(() => {
+    if (session?.mode !== 'team' || !session.team) return;
+    const team = session.team;
+    const connection = readTeamConnection();
+    if (!connection) return;
+    const noticeKey = `${team.id}:${connection.user.id}`;
+
+    let cancelled = false;
+    let initial = true;
+
+    const refreshEncryption = () => {
+      const isInitial = initial;
+      initial = false;
+      void ensureTeamEncryption(connection, team.id, team.role)
+        .then((result) => {
+          if (cancelled) return;
+          if (!result.pending) {
+            encryptionNotifiedRef.current.delete(noticeKey);
+            return;
+          }
+          if (!encryptionNotifiedRef.current.has(noticeKey)) {
+            encryptionNotifiedRef.current.add(noticeKey);
+            const detail =
+              team.role === 'owner' || team.role === 'admin'
+                ? '当前设备尚未获得团队密钥，请在团队连接面板刷新或轮换密钥'
+                : '等待团队管理员分发加密密钥，团队同步暂不可用';
+            window.dispatchEvent(
+              new CustomEvent('aw-app-error', { detail }),
+            );
+          }
+        })
+        .catch((error) => {
+          if (cancelled || !isInitial) return;
+          const reason = error instanceof Error ? error.message : String(error);
+          window.dispatchEvent(
+            new CustomEvent('aw-app-error', {
+              detail: `团队加密初始化失败：${reason}`,
+            }),
+          );
+        });
+    };
+
+    refreshEncryption();
+    const timer = window.setInterval(refreshEncryption, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [session?.mode, session?.team?.id, session?.team?.role]);
+
   function buildLocalSnapshot(): TeamSnapshot {
     return {
       revision: readTeamBase(session?.team?.id)?.revision ?? 0,
@@ -711,9 +763,27 @@ export function App() {
       if (!connection) {
         throw new TeamApiError(401, 'not_connected', '团队服务连接已失效，请重新登录');
       }
+      const encryption = await ensureTeamEncryption(
+        connection,
+        session.team.id,
+        session.team.role,
+      );
+      const encryptionKey =
+        encryption.keyring.keys.get(encryption.keyring.currentVersion) ?? null;
+      if (encryption.status.enabled && !encryptionKey) {
+        const isManager =
+          session.team.role === 'owner' || session.team.role === 'admin';
+        throw new TeamApiError(
+          0,
+          'encryption_key_pending',
+          isManager
+            ? '当前设备尚未获得团队密钥，请在团队连接面板刷新或轮换密钥'
+            : '等待团队管理员分发加密密钥，暂不能推送快照',
+        );
+      }
+
       const local = buildLocalSnapshot();
       const base = readTeamBase(session.team.id);
-      const encryptionKey = readTeamKey(session.team.id)?.key ?? null;
       let payload: Record<string, unknown>;
       let deltaChanges: number | undefined;
       if (base && !encryptionKey) {
@@ -733,7 +803,9 @@ export function App() {
           session.team.id,
           payload,
           base?.revision ?? 0,
-          encryptionKey,
+          encryptionKey
+            ? { key: encryptionKey, version: encryption.keyring.currentVersion }
+            : null,
         );
         const snapshot: TeamSnapshot = {
           ...local,
@@ -750,10 +822,10 @@ export function App() {
       } catch (error) {
         if (error instanceof TeamApiError && error.code === 'revision_conflict') {
           const latest = await fetchLatestSnapshot(
-        connection,
-        session.team.id,
-        readTeamKey(session.team.id)?.key ?? null,
-      );
+            connection,
+            session.team.id,
+            encryption.keyring,
+          );
           if (latest) {
             writeTeamSnapshot(
               snapshotFromRemote(latest.payload as unknown as RemoteSnapshotPayload, {
@@ -794,10 +866,15 @@ export function App() {
       if (!connection) {
         throw new TeamApiError(401, 'not_connected', '团队服务连接已失效，请重新登录');
       }
+      const encryption = await ensureTeamEncryption(
+        connection,
+        session.team.id,
+        session.team.role,
+      );
       const latest = await fetchLatestSnapshot(
         connection,
         session.team.id,
-        readTeamKey(session.team.id)?.key ?? null,
+        encryption.keyring,
       );
       if (!latest) return null;
       const snapshot = snapshotFromRemote(latest.payload as unknown as RemoteSnapshotPayload, {
@@ -867,7 +944,11 @@ export function App() {
       <AntProvider mode={mode} density={density}>
         <AntApp className="ant-app-root">
           <KvErrorNotifier />
-          <LoginScreen onSignedIn={setSession} />
+          <LoginScreen
+            networkMode={networkMode}
+            onNetworkModeChange={changeNetworkMode}
+            onSignedIn={setSession}
+          />
         </AntApp>
       </AntProvider>
     );
@@ -888,7 +969,7 @@ export function App() {
             presence={presence}
             onToggleMode={toggleMode}
             onDensityChange={changeDensity}
-            onNetworkModeChange={setNetworkMode}
+            onNetworkModeChange={changeNetworkMode}
             onEnvironmentChange={setEnvironment}
             onSignOut={handleSignOut}
             onOpenPalette={() => setPaletteOpen(true)}
@@ -1010,7 +1091,7 @@ export function App() {
                 onClose={() => setPaletteOpen(false)}
                 onSelectRequest={selectRequest}
                 onEnvironmentChange={setEnvironment}
-                onNetworkModeChange={setNetworkMode}
+                onNetworkModeChange={changeNetworkMode}
               />
             </Suspense>
           )}

@@ -7,8 +7,8 @@ Inkline 的团队同步服务端，负责账号、团队、成员、资源权限
 推荐使用 Docker（内置 PostgreSQL）：
 
 1. 生成部署包（包含静态二进制、`deploy.sh` 与 compose 文件）：
-   - Windows：`powershell -ExecutionPolicy Bypass -File apps/team-server/deploy/build-image.ps1 -Version 0.1.26`
-   - Linux / macOS：`sh apps/team-server/deploy/build-image.sh 0.1.26`
+   - Windows：`powershell -ExecutionPolicy Bypass -File apps/team-server/deploy/build-image.ps1 -Version 0.1.27`
+   - Linux / macOS：`sh apps/team-server/deploy/build-image.sh 0.1.27`
    - 产物位于 `output/inkline-team-deploy`。
 2. 将产物上传到服务器，例如 `/opt/inkline-team`，然后执行：
 
@@ -65,6 +65,14 @@ sh deploy.sh update
 - 审计日志查询与团队设置（名称、数据分级上限、保留天数）。
 
 角色分为 `owner`（所有者）、`admin`（管理员）、`member`（成员）、`viewer`（只读）。
+
+## 端到端加密
+
+- 团队默认启用端到端加密。服务端只保存成员设备公钥、用公钥包裹后的团队密钥，以及快照密文，不持有团队密钥明文。
+- 新设备登录后自动注册公钥；所有者或管理员客户端在线时会自动分发当前与历史密钥版本。
+- 首次启用或轮换密钥后，需要由所有者或管理员推送一次完整快照；旧版本快照仍使用历史密钥解密。
+- 移除成员会删除其设备记录；建议随后在桌面端团队连接面板轮换团队密钥。
+- 升级顺序：先升级服务端，再升级所有桌面客户端。新客户端创建第一个密钥版本后，未升级的客户端将无法推送或拉取加密快照。
 
 ## 账号与口令
 

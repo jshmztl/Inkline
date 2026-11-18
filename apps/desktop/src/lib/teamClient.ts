@@ -13,6 +13,7 @@ import {
   decryptSnapshotPayload,
   encryptSnapshotPayload,
   isEncryptedPayload,
+  type TeamKeyring,
 } from './teamCrypto';
 
 export interface TeamConnectionUser {
@@ -379,15 +380,111 @@ export async function fetchTeamAccess(
   return (await teamRequest(connection, `/v1/teams/${teamId}/access`)) as TeamAccess;
 }
 
+export interface TeamEncryptionDevice {
+  deviceId: string;
+  userId: string;
+  displayName?: string | null;
+  publicKey?: string;
+  algorithm: string;
+  hasCurrentKey: boolean;
+  wrappedVersions?: number[];
+  createdAt?: string;
+  lastSeenAt?: string;
+}
+
+export interface TeamWrappedKey {
+  version: number;
+  wrappedKey: string;
+  algorithm: string;
+}
+
+export interface TeamEncryptionStatus {
+  enabled: boolean;
+  currentVersion: number;
+  device: TeamEncryptionDevice | null;
+  wrappedKeys: TeamWrappedKey[];
+  devices: TeamEncryptionDevice[];
+  pendingDevices: number;
+}
+
+export async function fetchTeamEncryption(
+  connection: TeamConnection,
+  teamId: string,
+  deviceId?: string,
+): Promise<TeamEncryptionStatus> {
+  const query = deviceId ? `?deviceId=${encodeURIComponent(deviceId)}` : '';
+  const result = (await teamRequest(
+    connection,
+    `/v1/teams/${teamId}/encryption${query}`,
+  )) as Partial<TeamEncryptionStatus>;
+
+  return {
+    enabled: result.enabled === true,
+    currentVersion: result.currentVersion ?? 0,
+    device: result.device ?? null,
+    wrappedKeys: Array.isArray(result.wrappedKeys) ? result.wrappedKeys : [],
+    devices: Array.isArray(result.devices) ? result.devices : [],
+    pendingDevices: result.pendingDevices ?? 0,
+  };
+}
+
+export async function registerTeamEncryptionDevice(
+  connection: TeamConnection,
+  teamId: string,
+  device: { deviceId: string; publicKey: string; algorithm: string },
+): Promise<void> {
+  await teamRequest(connection, `/v1/teams/${teamId}/encryption/devices`, {
+    method: 'POST',
+    body: device,
+  });
+}
+
+export async function createTeamKeyVersion(
+  connection: TeamConnection,
+  teamId: string,
+  version: number,
+  wrappedKeys: { deviceId: string; wrappedKey: string; algorithm: string }[],
+): Promise<{ version: number; distributed: number }> {
+  return (await teamRequest(connection, `/v1/teams/${teamId}/encryption/keys`, {
+    method: 'POST',
+    body: { version, wrappedKeys },
+  })) as { version: number; distributed: number };
+}
+
+export async function addTeamWrappedKeys(
+  connection: TeamConnection,
+  teamId: string,
+  version: number,
+  wrappedKeys: { deviceId: string; wrappedKey: string; algorithm: string }[],
+): Promise<{ version: number; distributed: number }> {
+  return (await teamRequest(
+    connection,
+    `/v1/teams/${teamId}/encryption/keys/${version}/wrapped`,
+    {
+      method: 'POST',
+      body: { wrappedKeys },
+    },
+  )) as { version: number; distributed: number };
+}
+
+export interface SnapshotEncryption {
+  key: string;
+  version: number;
+}
+
 export async function pushSnapshotRemote(
   connection: TeamConnection,
   teamId: string,
   payload: unknown,
   baseRevision: number,
-  encryptionKey?: string | null,
+  encryption?: SnapshotEncryption | null,
 ): Promise<{ revision: number; hash: string; createdAt: string }> {
-  const body = encryptionKey
-    ? await encryptSnapshotPayload(payload as Record<string, unknown>, encryptionKey)
+  const body = encryption
+    ? await encryptSnapshotPayload(
+        payload as Record<string, unknown>,
+        encryption.key,
+        encryption.version,
+      )
     : payload;
   return (await teamRequest(connection, `/v1/teams/${teamId}/snapshots`, {
     method: 'POST',
@@ -402,27 +499,61 @@ export async function pushSnapshotRemote(
 export async function fetchLatestSnapshot(
   connection: TeamConnection,
   teamId: string,
-  encryptionKey?: string | null,
-): Promise<{ revision: number; payload: Record<string, unknown>; createdAt: string; createdBy?: { displayName?: string } } | null> {
+  keyring?: TeamKeyring | null,
+): Promise<{
+  revision: number;
+  payload: Record<string, unknown>;
+  createdAt: string;
+  createdBy?: { displayName?: string };
+  encryption?: { version: number; keyId?: string | null } | null;
+} | null> {
   const meta = (await teamRequest(connection, `/v1/teams/${teamId}/snapshots/latest`)) as
     | {
         revision: number;
         downloadUrl: string;
         createdAt: string;
         createdBy?: { displayName?: string };
+        encryption?: { version: number; keyId?: string | null } | null;
       }
     | null;
   if (!meta) return null;
   let payload = (await teamRequest(connection, meta.downloadUrl)) as Record<string, unknown>;
   if (isEncryptedPayload(payload)) {
-    if (!encryptionKey) {
+    const envelope = payload.encryption as { keyVersion?: number; keyId?: string };
+    const version =
+      typeof envelope.keyVersion === 'number'
+        ? envelope.keyVersion
+        : (meta.encryption?.version ?? null);
+    const candidates: string[] = [];
+    if (version !== null) {
+      const key = keyring?.keys.get(version);
+      if (key) candidates.push(key);
+    }
+    if (keyring?.legacyKey) candidates.push(keyring.legacyKey);
+    if (version === null) {
+      const current = keyring?.keys.get(keyring.currentVersion);
+      if (current) candidates.push(current);
+    }
+
+    let decrypted: Record<string, unknown> | null = null;
+    for (const key of [...new Set(candidates)]) {
+      try {
+        decrypted = await decryptSnapshotPayload(payload, key);
+        break;
+      } catch {
+        // 尝试下一个可用密钥版本。
+      }
+    }
+    if (!decrypted) {
       throw new TeamApiError(
         0,
         'encryption_key_missing',
-        '该团队快照已加密，请先在团队设置中导入团队密钥',
+        version
+          ? `缺少团队密钥 v${version}，请在团队设置中刷新密钥分发`
+          : '该快照使用旧团队密钥加密，请保留旧密钥或由管理员重新推送',
       );
     }
-    payload = await decryptSnapshotPayload(payload, encryptionKey);
+    payload = decrypted;
   }
   return { ...meta, payload };
 }

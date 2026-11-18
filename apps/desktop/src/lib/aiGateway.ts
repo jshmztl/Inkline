@@ -70,11 +70,15 @@ export const aiProviders: {
 const STORAGE_KEY = 'aw-ai-gateway';
 
 export const defaultGatewayConfig: AiGatewayConfig = {
-  provider: 'qwen-ollama',
-  baseUrl: 'http://127.0.0.1:11434/v1',
-  model: 'qwen2.5:7b',
+  provider: 'custom',
+  baseUrl: '',
+  model: '',
   apiKey: '',
 };
+
+export function isGatewayConfigured(config: AiGatewayConfig): boolean {
+  return Boolean(config.baseUrl.trim() && config.model.trim());
+}
 
 export function readGatewayConfig(): AiGatewayConfig {
   try {

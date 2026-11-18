@@ -49,6 +49,8 @@ pub struct SnapshotMetaRow {
     pub schema_version: i32,
     pub created_at: DateTime<Utc>,
     pub created_by_name: Option<String>,
+    pub encryption_version: Option<i32>,
+    pub encryption_key_id: Option<String>,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]

@@ -3,6 +3,7 @@ use std::sync::Arc;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::Router;
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use http_body_util::BodyExt;
 use serde_json::{json, Value};
 use sqlx::postgres::PgPoolOptions;
@@ -279,4 +280,169 @@ async fn login_push_and_rollback_flow() {
         StatusCode::TOO_MANY_REQUESTS,
         "login should be blocked: {blocked}"
     );
+
+    // 端到端加密：注册设备、创建团队密钥并校验快照加密版本。
+    let device_id = Uuid::new_v4();
+    let public_key = STANDARD.encode(b"test-device-public-key");
+    let wrapped_key = STANDARD.encode(b"wrapped-team-key");
+    let (status, registered) = call(
+        &app,
+        "POST",
+        &format!("/v1/teams/{team_id}/encryption/devices"),
+        Some(&token),
+        Some(json!({
+            "deviceId": device_id,
+            "publicKey": public_key,
+            "algorithm": "RSA-OAEP-256",
+        })),
+        &[],
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "register encryption device failed: {registered}"
+    );
+
+    let (status, created_key) = call(
+        &app,
+        "POST",
+        &format!("/v1/teams/{team_id}/encryption/keys"),
+        Some(&token),
+        Some(json!({
+            "version": 1,
+            "wrappedKeys": [{
+                "deviceId": device_id,
+                "wrappedKey": wrapped_key,
+                "algorithm": "RSA-OAEP-256",
+            }],
+        })),
+        &[],
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "create encryption key failed: {created_key}"
+    );
+    assert_eq!(created_key["version"], 1);
+
+    let (status, encryption) = call(
+        &app,
+        "GET",
+        &format!("/v1/teams/{team_id}/encryption?deviceId={device_id}"),
+        Some(&token),
+        None,
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "get encryption failed: {encryption}");
+    assert_eq!(encryption["currentVersion"], 1);
+    assert_eq!(encryption["wrappedKeys"][0]["version"], 1);
+    assert_eq!(
+        encryption["devices"][0]["publicKey"].as_str(),
+        Some(public_key.as_str())
+    );
+    assert_eq!(encryption["devices"][0]["wrappedVersions"][0], 1);
+
+    let (status, rejected) = call(
+        &app,
+        "POST",
+        &format!("/v1/teams/{team_id}/snapshots"),
+        Some(&token),
+        Some(json!({
+            "schemaVersion": 2,
+            "baseRevision": 2,
+            "collections": [],
+            "requests": [],
+            "documents": {},
+        })),
+        &[
+            ("x-inkline-base-revision", "2"),
+            ("idempotency-key", "integration-encryption-plain"),
+        ],
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::CONFLICT,
+        "plaintext push should be rejected: {rejected}"
+    );
+    assert_eq!(rejected["error"]["code"], "encryption_version_mismatch");
+
+    let (status, encrypted) = call(
+        &app,
+        "POST",
+        &format!("/v1/teams/{team_id}/snapshots"),
+        Some(&token),
+        Some(json!({
+            "schemaVersion": 2,
+            "baseRevision": 2,
+            "collections": [],
+            "requests": [],
+            "documents": {},
+            "encryption": {
+                "algorithm": "AES-GCM",
+                "version": 1,
+                "keyId": "test-key-id",
+                "keyVersion": 1,
+            },
+        })),
+        &[
+            ("x-inkline-base-revision", "2"),
+            ("idempotency-key", "integration-encryption-push"),
+        ],
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "encrypted push failed: {encrypted}"
+    );
+    assert_eq!(encrypted["revision"], 3);
+
+    let (status, latest) = call(
+        &app,
+        "GET",
+        &format!("/v1/teams/{team_id}/snapshots/latest"),
+        Some(&token),
+        None,
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(latest["encryption"]["version"], 1);
+
+    let (status, partial) = call(
+        &app,
+        "POST",
+        &format!("/v1/teams/{team_id}/snapshots"),
+        Some(&token),
+        Some(json!({
+            "schemaVersion": 2,
+            "partial": true,
+            "baseRevision": 3,
+            "collections": [],
+            "requests": [],
+            "documents": {},
+            "deletions": { "collections": [], "requests": [], "documents": [] },
+            "encryption": {
+                "algorithm": "AES-GCM",
+                "version": 1,
+                "keyId": "test-key-id",
+                "keyVersion": 1,
+            },
+        })),
+        &[
+            ("x-inkline-base-revision", "3"),
+            ("idempotency-key", "integration-encryption-partial"),
+        ],
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "encrypted partial push failed: {partial}"
+    );
+    assert_eq!(partial["revision"], 4);
 }

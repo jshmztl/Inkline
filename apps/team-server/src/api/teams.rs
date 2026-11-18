@@ -113,6 +113,14 @@ pub async fn create_team(
         .bind(user.0)
         .execute(&mut *tx)
         .await?;
+
+    sqlx::query(
+        "INSERT INTO team_encryption (team_id, enabled, current_version)
+         VALUES ($1, true, 0)",
+    )
+    .bind(team_id)
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
 
     let _ = db::write_audit(

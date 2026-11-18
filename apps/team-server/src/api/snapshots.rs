@@ -36,6 +36,18 @@ struct SnapshotHistoryRow {
     base_revision: Option<i64>,
     created_at: DateTime<Utc>,
     created_by_name: Option<String>,
+    encryption_version: Option<i32>,
+    encryption_key_id: Option<String>,
+}
+
+fn encryption_json(version: Option<i32>, key_id: Option<&str>) -> Value {
+    match version {
+        Some(version) => json!({
+            "version": version,
+            "keyId": key_id,
+        }),
+        None => Value::Null,
+    }
 }
 
 pub async fn list_snapshots(
@@ -49,7 +61,8 @@ pub async fn list_snapshots(
     let limit = query.limit.unwrap_or(20).clamp(1, 100);
     let rows: Vec<SnapshotHistoryRow> = sqlx::query_as(
         "SELECT s.revision, s.payload_hash, s.size_bytes, s.schema_version,
-                s.base_revision, s.created_at, u.display_name AS created_by_name
+                s.base_revision, s.created_at, u.display_name AS created_by_name,
+                s.encryption_version, s.encryption_key_id
          FROM snapshots s
          LEFT JOIN users u ON u.id = s.created_by
          WHERE s.team_id = $1
@@ -78,6 +91,7 @@ pub async fn list_snapshots(
             "baseRevision": row.base_revision,
             "createdBy": { "displayName": row.created_by_name },
             "createdAt": row.created_at,
+            "encryption": encryption_json(row.encryption_version, row.encryption_key_id.as_deref()),
             "downloadUrl": format!("/v1/teams/{team_id}/snapshots/{}", row.revision),
         })).collect::<Vec<_>>(),
         "nextCursor": next_cursor,
@@ -93,7 +107,8 @@ pub async fn get_latest(
 
     let row: Option<SnapshotMetaRow> = sqlx::query_as(
         "SELECT s.revision, s.payload_hash, s.size_bytes, s.schema_version, s.created_at,
-                u.display_name AS created_by_name
+                u.display_name AS created_by_name,
+                s.encryption_version, s.encryption_key_id
          FROM snapshots s
          LEFT JOIN users u ON u.id = s.created_by
          WHERE s.team_id = $1
@@ -115,6 +130,7 @@ pub async fn get_latest(
         "schemaVersion": row.schema_version,
         "createdBy": { "displayName": row.created_by_name },
         "createdAt": row.created_at,
+        "encryption": encryption_json(row.encryption_version, row.encryption_key_id.as_deref()),
         "downloadUrl": format!("/v1/teams/{team_id}/snapshots/{}", row.revision),
     }))
     .into_response())
@@ -199,6 +215,36 @@ pub async fn push_snapshot(
             .and_then(|value| value.to_str().ok())
             .map(|value| value.eq_ignore_ascii_case("partial"))
             .unwrap_or(false);
+
+    let encryption_version = value
+        .get("encryption")
+        .and_then(|encryption| encryption.get("keyVersion"))
+        .and_then(Value::as_i64)
+        .map(|version| version as i32);
+    let encryption_key_id = value
+        .get("encryption")
+        .and_then(|encryption| encryption.get("keyId"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let (encryption_enabled, current_encryption_version) =
+        crate::api::encryption::load_encryption_state(&state.pool, team_id).await?;
+    if encryption_enabled {
+        let expected_version = if current_encryption_version > 0 {
+            Some(current_encryption_version)
+        } else {
+            None
+        };
+        if encryption_version != expected_version {
+            return Err(AppError::conflict(
+                "encryption_version_mismatch",
+                "快照必须使用当前团队密钥版本加密后推送",
+                json!({
+                    "expectedVersion": expected_version,
+                    "receivedVersion": encryption_version,
+                }),
+            ));
+        }
+    }
 
     let requests = value
         .get("requests")
@@ -316,6 +362,41 @@ pub async fn push_snapshot(
     .fetch_optional(&mut *tx)
     .await?;
 
+    let latest_encryption: Option<Option<i32>> = sqlx::query_scalar(
+        "SELECT encryption_version FROM snapshots
+         WHERE team_id = $1
+         ORDER BY revision DESC
+         LIMIT 1",
+    )
+    .bind(team_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let latest_encryption_version = latest_encryption.flatten();
+
+    if partial && latest_encryption_version != encryption_version {
+        return Err(AppError::conflict(
+            "encryption_version_mismatch",
+            "团队密钥版本已变化，请先拉取完整快照后再推送",
+            json!({
+                "latestVersion": latest_encryption_version,
+                "receivedVersion": encryption_version,
+            }),
+        ));
+    }
+    if !partial
+        && latest_encryption_version != encryption_version
+        && !viewer.is_manager()
+    {
+        return Err(AppError::conflict(
+            "encryption_migration_required",
+            "请由所有者或管理员先推送一次当前密钥版本的完整快照",
+            json!({
+                "latestVersion": latest_encryption_version,
+                "receivedVersion": encryption_version,
+            }),
+        ));
+    }
+
     let merged = if partial {
         let deletions_value = value.get("deletions");
         let list = |key: &str| -> Vec<String> {
@@ -353,8 +434,8 @@ pub async fn push_snapshot(
     let created_at = Utc::now();
     let insert_result = sqlx::query(
         "INSERT INTO snapshots
-            (team_id, revision, payload, payload_hash, source_hash, size_bytes, schema_version, base_revision, created_by, idempotency_key)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+            (team_id, revision, payload, payload_hash, source_hash, size_bytes, schema_version, base_revision, created_by, idempotency_key, encryption_version, encryption_key_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
     )
     .bind(team_id)
     .bind(revision)
@@ -366,6 +447,8 @@ pub async fn push_snapshot(
     .bind(base_revision)
     .bind(user.0)
     .bind(idempotency_key)
+    .bind(encryption_version)
+    .bind(encryption_key_id.as_deref())
     .execute(&mut *tx)
     .await;
 
@@ -439,6 +522,7 @@ pub async fn push_snapshot(
             "sizeBytes": merged_bytes.len(),
             "sourceSizeBytes": decoded.len(),
             "partial": partial,
+            "encryptionVersion": encryption_version,
         }),
     )
     .await;
@@ -464,16 +548,35 @@ pub async fn rollback_snapshot(
         return Err(AppError::forbidden("只有所有者或管理员可以回滚快照"));
     }
 
-    let source: Option<(Value, i32)> = sqlx::query_as(
-        "SELECT payload, schema_version FROM snapshots WHERE team_id = $1 AND revision = $2",
+    let source: Option<(Value, i32, Option<i32>, Option<String>)> = sqlx::query_as(
+        "SELECT payload, schema_version, encryption_version, encryption_key_id
+         FROM snapshots
+         WHERE team_id = $1 AND revision = $2",
     )
     .bind(team_id)
     .bind(revision)
     .fetch_optional(&state.pool)
     .await?;
-    let Some((source_payload, schema_version)) = source else {
+    let Some((source_payload, schema_version, encryption_version, encryption_key_id)) = source
+    else {
         return Err(AppError::not_found("目标快照版本不存在"));
     };
+
+    let (encryption_enabled, current_encryption_version) =
+        crate::api::encryption::load_encryption_state(&state.pool, team_id).await?;
+    if encryption_enabled
+        && current_encryption_version > 0
+        && encryption_version != Some(current_encryption_version)
+    {
+        return Err(AppError::conflict(
+            "encryption_version_mismatch",
+            "只能回滚到当前团队密钥版本的快照",
+            json!({
+                "currentVersion": current_encryption_version,
+                "targetVersion": encryption_version,
+            }),
+        ));
+    }
 
     let max_data_level: String =
         sqlx::query_scalar("SELECT max_data_level FROM teams WHERE id = $1")
@@ -533,8 +636,8 @@ pub async fn rollback_snapshot(
 
     sqlx::query(
         "INSERT INTO snapshots
-            (team_id, revision, payload, payload_hash, source_hash, size_bytes, schema_version, base_revision, created_by, created_at, idempotency_key)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+            (team_id, revision, payload, payload_hash, source_hash, size_bytes, schema_version, base_revision, created_by, created_at, idempotency_key, encryption_version, encryption_key_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
     )
     .bind(team_id)
     .bind(new_revision)
@@ -547,6 +650,8 @@ pub async fn rollback_snapshot(
     .bind(user.0)
     .bind(created_at)
     .bind(&idempotency_key)
+    .bind(encryption_version)
+    .bind(encryption_key_id.as_deref())
     .execute(&mut *tx)
     .await?;
 
@@ -568,6 +673,7 @@ pub async fn rollback_snapshot(
             "fromRevision": revision,
             "revision": new_revision,
             "sizeBytes": bytes.len(),
+            "encryptionVersion": encryption_version,
         }),
     )
     .await;

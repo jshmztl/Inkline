@@ -380,7 +380,7 @@ export function TopBar({
       <Modal
         open={teamOpen}
         title="团队连接"
-        width={440}
+        width={520}
         onCancel={() => setTeamOpen(false)}
         footer={[
           <Button key="close" size="small" type="primary" onClick={() => setTeamOpen(false)}>
@@ -404,7 +404,9 @@ export function TopBar({
           <label>团队角色</label>
           <Input value={roleLabel(session.role)} readOnly />
         </div>
-        {session.team?.id && <TeamEncryptionPanel teamId={session.team.id} />}
+        {session.team?.id && (
+          <TeamEncryptionPanel teamId={session.team.id} role={session.role} />
+        )}
         <div className="login-hint">
           账号、成员与资源权限由团队管理员在服务端管理台维护。需要切换团队时，退出后重新登录即可。
         </div>

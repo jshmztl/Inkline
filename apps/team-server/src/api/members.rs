@@ -348,13 +348,21 @@ pub async fn remove_member(
         .bind(target_user_id)
         .execute(&mut *tx)
         .await?;
-    // 成员被移出后，其在团队内的资源授权一并失效。
+    // 成员被移出后，其在团队内的资源授权与加密设备一并失效。
     sqlx::query(
         "DELETE FROM resource_grants
          WHERE team_id = $1 AND subject_type = 'user' AND subject_id = $2",
     )
     .bind(team_id)
     .bind(target_user_id.to_string())
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "DELETE FROM team_encryption_devices
+         WHERE team_id = $1 AND user_id = $2",
+    )
+    .bind(team_id)
+    .bind(target_user_id)
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
@@ -365,7 +373,12 @@ pub async fn remove_member(
         Some(user.0),
         "member",
         "member.remove",
-        json!({ "userId": target_user_id, "account": account, "role": target_role }),
+        json!({
+            "userId": target_user_id,
+            "account": account,
+            "role": target_role,
+            "encryptionRotationRecommended": true,
+        }),
     )
     .await;
 

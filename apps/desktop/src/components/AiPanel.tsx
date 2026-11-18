@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { LockOutlined, RobotOutlined } from '@ant-design/icons';
-import { App } from 'antd';
+import {
+  EyeOutlined,
+  FileTextOutlined,
+  LockOutlined,
+  RobotOutlined,
+} from '@ant-design/icons';
+import { App, Button } from 'antd';
 import type { ApiRequest, NetworkMode } from '../data/types';
 import { kvGet, kvSet } from '../lib/kv';
 import { networkModes } from '../data/types';
@@ -32,13 +37,13 @@ import { resolveModelRoute } from '../lib/modelRoute';
 import { checkNetworkAccessResolved, type NetworkAccess } from '../lib/networkPolicy';
 import {
   chatWithGateway,
+  isGatewayConfigured,
   readGatewayConfig,
 } from '../lib/aiGateway';
 import { readGlossary, writeGlossary } from '../lib/glossary';
 import { copyMarkdown, downloadDocFile } from '../lib/docExport';
 import { useAiChat, type ChatMessage } from '../lib/useAiChat';
 import { AiPanelHead } from './AiPanelHead';
-import { AiTaskPanel } from './AiTaskPanel';
 import { AiPromptList } from './AiPromptList';
 import { AiChatMessages } from './AiChatMessages';
 import { AiReviewCard } from './AiReviewCard';
@@ -48,6 +53,9 @@ import { AiDocModal } from './AiDocModal';
 import { AiDiffModal } from './AiDiffModal';
 import { AiPreflightModal } from './AiPreflightModal';
 import { AiCreateRequestModal } from './AiCreateRequestModal';
+import { MethodTag } from './MethodTag';
+
+const AI_GUIDE_KEY = 'aw-ai-guide-seen';
 
 interface AiPanelProps {
   networkMode: NetworkMode;
@@ -94,6 +102,13 @@ export function AiPanel({
   const [draftCollectionId, setDraftCollectionId] = useState('');
   const [draftLoading, setDraftLoading] = useState(false);
   const [creatingDraft, setCreatingDraft] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
+  const configured = isGatewayConfigured(gatewayConfig);
+
+  useEffect(() => {
+    if (configured && kvGet(AI_GUIDE_KEY) !== '1') setGuideOpen(true);
+  }, [configured]);
 
   const task = useMemo(
     () => (context ? buildDocTask(context, glossaryEntries) : null),
@@ -160,6 +175,7 @@ export function AiPanel({
     setAccepted({});
     setApplied(false);
     setNotes({});
+    setReviewOpen(false);
   }, [activeRequest.id]);
 
   useEffect(() => {
@@ -252,6 +268,11 @@ export function AiPanel({
   }
 
   async function runAiAction(action: AiAction, chatText = '') {
+    if (!isGatewayConfigured(readGatewayConfig())) {
+      setGatewayOpen(true);
+      message.info('请先配置 AI 模型');
+      return;
+    }
     if (!route.allowed) {
       message.error(route.reason);
       return;
@@ -301,6 +322,19 @@ export function AiPanel({
   function openGlossary() {
     setGlossaryDraft(glossaryEntries.map((entry) => ({ ...entry })));
     setGlossaryOpen(true);
+  }
+
+  function openGuide() {
+    if (!configured) {
+      setGatewayOpen(true);
+      return;
+    }
+    setGuideOpen(true);
+  }
+
+  function dismissGuide() {
+    kvSet(AI_GUIDE_KEY, '1');
+    setGuideOpen(false);
   }
 
   function saveGlossaryDraft() {
@@ -485,13 +519,14 @@ export function AiPanel({
   return (
     <aside className="ai-panel">
       <AiPanelHead
-        modelLabel={gatewayConfig.model || network.modelName}
-        tone={network.tone}
+        modelLabel={configured ? gatewayConfig.model || network.modelName : '未配置模型'}
+        tone={configured ? network.tone : 'muted'}
         messageCount={messages.length}
         activeRequest={activeRequest}
         context={context}
         onOpenGateway={() => setGatewayOpen(true)}
         onOpenGlossary={openGlossary}
+        onOpenGuide={openGuide}
         onClearMessages={() => {
           setMessages([]);
           message.success('已清空对话');
@@ -499,77 +534,170 @@ export function AiPanel({
       />
 
       <div className="ai-scroll">
-        {messages.length === 0 && (
-          <div className="ai-welcome">
-            <span className="ai-welcome-icon">
+        {!configured ? (
+          <div className="ai-setup">
+            <span className="ai-setup-icon">
               <RobotOutlined />
             </span>
-            <strong>把接口文档交给 AI</strong>
-            <p>粘贴 Word 里的接口说明，点「生成接口」即可创建请求；也可基于当前请求生成字段说明与示例。</p>
+            <strong>尚未配置 AI 模型</strong>
+            <p>
+              配置 DeepSeek、Qwen 云端或内网 OpenAI 兼容网关后，可生成文档、补全字段说明并进行对话。
+            </p>
+            <div className="ai-setup-actions">
+              <Button type="primary" onClick={() => setGatewayOpen(true)}>
+                配置 AI 模型
+              </Button>
+            </div>
           </div>
+        ) : (
+          <>
+            {guideOpen && (
+              <div className="ai-guide">
+                <div className="ai-guide-head">
+                  <strong>三步开始</strong>
+                  <Button type="text" size="small" onClick={dismissGuide}>
+                    跳过
+                  </Button>
+                </div>
+                <ol>
+                  <li>
+                    <b>建立文档任务</b>
+                    <span>有请求/响应上下文时，点「生成文档」汇总字段。</span>
+                  </li>
+                  <li>
+                    <b>审阅字段</b>
+                    <span>点「字段审阅」确认说明并应用到文档草稿。</span>
+                  </li>
+                  <li>
+                    <b>直接对话</b>
+                    <span>把接口文档粘贴到输入框，可直接生成接口。</span>
+                  </li>
+                </ol>
+                <Button size="small" type="primary" onClick={dismissGuide}>
+                  开始使用
+                </Button>
+              </div>
+            )}
+
+            {task && (
+              <div className="ai-context-bar">
+                <div className="ai-context-bar-stats">
+                  <MethodTag method={activeRequest.method} />
+                  <code title={task.request.url}>{task.request.url}</code>
+                  <span>
+                    <b>{task.stats.requestFields}</b> 请求
+                  </span>
+                  <span>
+                    <b>{task.stats.responseFields}</b> 响应
+                  </span>
+                  <span>
+                    <b>{task.stats.glossaryHits}</b> 术语
+                  </span>
+                </div>
+                <div className={`ai-route${routeBlocked ? ' blocked' : ''}`}>
+                  <i className="ai-route-dot" />
+                  <code>{gatewayConfig.baseUrl || route.endpoint}</code>
+                  <span>
+                    {gatewayAccess?.scope === 'public'
+                      ? '公网地址'
+                      : route.egress
+                        ? '出网'
+                        : '不出网'}
+                  </span>
+                  {route.approval && <span>需审批</span>}
+                  {route.egress && <span>脱敏 {preflight?.masks.length ?? 0} 项</span>}
+                </div>
+                {routeReason && <div className="ai-route-warn">{routeReason}</div>}
+                <div className="ai-context-bar-actions">
+                  <Button
+                    type="primary"
+                    size="small"
+                    icon={<FileTextOutlined />}
+                    onClick={runTask}
+                    disabled={routeBlocked}
+                  >
+                    生成文档
+                  </Button>
+                  <Button
+                    size="small"
+                    icon={<EyeOutlined />}
+                    onClick={() => setDocOpen(true)}
+                  >
+                    查看文档
+                  </Button>
+                  <Button
+                    size="small"
+                    onClick={() => setReviewOpen((current) => !current)}
+                    disabled={review.length === 0}
+                  >
+                    {reviewOpen ? '收起审阅' : `字段审阅 · ${review.length}`}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {!task && routeReason && <div className="ai-route-inline">{routeReason}</div>}
+
+            {messages.length === 0 && (
+              <AiPromptList
+                composer={composer}
+                onCompose={setComposer}
+                onGenerateFromDoc={(text) => void runAiAction('extract', text)}
+                onGenerateDoc={runTask}
+                onFillDescriptions={() => runAiAction('descriptions')}
+                onGenerateTests={() => runAiAction('tests')}
+              />
+            )}
+
+            <AiChatMessages messages={messages} />
+
+            {reviewOpen && task && (
+              <AiReviewCard
+                task={task}
+                review={review}
+                pending={pending}
+                accepted={accepted}
+                notes={notes}
+                applied={applied}
+                descLoading={descLoading}
+                testsLoading={testsLoading}
+                onAcceptedChange={(key, checked) =>
+                  setAccepted((current) => ({ ...current, [key]: checked }))
+                }
+                onNoteChange={(key, value) =>
+                  setNotes((current) => ({ ...current, [key]: value }))
+                }
+                onOpenGlossary={openGlossary}
+                onApply={applyDraft}
+                onGenerateDescriptions={() => runAiAction('descriptions')}
+                onGenerateTests={() => runAiAction('tests')}
+                onOpenDiff={() => setDiffOpen(true)}
+                onExport={downloadDoc}
+                onIgnore={() => message.info('已忽略本次建议')}
+                onClose={() => setReviewOpen(false)}
+              />
+            )}
+
+            <div className="ai-footnote">
+              <LockOutlined /> {network.modelNote} · 输出可追溯到请求与模型版本
+            </div>
+          </>
         )}
-
-        <AiTaskPanel
-          task={task}
-          route={route}
-          routeBlocked={routeBlocked}
-          routeReason={routeReason}
-          gatewayBaseUrl={gatewayConfig.baseUrl}
-          gatewayScope={gatewayAccess?.scope ?? null}
-          maskCount={preflight?.masks.length ?? 0}
-          onRunTask={runTask}
-          onOpenDoc={() => setDocOpen(true)}
-        />
-
-        <AiPromptList
-          composer={composer}
-          onCompose={setComposer}
-          onGenerateFromDoc={(text) => void runAiAction('extract', text)}
-          onGenerateDoc={runTask}
-          onFillDescriptions={() => runAiAction('descriptions')}
-          onGenerateTests={() => runAiAction('tests')}
-        />
-
-        <AiChatMessages messages={messages} />
-
-        <AiReviewCard
-          task={task}
-          review={review}
-          pending={pending}
-          accepted={accepted}
-          notes={notes}
-          applied={applied}
-          descLoading={descLoading}
-          testsLoading={testsLoading}
-          onAcceptedChange={(key, checked) =>
-            setAccepted((current) => ({ ...current, [key]: checked }))
-          }
-          onNoteChange={(key, value) =>
-            setNotes((current) => ({ ...current, [key]: value }))
-          }
-          onOpenGlossary={openGlossary}
-          onApply={applyDraft}
-          onGenerateDescriptions={() => runAiAction('descriptions')}
-          onGenerateTests={() => runAiAction('tests')}
-          onOpenDiff={() => setDiffOpen(true)}
-          onExport={downloadDoc}
-          onIgnore={() => message.info('已忽略本次建议')}
-        />
-
-        <div className="ai-footnote">
-          <LockOutlined /> {network.modelNote} · 输出可追溯到请求与模型版本
-        </div>
       </div>
 
-      <AiComposer
-        composer={composer}
-        streaming={streaming}
-        draftLoading={draftLoading}
-        onChange={setComposer}
-        // 粘贴的接口文档直接进入解析流程，普通消息仍走对话。
-        onSubmit={(text) => void runAiAction(looksLikeApiDoc(text) ? 'extract' : 'chat', text)}
-        onExtract={(text) => void runAiAction('extract', text)}
-      />
+      {configured && (
+        <AiComposer
+          composer={composer}
+          streaming={streaming}
+          draftLoading={draftLoading}
+          onChange={setComposer}
+          // 粘贴的接口文档直接进入解析流程，普通消息仍走对话。
+          onSubmit={(text) =>
+            void runAiAction(looksLikeApiDoc(text) ? 'extract' : 'chat', text)
+          }
+          onExtract={(text) => void runAiAction('extract', text)}
+        />
+      )}
 
       <AiGlossaryModal
         open={glossaryOpen}

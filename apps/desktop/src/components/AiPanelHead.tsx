@@ -2,6 +2,7 @@ import {
   BookOutlined,
   DeleteOutlined,
   MoreOutlined,
+  QuestionCircleOutlined,
   RobotOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
@@ -18,6 +19,7 @@ interface AiPanelHeadProps {
   context: RequestContext | null;
   onOpenGateway: () => void;
   onOpenGlossary: () => void;
+  onOpenGuide: () => void;
   onClearMessages: () => void;
 }
 
@@ -30,6 +32,7 @@ export function AiPanelHead({
   context,
   onOpenGateway,
   onOpenGlossary,
+  onOpenGuide,
   onClearMessages,
 }: AiPanelHeadProps) {
   return (
@@ -60,6 +63,7 @@ export function AiPanelHead({
             items: [
               { key: 'gateway', label: 'AI 网关设置', icon: <SettingOutlined /> },
               { key: 'glossary', label: '字段术语表', icon: <BookOutlined /> },
+              { key: 'guide', label: '使用指南', icon: <QuestionCircleOutlined /> },
               { type: 'divider' },
               {
                 key: 'clear',
@@ -72,6 +76,7 @@ export function AiPanelHead({
             onClick: ({ key }) => {
               if (key === 'gateway') onOpenGateway();
               if (key === 'glossary') onOpenGlossary();
+              if (key === 'guide') onOpenGuide();
               if (key === 'clear') onClearMessages();
             },
           }}

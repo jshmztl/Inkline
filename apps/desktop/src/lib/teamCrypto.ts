@@ -12,6 +12,13 @@ export interface EncryptedEnvelope {
   algorithm: 'AES-GCM';
   version: 1;
   keyId: string;
+  keyVersion?: number;
+}
+
+export interface TeamKeyring {
+  currentVersion: number;
+  keys: Map<number, string>;
+  legacyKey?: string | null;
 }
 
 type SnapshotPayload = Record<string, unknown>;
@@ -75,6 +82,7 @@ export function isEncryptedPayload(payload: unknown): boolean {
 export async function encryptSnapshotPayload(
   payload: SnapshotPayload,
   key: string,
+  keyVersion?: number,
 ): Promise<SnapshotPayload> {
   const keyId = await keyFingerprint(key);
   const copy = structuredClone(payload) as SnapshotPayload;
@@ -105,6 +113,7 @@ export async function encryptSnapshotPayload(
     algorithm: 'AES-GCM',
     version: 1,
     keyId,
+    ...(typeof keyVersion === 'number' ? { keyVersion } : {}),
   } satisfies EncryptedEnvelope;
   return copy;
 }
@@ -187,13 +196,13 @@ async function decryptValue(key: string, encrypted: string): Promise<string> {
   return new TextDecoder().decode(plain);
 }
 
-function bytesToBase64(bytes: Uint8Array<ArrayBuffer>): string {
+export function bytesToBase64(bytes: Uint8Array<ArrayBuffer>): string {
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary);
 }
 
-function base64ToBytes(value: string): Uint8Array<ArrayBuffer> {
+export function base64ToBytes(value: string): Uint8Array<ArrayBuffer> {
   const binary = atob(value);
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) {

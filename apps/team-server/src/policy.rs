@@ -288,7 +288,13 @@ fn collection_id_of(request: &Value) -> &str {
 }
 
 fn is_empty_array(value: &Value) -> bool {
-    value.as_array().map(|items| items.is_empty()).unwrap_or(true)
+    match value {
+        Value::Array(items) => items.is_empty(),
+        // 端到端加密后的字段文档是密文字符串，不能按“空数组”丢弃。
+        Value::String(text) => text.is_empty(),
+        Value::Null => true,
+        _ => false,
+    }
 }
 
 fn resolve_collection_access(
@@ -1028,6 +1034,27 @@ mod tests {
         assert_eq!(result.payload["documents"]["r1"][0]["key"], "a2");
         assert!(result.removed_requests.iter().any(|id| id == "r3"));
         assert!(result.removed_collections.iter().any(|id| id == "c2"));
+    }
+
+    #[test]
+    fn merge_keeps_encrypted_document_strings() {
+        let member = viewer("member");
+        let policies = restricted_policies(member.user_id);
+        let mut full = payload();
+        full["documents"]["r1"] = json!("enc:v1:ciphertext-old");
+        let incoming = json!({
+            "schemaVersion": 2,
+            "baseRevision": 1,
+            "collections": [{ "id": "c1", "name": "订单" }],
+            "requests": [{ "id": "r1", "name": "公开接口", "collectionId": "c1" }],
+            "documents": { "r1": "enc:v1:ciphertext-new" }
+        });
+
+        let result = merge_payload(Some(&full), &incoming, &member, &policies);
+        assert_eq!(
+            result.payload["documents"]["r1"],
+            json!("enc:v1:ciphertext-new")
+        );
     }
 
     #[test]

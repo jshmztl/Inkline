@@ -224,6 +224,70 @@ code,
   line-height: 1.6;
 }
 
+.team-crypto-devices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0 12px;
+}
+
+.team-crypto-device-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--aw-muted);
+  font-size: 12px;
+}
+
+.team-crypto-device-head em {
+  color: var(--aw-faint);
+  font-style: normal;
+}
+
+.team-crypto-device {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--aw-line);
+  border-radius: 6px;
+  background: var(--aw-surface-2);
+  font-size: 12.5px;
+}
+
+.team-crypto-device span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-crypto-device code {
+  color: var(--aw-faint);
+  font-size: 11.5px;
+}
+
+.team-crypto-legacy {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--aw-line-strong);
+}
+
+.team-crypto-legacy strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--aw-ink);
+  font-size: 12.5px;
+}
+
+.team-crypto-legacy p {
+  margin: 0 0 8px;
+  color: var(--aw-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .topbar-spacer {
   flex: 1;
 }
@@ -2312,6 +2376,155 @@ html[data-theme='dark'] .ai-welcome-icon {
   line-height: 1.6;
 }
 
+.ai-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  border: 1px solid var(--aw-accent-border);
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--aw-accent-soft), var(--aw-accent-2-soft));
+}
+
+.ai-setup-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  margin-bottom: 2px;
+  border-radius: 10px;
+  background: var(--aw-accent-gradient);
+  color: #fff;
+  font-size: 17px;
+  box-shadow: 0 5px 14px var(--aw-accent-glow);
+}
+
+html[data-theme='dark'] .ai-setup-icon {
+  color: #0b1020;
+}
+
+.ai-setup strong {
+  color: var(--aw-ink);
+  font-size: 14.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.ai-setup p {
+  margin: 0;
+  color: var(--aw-muted);
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+
+.ai-setup-actions {
+  margin-top: 6px;
+}
+
+.ai-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 13px;
+  border: 1px solid var(--aw-line);
+  border-left: 3px solid var(--aw-accent);
+  border-radius: 12px;
+  background: var(--aw-surface);
+}
+
+.ai-guide-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ai-guide-head strong {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.ai-guide ol {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.ai-guide li {
+  color: var(--aw-muted);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.ai-guide li b {
+  display: block;
+  color: var(--aw-ink);
+  font-weight: 600;
+}
+
+.ai-guide li span {
+  display: block;
+}
+
+.ai-guide > .ant-btn {
+  align-self: flex-start;
+}
+
+.ai-context-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 11px;
+  border: 1px solid var(--aw-line);
+  border-left: 3px solid var(--aw-accent);
+  border-radius: 12px;
+  background: var(--aw-surface);
+  box-shadow: var(--aw-shadow-1);
+}
+
+.ai-context-bar-stats {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+
+.ai-context-bar-stats code {
+  max-width: 180px;
+  overflow: hidden;
+  color: var(--aw-ink-2);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-context-bar-stats span {
+  color: var(--aw-muted);
+  font-size: 12px;
+}
+
+.ai-context-bar-stats b {
+  color: var(--aw-ink);
+  font-weight: 650;
+}
+
+.ai-context-bar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ai-route-inline {
+  padding: 8px 10px;
+  border: 1px solid var(--aw-line);
+  border-radius: 8px;
+  background: var(--aw-warning-soft);
+  color: var(--aw-muted);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
 /* Ant Design X：文档任务上下文 */
 
 .ai-task {
@@ -3914,7 +4127,7 @@ html[data-theme='dark'] .ai-panel .ai-bubble-end .ant-bubble-content {
   flex-direction: column;
   gap: 10px;
   width: 100%;
-  max-width: 320px;
+  max-width: 380px;
 }
 
 .login-card h2 {
@@ -3930,6 +4143,89 @@ html[data-theme='dark'] .ai-panel .ai-bubble-end .ant-bubble-content {
   color: var(--aw-muted);
   font-size: 13px;
   line-height: 1.65;
+}
+
+.login-mode .ant-segmented {
+  background: var(--aw-surface-2);
+}
+
+.login-mode-hint {
+  color: var(--aw-faint);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.login-team-locked {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 4px;
+  padding: 10px 11px;
+  border: 1px dashed var(--aw-line-strong);
+  border-radius: 8px;
+  color: var(--aw-muted);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.login-team-locked strong {
+  color: var(--aw-ink);
+  font-size: 13px;
+}
+
+.login-blocked {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 11px;
+  border: 1px solid var(--aw-line-strong);
+  border-left: 3px solid var(--aw-warning);
+  border-radius: 8px;
+  background: var(--aw-warning-soft);
+  color: var(--aw-muted);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.login-blocked strong {
+  color: var(--aw-ink);
+  font-size: 13px;
+}
+
+.login-blocked-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.login-blocked-hint {
+  color: var(--aw-faint);
+  font-size: 12px;
+}
+
+.login-remember {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+
+.login-remember .ant-checkbox-wrapper {
+  font-size: 12.5px;
+}
+
+.login-remember-clear.ant-btn {
+  height: auto;
+  padding: 0;
+  font-size: 12px;
+}
+
+.login-remember-hint {
+  margin: -4px 0 0;
+  color: var(--aw-faint);
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .login-field {

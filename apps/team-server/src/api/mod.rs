@@ -1,6 +1,7 @@
 pub mod admin;
 pub mod audit;
 pub mod auth;
+pub mod encryption;
 pub mod members;
 pub mod meta;
 pub mod permissions;
@@ -61,6 +62,22 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/v1/teams/{team_id}/permissions/{resource_type}/{resource_id}",
             put(permissions::update_permission).delete(permissions::reset_permission),
+        )
+        .route(
+            "/v1/teams/{team_id}/encryption",
+            get(encryption::get_encryption),
+        )
+        .route(
+            "/v1/teams/{team_id}/encryption/devices",
+            post(encryption::register_device),
+        )
+        .route(
+            "/v1/teams/{team_id}/encryption/keys",
+            post(encryption::create_key),
+        )
+        .route(
+            "/v1/teams/{team_id}/encryption/keys/{version}/wrapped",
+            post(encryption::add_wrapped_keys),
         )
         .route(
             "/v1/teams/{team_id}/snapshots",

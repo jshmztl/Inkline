@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setActiveNetworkMode } from './network';
+import { encryptSnapshotPayload, generateTeamKey } from './teamCrypto';
 import {
   changeTeamPassword,
   clearTeamConnection,
@@ -189,6 +190,56 @@ describe('teamClient', () => {
     await expect(fetchLatestSnapshot(connection, 't1')).rejects.toMatchObject({
       code: 'encryption_key_missing',
     });
+  });
+
+  it('按团队密钥版本解密最新快照', async () => {
+    const teamKey = await generateTeamKey();
+    const encrypted = await encryptSnapshotPayload(
+      { collections: [], requests: [], documents: {} },
+      teamKey,
+      2,
+    );
+
+    installFetch((call) => {
+      if (call.url.endsWith('/v1/auth/login')) {
+        return jsonResponse(200, {
+          accessToken: 'access-1',
+          refreshToken: 'refresh-1',
+          user: { id: 'u1', account: 'alice', displayName: 'Alice' },
+        });
+      }
+      if (call.url.endsWith('/v1/me')) return jsonResponse(200, { teams: [] });
+      if (call.url.endsWith('/v1/teams/t1/snapshots/latest')) {
+        return jsonResponse(200, {
+          revision: 8,
+          downloadUrl: '/v1/teams/t1/snapshots/8',
+          createdAt: '2026-11-12T00:00:00Z',
+          encryption: { version: 2, keyId: 'fingerprint' },
+        });
+      }
+      if (call.url.endsWith('/v1/teams/t1/snapshots/8')) {
+        return jsonResponse(200, encrypted);
+      }
+      return jsonResponse(404, {});
+    });
+
+    const { connection } = await loginTeam('team.local', 'alice', 'secret');
+    const latest = await fetchLatestSnapshot(connection, 't1', {
+      currentVersion: 2,
+      keys: new Map([[2, teamKey]]),
+      legacyKey: null,
+    });
+
+    expect(latest?.revision).toBe(8);
+    expect(latest?.payload).toMatchObject({ collections: [], requests: [] });
+
+    await expect(
+      fetchLatestSnapshot(connection, 't1', {
+        currentVersion: 1,
+        keys: new Map([[1, teamKey]]),
+        legacyKey: null,
+      }),
+    ).rejects.toMatchObject({ code: 'encryption_key_missing' });
   });
 
   it('首次登录要求修改口令，修改后更新令牌', async () => {

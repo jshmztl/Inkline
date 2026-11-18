@@ -247,6 +247,43 @@ async function probeNetwork(url: string, mode: NetworkMode): Promise<NetworkProb
   }
 }
 
+function hostToCidr(host: string): string | null {
+  const bare = host.replace(/^\[|\]$/g, '').split('%')[0];
+  if (ipv4ToNumber(bare) !== null) return `${bare}/32`;
+  if (isIpv6Address(bare)) return `${bare}/128`;
+  return null;
+}
+
+/**
+ * 把团队服务地址解析为可写入内网白名单的 CIDR。
+ * 字面量 IP 直接转 /32 或 /128；域名通过 Rust probe_network 解析后逐个写入。
+ * 浏览器开发态或解析失败时返回空数组，由调用方提示手动添加。
+ */
+export async function resolveHostCidrs(url: string): Promise<string[]> {
+  const trimmed = url.trim();
+  if (!trimmed) return [];
+  let parsed: URL;
+  try {
+    parsed = new URL(/^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`);
+  } catch {
+    return [];
+  }
+
+  const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  const direct = hostToCidr(host);
+  if (direct) return [direct];
+
+  const probe = await probeNetwork(url, 'B');
+  if (!probe) return [];
+
+  const result: string[] = [];
+  for (const ip of probe.hostIps) {
+    const cidr = hostToCidr(ip);
+    if (cidr && !result.includes(cidr)) result.push(cidr);
+  }
+  return result;
+}
+
 /**
  * 正式安装包 / Tauri 环境下，访问判定以 Rust `check_network_access` 为准，
  * 与 HTTP / WS / SSE / 团队同步实际出站使用同一套 A/B/C 规则。

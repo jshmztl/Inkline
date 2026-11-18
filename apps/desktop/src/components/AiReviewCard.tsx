@@ -1,6 +1,7 @@
 import type { ChangeEvent } from 'react';
 import {
   BookOutlined,
+  CloseOutlined,
   DownOutlined,
   ExperimentOutlined,
   ThunderboltOutlined,
@@ -26,6 +27,7 @@ interface AiReviewCardProps {
   onOpenDiff: () => void;
   onExport: (format: 'markdown' | 'openapi') => void;
   onIgnore: () => void;
+  onClose?: () => void;
 }
 
 // 字段审阅卡片：逐项确认字段说明并应用到文档草稿。
@@ -47,6 +49,7 @@ export function AiReviewCard({
   onOpenDiff,
   onExport,
   onIgnore,
+  onClose,
 }: AiReviewCardProps) {
   const requestReview = review.filter((item) => item.source === '请求');
   const responseReview = review.filter((item) => item.source === '响应');
@@ -119,6 +122,15 @@ export function AiReviewCard({
           />
         </Tooltip>
         {applied && <Tag className="applied-tag">已应用</Tag>}
+        {onClose && (
+          <Button
+            type="text"
+            size="small"
+            icon={<CloseOutlined />}
+            onClick={onClose}
+            aria-label="收起字段审阅"
+          />
+        )}
       </div>
 
       {requestReview.length > 0 && (
