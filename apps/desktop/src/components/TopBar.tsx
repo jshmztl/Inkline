@@ -18,7 +18,7 @@ import { clearAudit, listAudit, type AuditEntry, type AuditType } from '../lib/a
 import type { Session } from '../lib/session';
 import type { PresenceSnapshot } from '../lib/presence';
 import { TeamEncryptionPanel } from './TeamEncryptionPanel';
-import { checkUpdate, installUpdate, type UpdateInfo, type UpdateProgress } from '../lib/update';
+import { checkUpdate, installUpdate, readUpdateSource, writeUpdateSource, type UpdateInfo, type UpdateProgress, type UpdateSource } from '../lib/update';
 
 interface TopBarProps {
   mode: ThemeMode;
@@ -99,6 +99,7 @@ export function TopBar({
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [updateOpen, setUpdateOpen] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [updateSource, setUpdateSource] = useState<UpdateSource>(() => readUpdateSource());
   const [checking, setChecking] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
@@ -186,7 +187,24 @@ export function TopBar({
     setUpdateError(null);
     setUpdateInfo(null);
     try {
-      setUpdateInfo(await checkUpdate());
+      setUpdateInfo(await checkUpdate(updateSource));
+    } catch (error) {
+      setUpdateError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  async function handleUpdateSourceChange(value: UpdateSource) {
+    setUpdateSource(value);
+    writeUpdateSource(value);
+    if (checking || installing) return;
+
+    setChecking(true);
+    setUpdateError(null);
+    setUpdateInfo(null);
+    try {
+      setUpdateInfo(await checkUpdate(value));
     } catch (error) {
       setUpdateError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -199,7 +217,7 @@ export function TopBar({
     setUpdateError(null);
     setProgress({ downloaded: 0, total: null });
     try {
-      await installUpdate(setProgress);
+      await installUpdate(setProgress, updateSource);
       message.success('更新已安装，正在重启…');
     } catch (error) {
       setUpdateError(error instanceof Error ? error.message : String(error));
@@ -488,6 +506,21 @@ export function TopBar({
             : []),
         ]}
       >
+        <div className="update-row">
+          <span>更新源</span>
+          <Select
+            size="small"
+            value={updateSource}
+            onChange={handleUpdateSourceChange}
+            disabled={checking || installing}
+            style={{ width: 180 }}
+            options={[
+              { value: 'domestic', label: '国内镜像（推荐）' },
+              { value: 'github', label: 'GitHub 直连' },
+            ]}
+          />
+        </div>
+        <p className="update-note">默认使用国内镜像；下载失败会自动改用 GitHub 直连。</p>
         {checking ? (
           <div className="update-checking">
             <SyncOutlined spin /> 正在检查更新…

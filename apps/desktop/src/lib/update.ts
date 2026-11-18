@@ -2,8 +2,21 @@ import { isTauri } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
 import { check, type Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
+import { kvGet, kvSet } from './kv';
 
 export const APP_VERSION = __APP_VERSION__;
+
+export type UpdateSource = 'domestic' | 'github';
+
+export const UPDATE_SOURCE_KEY = 'aw-update-source';
+
+export function readUpdateSource(): UpdateSource {
+  return kvGet(UPDATE_SOURCE_KEY) === 'github' ? 'github' : 'domestic';
+}
+
+export function writeUpdateSource(source: UpdateSource) {
+  kvSet(UPDATE_SOURCE_KEY, source);
+}
 
 export interface UpdateInfo {
   current: string;
@@ -29,7 +42,7 @@ function describeError(error: unknown) {
   return text;
 }
 
-export async function checkUpdate(): Promise<UpdateInfo> {
+export async function checkUpdate(source: UpdateSource = readUpdateSource()): Promise<UpdateInfo> {
   if (!isTauri()) {
     return {
       current: APP_VERSION,
@@ -44,7 +57,10 @@ export async function checkUpdate(): Promise<UpdateInfo> {
   const current = await getVersion();
 
   try {
-    const update = await check();
+    const update = await check({
+      headers: { 'X-Inkline-Update-Source': source },
+      timeout: 20000,
+    });
     pendingUpdate = update;
 
     if (!update) {
@@ -71,27 +87,55 @@ export async function checkUpdate(): Promise<UpdateInfo> {
   }
 }
 
-export async function installUpdate(onProgress: (progress: UpdateProgress) => void) {
-  if (!pendingUpdate) {
-    throw new Error('没有可安装的更新，请重新检查。');
-  }
-
+async function downloadAndInstall(
+  update: Update,
+  onProgress: (progress: UpdateProgress) => void,
+) {
   let downloaded = 0;
   let total: number | null = null;
   onProgress({ downloaded, total });
 
+  await update.downloadAndInstall((event) => {
+    if (event.event === 'Started') {
+      total = event.data.contentLength ?? null;
+      onProgress({ downloaded, total });
+    } else if (event.event === 'Progress') {
+      downloaded += event.data.chunkLength;
+      onProgress({ downloaded, total });
+    } else {
+      onProgress({ downloaded: total ?? downloaded, total });
+    }
+  });
+}
+
+export async function installUpdate(
+  onProgress: (progress: UpdateProgress) => void,
+  source: UpdateSource = readUpdateSource(),
+) {
+  if (!pendingUpdate) {
+    throw new Error('没有可安装的更新，请重新检查。');
+  }
+
   try {
-    await pendingUpdate.downloadAndInstall((event) => {
-      if (event.event === 'Started') {
-        total = event.data.contentLength ?? null;
-        onProgress({ downloaded, total });
-      } else if (event.event === 'Progress') {
-        downloaded += event.data.chunkLength;
-        onProgress({ downloaded, total });
-      } else {
-        onProgress({ downloaded: total ?? downloaded, total });
+    try {
+      await downloadAndInstall(pendingUpdate, onProgress);
+    } catch (error) {
+      if (source !== 'domestic') throw error;
+
+      // 国内镜像下载失败时，自动改用 GitHub 直连再试一次。
+      const failed = pendingUpdate;
+      pendingUpdate = null;
+      try {
+        await failed?.close();
+      } catch {
+        // 忽略资源释放失败。
       }
-    });
+
+      const fallback = await checkUpdate('github');
+      if (!fallback.available || !pendingUpdate) throw error;
+      onProgress({ downloaded: 0, total: null });
+      await downloadAndInstall(pendingUpdate, onProgress);
+    }
   } finally {
     pendingUpdate = null;
   }
