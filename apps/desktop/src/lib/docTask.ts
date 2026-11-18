@@ -1,4 +1,5 @@
 import type { DataLevel, HttpMethod } from '../data/types';
+import { extractBodyLineFields } from './bodyFields';
 
 export interface JsonField {
   path: string;
@@ -39,6 +40,16 @@ export const glossary: GlossaryEntry[] = [
   { term: 'metadata', label: '扩展字段', description: '调用方自定义键值对' },
   { term: 'tenantId', label: '租户标识', description: '多租户隔离标识' },
   { term: 'description', label: '描述', description: '业务可读说明，非结构化' },
+  { term: 'comment', label: '注释', description: '对该字段或资源的补充说明' },
+  { term: 'comments', label: '注释列表', description: '多条补充说明' },
+  { term: 'remark', label: '备注', description: '业务备注信息' },
+  { term: 'remarks', label: '备注列表', description: '多条业务备注' },
+  { term: 'note', label: '说明', description: '补充说明' },
+  { term: 'notes', label: '说明列表', description: '多条补充说明' },
+  { term: 'desc', label: '描述', description: '字段的简短描述' },
+  { term: '注释', label: '注释', description: '对该字段或资源的补充说明' },
+  { term: '备注', label: '备注', description: '业务备注信息' },
+  { term: '说明', label: '说明', description: '补充说明' },
 ];
 
 export interface GlossaryHit {
@@ -54,6 +65,7 @@ export interface FieldReview {
   source: '请求' | '响应';
   confidence: number;
   note: string;
+  sample: string;
   term?: string;
 }
 
@@ -112,7 +124,8 @@ function fieldType(value: unknown) {
 
 function lastSegment(path: string) {
   const index = path.lastIndexOf('.');
-  return index === -1 ? path : path.slice(index + 1);
+  const segment = index === -1 ? path : path.slice(index + 1);
+  return segment.replace(/\[\]$/, '');
 }
 
 function sampleOf(value: unknown) {
@@ -120,55 +133,187 @@ function sampleOf(value: unknown) {
   return String(value);
 }
 
-function walkJson(value: unknown, prefix: string, out: JsonField[]) {
+type FieldMap = Map<string, JsonField>;
+
+function addJsonField(out: FieldMap, path: string, type: string, sample: string) {
+  if (!path) return;
+  const existing = out.get(path);
+  if (!existing) {
+    out.set(path, { path, name: lastSegment(path), type, sample });
+    return;
+  }
+  if (existing.type === 'null' && type !== 'null') {
+    existing.type = type;
+    existing.sample = sample;
+  } else if (existing.type !== type && type !== 'null') {
+    existing.type = 'mixed';
+  }
+}
+
+function walkJson(value: unknown, prefix: string, out: FieldMap, pushSelf: boolean) {
   if (Array.isArray(value)) {
-    if (prefix) {
-      out.push({
-        path: prefix,
-        name: lastSegment(prefix),
-        type: 'array',
-        sample: `[${value.length}]`,
-      });
+    if (prefix && pushSelf) {
+      addJsonField(out, prefix, 'array', `[${value.length}]`);
+    }
+    const itemPrefix = prefix ? `${prefix}[]` : '[]';
+    for (const item of value) {
+      if (Array.isArray(item)) {
+        walkJson(item, itemPrefix, out, true);
+      } else if (item && typeof item === 'object') {
+        walkJson(item, itemPrefix, out, false);
+      }
     }
     return;
   }
 
   if (value && typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>);
-    if (prefix) {
-      out.push({
-        path: prefix,
-        name: lastSegment(prefix),
-        type: 'object',
-        sample: `{${entries.length}}`,
-      });
+    if (prefix && pushSelf) {
+      addJsonField(
+        out,
+        prefix,
+        'object',
+        `{${Object.keys(value as Record<string, unknown>).length}}`,
+      );
     }
-    for (const [key, child] of entries) {
-      walkJson(child, prefix ? `${prefix}.${key}` : key, out);
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      walkJson(child, prefix ? `${prefix}.${key}` : key, out, true);
     }
     return;
   }
 
   if (!prefix) return;
-  out.push({
-    path: prefix,
-    name: lastSegment(prefix),
-    type: fieldType(value),
-    sample: sampleOf(value),
-  });
+  addJsonField(out, prefix, fieldType(value), sampleOf(value));
+}
+
+function stripCodeFence(source: string) {
+  const match = source.match(/```(?:json|jsonc|json5)?\s*\n?([\s\S]*?)\n?```/i);
+  return (match ? match[1] : source).trim();
+}
+
+/** 去掉 JSON 中的行注释、块注释与尾逗号，便于解析接口示例。 */
+function sanitizeJson(source: string) {
+  let out = '';
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    if (inString) {
+      out += char;
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      out += char;
+      continue;
+    }
+    if (char === '/' && source[index + 1] === '/') {
+      while (index < source.length && source[index] !== '\n') index += 1;
+      out += '\n';
+      continue;
+    }
+    if (char === '/' && source[index + 1] === '*') {
+      index += 2;
+      while (index < source.length && !(source[index] === '*' && source[index + 1] === '/')) {
+        if (source[index] === '\n') out += '\n';
+        index += 1;
+      }
+      index += 1;
+      continue;
+    }
+    out += char;
+  }
+
+  let cleaned = '';
+  inString = false;
+  escaped = false;
+  for (let index = 0; index < out.length; index += 1) {
+    const char = out[index];
+    if (inString) {
+      cleaned += char;
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      cleaned += char;
+      continue;
+    }
+    if (char === ',') {
+      let probe = index + 1;
+      while (probe < out.length && /\s/.test(out[probe])) probe += 1;
+      if (out[probe] === '}' || out[probe] === ']') continue;
+    }
+    cleaned += char;
+  }
+  return cleaned;
+}
+
+const PARSE_FAILED = Symbol('parse-failed');
+
+function parseJsonLoose(source: string): unknown | typeof PARSE_FAILED {
+  const text = stripCodeFence(source);
+  if (!text) return PARSE_FAILED;
+
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    // 继续尝试清理注释与尾逗号。
+  }
+
+  const sanitized = sanitizeJson(text);
+  try {
+    return JSON.parse(sanitized) as unknown;
+  } catch {
+    // 继续尝试逐行 JSON。
+  }
+
+  const lines = sanitized
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length > 1) {
+    const values: unknown[] = [];
+    for (const line of lines) {
+      try {
+        values.push(JSON.parse(line) as unknown);
+      } catch {
+        return PARSE_FAILED;
+      }
+    }
+    return values;
+  }
+
+  return PARSE_FAILED;
 }
 
 export function extractJsonFields(source: string | null): JsonField[] {
   if (!source) return [];
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(source);
-  } catch {
-    return [];
+
+  const fields: FieldMap = new Map();
+  const parsed = parseJsonLoose(source);
+  if (parsed !== PARSE_FAILED) {
+    walkJson(parsed, '', fields, false);
+    return [...fields.values()];
   }
-  const fields: JsonField[] = [];
-  walkJson(parsed, '', fields);
-  return fields;
+
+  // 完全无法解析时退回容错扫描，至少保留字段路径，避免审阅区为空。
+  for (const field of extractBodyLineFields(stripCodeFence(source), 'json')) {
+    if (!fields.has(field.path)) {
+      fields.set(field.path, {
+        path: field.path,
+        name: field.name,
+        type: 'unknown',
+        sample: '',
+      });
+    }
+  }
+  return [...fields.values()];
 }
 
 export function matchGlossary(fields: JsonField[], entries: GlossaryEntry[] = glossary) {
@@ -242,6 +387,7 @@ export function buildFieldReview(
         source,
         confidence,
         note: entry ? `${entry.label}：${entry.description}` : '',
+        sample: field.sample,
         term: entry?.term,
       };
     });

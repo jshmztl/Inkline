@@ -52,16 +52,25 @@ export function AiReviewCard({
   const responseReview = review.filter((item) => item.source === '响应');
 
   function renderReviewRow(field: FieldReview) {
+    const depth = Math.min(
+      4,
+      (field.path.match(/\./g)?.length ?? 0) + (field.path.match(/\[\]/g)?.length ?? 0),
+    );
     return (
       <div className="review-row" key={field.key}>
         <Checkbox
           checked={accepted[field.key] ?? true}
           onChange={(event) => onAcceptedChange(field.key, event.target.checked)}
         />
-        <div className="review-field">
+        <div className="review-field" style={{ paddingLeft: depth * 8 }}>
           <div>
             <code>{field.path}</code>
             <em>{field.type}</em>
+            {field.sample && (
+              <span className="review-sample" title={field.sample}>
+                {field.sample}
+              </span>
+            )}
             <b className={`review-source${field.source === '请求' ? ' req' : ' res'}`}>
               {field.source}
             </b>
