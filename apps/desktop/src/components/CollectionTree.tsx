@@ -9,7 +9,7 @@ import {
 import { App, Dropdown, Tooltip } from 'antd';
 import type { ApiFolder, ApiRequest } from '../data/types';
 import { buildCollectionTree } from '../lib/collectionTree';
-import type { SavedRequest } from '../lib/api';
+import type { Collection, SavedRequest } from '../lib/api';
 import { formatSavedAt } from '../lib/format';
 import { MethodTag } from './MethodTag';
 
@@ -23,6 +23,7 @@ export interface CollectionEditorState {
 
 interface CollectionTreeProps {
   folders: ApiFolder[];
+  collections: Collection[];
   query: string;
   collapsed: Record<string, boolean>;
   savedRequests: SavedRequest[];
@@ -36,6 +37,7 @@ interface CollectionTreeProps {
   onDuplicateCollection: (id: string) => Promise<void>;
   onDeleteCollection: (id: string) => Promise<void>;
   onMoveRequest: (id: string, direction: -1 | 1) => Promise<void>;
+  onMoveRequestToCollection: (id: string, collectionId: string) => Promise<void>;
   onDuplicateRequest: (id: string) => Promise<void>;
   onDeleteRequest: (id: string) => Promise<void>;
   onRunTests: (folder: ApiFolder) => void;
@@ -46,6 +48,7 @@ interface CollectionTreeProps {
 /** 集合区：搜索过滤、树形渲染、右键菜单与删除确认。 */
 export function CollectionTree({
   folders,
+  collections,
   query,
   collapsed,
   savedRequests,
@@ -59,6 +62,7 @@ export function CollectionTree({
   onDuplicateCollection,
   onDeleteCollection,
   onMoveRequest,
+  onMoveRequestToCollection,
   onDuplicateRequest,
   onDeleteRequest,
   onRunTests,
@@ -71,6 +75,8 @@ export function CollectionTree({
     () => new Map(savedRequests.map((request) => [request.id, request])),
     [savedRequests],
   );
+
+  const collectionNodes = useMemo(() => buildCollectionTree(collections), [collections]);
 
   const filtered = useMemo(() => {
     const keyword = query.trim().toLowerCase();
@@ -232,6 +238,15 @@ export function CollectionTree({
                 {folder.requests.map((request, requestIndex) => {
                   const saved = savedMap.get(request.id);
                   const readOnly = isRequestReadOnly(request.id) || folderReadOnly;
+                  const moveTargets = collectionNodes
+                    .filter(
+                      ({ item }) =>
+                        item.id !== folder.id && !isCollectionReadOnly(item.id),
+                    )
+                    .map(({ item, depth }) => ({
+                      key: `move-to:${item.id}`,
+                      label: `${'　'.repeat(depth)}${item.name}`,
+                    }));
                   return (
                     <div className="request-row-wrap" key={request.id}>
                       <Dropdown
@@ -250,6 +265,12 @@ export function CollectionTree({
                               label: '下移',
                               disabled: readOnly || requestIndex === folder.requests.length - 1,
                             },
+                            {
+                              key: 'move-to',
+                              label: '移动到集合',
+                              disabled: readOnly || moveTargets.length === 0,
+                              children: moveTargets,
+                            },
                             { type: 'divider' },
                             { key: 'duplicate', label: '复制请求', disabled: readOnly },
                             { key: 'delete', label: '删除请求', danger: true, disabled: readOnly },
@@ -267,6 +288,12 @@ export function CollectionTree({
                             }
                             if (action === 'move-up') void onMoveRequest(request.id, -1);
                             if (action === 'move-down') void onMoveRequest(request.id, 1);
+                            if (action.startsWith('move-to:')) {
+                              void onMoveRequestToCollection(
+                                request.id,
+                                action.slice('move-to:'.length),
+                              );
+                            }
                             if (action === 'duplicate') void onDuplicateRequest(request.id);
                             if (action === 'delete') confirmDeleteRequest(request);
                           },

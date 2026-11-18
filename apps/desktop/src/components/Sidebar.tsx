@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react';
 import { ImportOutlined, PlusOutlined, SearchOutlined, SettingOutlined } from '@ant-design/icons';
 import { App, Button, Tooltip } from 'antd';
 import { type ApiFolder, type ApiRequest, type NetworkMode } from '../data/types';
-import { type HistoryEntry, type SavedRequest } from '../lib/api';
+import { type Collection, type HistoryEntry, type SavedRequest } from '../lib/api';
+import { buildCollectionTree } from '../lib/collectionTree';
 import type { WorkspaceEnvironment } from '../lib/envStore';
 import { collectLocalDocuments, type TeamSnapshot } from '../lib/team';
 import type { Session } from '../lib/session';
@@ -19,6 +20,7 @@ import { TeamSyncPanel } from './TeamSyncPanel';
 interface SidebarProps {
   activeRequestId: string;
   folders: ApiFolder[];
+  collections: Collection[];
   history: HistoryEntry[];
   historyHasMore: boolean;
   savedRequests: SavedRequest[];
@@ -46,6 +48,7 @@ interface SidebarProps {
   onCreateRequest: (collectionId: string) => Promise<void>;
   onRenameRequest: (id: string, name: string) => Promise<void>;
   onMoveRequest: (id: string, direction: -1 | 1) => Promise<void>;
+  onMoveRequestToCollection: (id: string, collectionId: string) => Promise<void>;
   onDuplicateRequest: (id: string) => Promise<void>;
   onDeleteRequest: (id: string) => Promise<void>;
   onImport: (raw: string) => Promise<{ name: string; count: number }>;
@@ -58,6 +61,7 @@ interface SidebarProps {
 export function Sidebar({
   activeRequestId,
   folders,
+  collections,
   history,
   historyHasMore,
   savedRequests,
@@ -85,6 +89,7 @@ export function Sidebar({
   onCreateRequest,
   onRenameRequest,
   onMoveRequest,
+  onMoveRequestToCollection,
   onDuplicateRequest,
   onDeleteRequest,
   onImport,
@@ -156,6 +161,13 @@ export function Sidebar({
     return remoteTeam && teamAccess?.collections?.[collectionId] === 'view';
   }
 
+  const importCollections = buildCollectionTree(collections)
+    .filter(({ item }) => !collectionReadOnly(item.id))
+    .map(({ item, depth }) => ({
+      value: item.id,
+      label: `${'　'.repeat(depth)}${item.name}`,
+    }));
+
   return (
     <aside className="sidebar">
       <div className="sidebar-head">
@@ -188,6 +200,7 @@ export function Sidebar({
 
       <CollectionTree
         folders={folders}
+        collections={collections}
         query={query}
         collapsed={collapsed}
         savedRequests={savedRequests}
@@ -203,6 +216,7 @@ export function Sidebar({
         onDuplicateCollection={onDuplicateCollection}
         onDeleteCollection={onDeleteCollection}
         onMoveRequest={onMoveRequest}
+        onMoveRequestToCollection={onMoveRequestToCollection}
         onDuplicateRequest={onDuplicateRequest}
         onDeleteRequest={onDeleteRequest}
         onRunTests={onRunTests}
@@ -303,6 +317,7 @@ export function Sidebar({
         open={importOpen}
         onClose={() => setImportOpen(false)}
         onImport={onImport}
+        collections={importCollections}
         onCreateEnvironment={onCreateEnvironment}
         onEnvironmentChange={onEnvironmentChange}
       />

@@ -1,11 +1,15 @@
 import { useState } from 'react';
-import { App, Input, Modal } from 'antd';
+import { App, Input, Modal, Select } from 'antd';
 import { parsePostmanEnvironment } from '../lib/importer';
 
 interface ImportModalProps {
   open: boolean;
   onClose: () => void;
-  onImport: (raw: string) => Promise<{ name: string; count: number }>;
+  onImport: (
+    raw: string,
+    collectionId?: string,
+  ) => Promise<{ name: string; count: number }>;
+  collections: { value: string; label: string }[];
   onCreateEnvironment: (label: string, variables: Record<string, string>) => string;
   onEnvironmentChange: (environment: string) => void;
 }
@@ -15,11 +19,13 @@ export function ImportModal({
   open,
   onClose,
   onImport,
+  collections,
   onCreateEnvironment,
   onEnvironmentChange,
 }: ImportModalProps) {
   const { message } = App.useApp();
   const [importText, setImportText] = useState('');
+  const [targetCollectionId, setTargetCollectionId] = useState('');
   const [importing, setImporting] = useState(false);
 
   async function submitImport() {
@@ -41,10 +47,11 @@ export function ImportModal({
         return;
       }
 
-      const result = await onImport(importText);
+      const result = await onImport(importText, targetCollectionId || undefined);
       message.success(`已导入「${result.name}」· ${result.count} 个请求`);
       onClose();
       setImportText('');
+      setTargetCollectionId('');
     } catch (error) {
       message.error(error instanceof Error ? error.message : '导入失败，请检查内容格式');
     } finally {
@@ -64,9 +71,18 @@ export function ImportModal({
       onOk={submitImport}
     >
       <div className="import-body">
+        <div className="import-target">
+          <span>导入到</span>
+          <Select
+            value={targetCollectionId}
+            onChange={setTargetCollectionId}
+            options={[{ value: '', label: '新建集合（默认）' }, ...collections]}
+            popupMatchSelectWidth={false}
+          />
+        </div>
         <p className="import-hint">
           支持 curl 命令、Postman 集合 JSON（v2.1）、OpenAPI / Swagger JSON。
-          导入后会自动创建一个新集合。
+          导入到已有集合时会追加到该集合末尾。
         </p>
         <Input.TextArea
           value={importText}

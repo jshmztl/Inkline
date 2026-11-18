@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ClockCircleOutlined,
   CloseCircleOutlined,
   EditOutlined,
   GlobalOutlined,
@@ -1399,19 +1400,26 @@ export function RequestPanel({
             保存
           </Button>
         </Tooltip>
-        <Select
-          value={timeoutMs}
-          onChange={(value) => setTimeoutMs(value)}
-          options={[
-            { value: 5_000, label: '5s' },
-            { value: 10_000, label: '10s' },
-            { value: 30_000, label: '30s' },
-            { value: 60_000, label: '60s' },
-          ]}
-          className="timeout-select"
-          popupMatchSelectWidth={false}
-          aria-label="请求超时"
-        />
+        <Tooltip title="超时时间（超过后自动中断请求）">
+          <Select
+            value={timeoutMs}
+            onChange={(value) => setTimeoutMs(value)}
+            options={[
+              { value: 5_000, label: '5s' },
+              { value: 10_000, label: '10s' },
+              { value: 30_000, label: '30s' },
+              { value: 60_000, label: '60s' },
+            ]}
+            prefix={
+              <span className="timeout-prefix">
+                <ClockCircleOutlined /> 超时
+              </span>
+            }
+            className="timeout-select"
+            popupMatchSelectWidth={false}
+            aria-label="请求超时时间"
+          />
+        </Tooltip>
         <Tooltip title="代理与客户端证书">
           <Button
             icon={<GlobalOutlined />}
@@ -1553,6 +1561,7 @@ export function RequestPanel({
         response={response}
         streamMode={streamMode}
         connected={connected}
+        sending={sending}
         feedback={feedback}
         error={error}
         assertionResults={assertionResults}

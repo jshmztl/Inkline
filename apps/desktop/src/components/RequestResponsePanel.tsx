@@ -51,6 +51,7 @@ interface RequestResponsePanelProps {
   response: SendResponse | null;
   streamMode: boolean;
   connected: boolean;
+  sending: boolean;
   feedback: string | null;
   error: string | null;
   assertionResults: AssertionResult[];
@@ -96,6 +97,14 @@ function formatCacheTime(value: string) {
   });
 }
 
+function formatElapsed(ms: number) {
+  if (ms < 1000) return `${Math.max(0, Math.round(ms))} ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)} s`;
+  const minutes = Math.floor(ms / 60_000);
+  const seconds = Math.floor((ms % 60_000) / 1000);
+  return `${minutes} 分 ${seconds} 秒`;
+}
+
 export function RequestResponsePanel({
   protocol,
   method,
@@ -103,6 +112,7 @@ export function RequestResponsePanel({
   response,
   streamMode,
   connected,
+  sending,
   feedback,
   error,
   assertionResults,
@@ -132,6 +142,20 @@ export function RequestResponsePanel({
   const [viewModeChoice, setViewModeChoice] = useState<ResponseViewMode | null>(null);
   const [formatChoice, setFormatChoice] = useState<ResponseFormatChoice>('auto');
   const [encodingChoice, setEncodingChoice] = useState<ResponseEncoding>('auto');
+  const [elapsedMs, setElapsedMs] = useState(0);
+
+  useEffect(() => {
+    if (!sending) {
+      setElapsedMs(0);
+      return;
+    }
+    const started = performance.now();
+    setElapsedMs(0);
+    const timer = window.setInterval(() => {
+      setElapsedMs(performance.now() - started);
+    }, 100);
+    return () => window.clearInterval(timer);
+  }, [sending]);
 
   useEffect(() => {
     setViewModeChoice(null);
@@ -192,6 +216,8 @@ export function RequestResponsePanel({
           <span className={`status-pill ${connected ? 'ok' : 'warn'}`}>
             {connected ? '已连接' : '未连接'}
           </span>
+        ) : sending ? (
+          <span className="status-pill warn">请求中</span>
         ) : response ? (
           <>
             <span
@@ -667,6 +693,19 @@ export function RequestResponsePanel({
           </>
         )}
       </div>
+
+      {sending && (
+        <div className="response-loading" role="status" aria-label="正在请求">
+          <div className="response-loading-card">
+            <span className="response-loading-ring" aria-hidden="true" />
+            <strong>正在请求</strong>
+            <span className="response-loading-time" aria-hidden="true">
+              {formatElapsed(elapsedMs)}
+            </span>
+            <span className="response-loading-hint">按 Esc 可中断</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

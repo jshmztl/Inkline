@@ -575,6 +575,27 @@ export function App() {
     await refreshWorkspace();
   }
 
+  async function handleMoveRequestToCollection(id: string, collectionId: string) {
+    const source = savedRequests.find((request) => request.id === id);
+    if (!source || (source.collectionId ?? '') === collectionId) return;
+
+    const target = collections.find((collection) => collection.id === collectionId);
+    if (!target) return;
+    if (session?.mode === 'team' && teamAccess?.requests?.[id] === 'view') return;
+    if (session?.mode === 'team' && teamAccess?.collections?.[collectionId] === 'view') {
+      return;
+    }
+
+    const targetRequests = savedRequests.filter(
+      (request) => (request.collectionId ?? '') === collectionId,
+    );
+    const sort = targetRequests.length
+      ? Math.max(...targetRequests.map((request) => request.sort ?? 0)) + 1
+      : 0;
+    await saveRequest({ ...source, collectionId, sort });
+    await refreshWorkspace();
+  }
+
   async function handleDeleteRequest(id: string) {
     await apiDeleteRequest(id);
     await deleteRequestAuthSecrets(id);
@@ -582,17 +603,37 @@ export function App() {
     await refreshWorkspace();
   }
 
-  async function handleImport(raw: string) {
+  async function handleImport(raw: string, targetCollectionId?: string) {
     const payload = parseImport(raw);
-    const collectionId = `collection-${Date.now().toString(36)}`;
-    await apiSaveCollection({
-      id: collectionId,
-      name: payload.name,
-      sort: collections.length,
-    });
+    let collectionId = targetCollectionId ?? '';
+    let collectionName = payload.name;
+    let sortBase = 0;
+
+    if (collectionId) {
+      const target = collections.find((collection) => collection.id === collectionId);
+      if (!target) throw new Error('目标集合不存在，请重新选择');
+      if (session?.mode === 'team' && teamAccess?.collections?.[collectionId] === 'view') {
+        throw new Error('目标集合为只读，无法导入');
+      }
+      collectionName = target.name;
+      const existing = savedRequests.filter(
+        (request) => (request.collectionId ?? '') === collectionId,
+      );
+      sortBase = existing.length
+        ? Math.max(...existing.map((request) => request.sort ?? 0)) + 1
+        : 0;
+    } else {
+      collectionId = `collection-${Date.now().toString(36)}`;
+      await apiSaveCollection({
+        id: collectionId,
+        name: payload.name,
+        sort: collections.length,
+      });
+    }
+
     for (const [index, request] of payload.requests.entries()) {
       await saveRequest({
-        id: `${collectionId}-${index}`,
+        id: `request-${Date.now().toString(36)}-${index}`,
         name: request.name,
         method: request.method,
         url: request.url,
@@ -600,12 +641,12 @@ export function App() {
         body: request.body,
         dataLevel: 'L1',
         collectionId,
-        sort: index,
+        sort: sortBase + index,
         updatedAt: null,
       });
     }
     await refreshWorkspace();
-    return { name: payload.name, count: payload.requests.length };
+    return { name: collectionName, count: payload.requests.length };
   }
 
   async function handleDeleteHistory(id: number) {
@@ -979,6 +1020,7 @@ export function App() {
             <Sidebar
               activeRequestId={activeRequestId}
               folders={folders}
+              collections={collections}
               history={history}
               historyHasMore={historyHasMore}
               savedRequests={savedRequests}
@@ -1006,6 +1048,7 @@ export function App() {
               onCreateRequest={handleCreateRequest}
               onRenameRequest={handleRenameRequest}
               onMoveRequest={handleMoveRequest}
+              onMoveRequestToCollection={handleMoveRequestToCollection}
               onDuplicateRequest={handleDuplicateRequest}
               onDeleteRequest={handleDeleteRequest}
               onImport={handleImport}
