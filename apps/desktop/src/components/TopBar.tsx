@@ -11,14 +11,26 @@ import {
   SyncOutlined,
   TeamOutlined,
 } from '@ant-design/icons';
-import { App, Button, Drawer, Dropdown, Input, Modal, Progress, Segmented, Select, Tooltip } from 'antd';
+import { App, Badge, Button, Drawer, Dropdown, Input, Modal, Progress, Segmented, Select, Tooltip } from 'antd';
 import type { Density, ThemeMode } from '@inkline/ui';
 import { networkModes, type NetworkMode } from '../data/types';
 import { clearAudit, listAudit, type AuditEntry, type AuditType } from '../lib/audit';
 import type { Session } from '../lib/session';
 import type { PresenceSnapshot } from '../lib/presence';
 import { TeamEncryptionPanel } from './TeamEncryptionPanel';
-import { checkUpdate, installUpdate, readUpdateSource, writeUpdateSource, type UpdateInfo, type UpdateProgress, type UpdateSource } from '../lib/update';
+import {
+  checkUpdate,
+  installUpdate,
+  markUpdateNotified,
+  readKnownUpdate,
+  readUpdateSource,
+  wasUpdateNotified,
+  writeUpdateSource,
+  type KnownUpdate,
+  type UpdateInfo,
+  type UpdateProgress,
+  type UpdateSource,
+} from '../lib/update';
 
 interface TopBarProps {
   mode: ThemeMode;
@@ -99,6 +111,7 @@ export function TopBar({
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [updateOpen, setUpdateOpen] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [knownUpdate, setKnownUpdate] = useState<KnownUpdate | null>(() => readKnownUpdate());
   const [updateSource, setUpdateSource] = useState<UpdateSource>(() => readUpdateSource());
   const [checking, setChecking] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
@@ -123,8 +136,10 @@ export function TopBar({
     const timer = window.setTimeout(async () => {
       try {
         const info = await checkUpdate();
-        if (cancelled || !info.available) return;
-        setUpdateInfo(info);
+        if (cancelled) return;
+        applyUpdateInfo(info);
+        if (!info.available || wasUpdateNotified(info.latest)) return;
+        markUpdateNotified(info.latest);
         notification.open({
           key: 'update-available',
           message: `发现新版本 v${info.latest}`,
@@ -154,6 +169,20 @@ export function TopBar({
       window.clearTimeout(timer);
     };
   }, [notification, networkMode]);
+
+  const availableVersion = updateInfo?.available
+    ? updateInfo.latest
+    : (knownUpdate?.version ?? '');
+  const hasUpdate = Boolean(availableVersion);
+
+  function applyUpdateInfo(info: UpdateInfo) {
+    setUpdateInfo(info);
+    setKnownUpdate(
+      info.available
+        ? { version: info.latest, notes: info.notes, date: info.date }
+        : null,
+    );
+  }
 
   const visibleEntries =
     auditFilter === 'all' ? entries : entries.filter((entry) => entry.type === auditFilter);
@@ -187,7 +216,7 @@ export function TopBar({
     setUpdateError(null);
     setUpdateInfo(null);
     try {
-      setUpdateInfo(await checkUpdate(updateSource));
+      applyUpdateInfo(await checkUpdate(updateSource));
     } catch (error) {
       setUpdateError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -204,7 +233,7 @@ export function TopBar({
     setUpdateError(null);
     setUpdateInfo(null);
     try {
-      setUpdateInfo(await checkUpdate(value));
+      applyUpdateInfo(await checkUpdate(value));
     } catch (error) {
       setUpdateError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -337,44 +366,52 @@ export function TopBar({
             <Button type="text" size="small" icon={<ColumnHeightOutlined />} aria-label="界面密度" />
           </Tooltip>
         </Dropdown>
-        <Dropdown
-          trigger={['click']}
-          menu={{
-            items: [
-              {
-                key: 'account',
-                label: `${session.name} · ${session.workspace}`,
-                disabled: true,
+        <Badge dot={hasUpdate} offset={[-2, 2]}>
+          <Dropdown
+            trigger={['click']}
+            menu={{
+              items: [
+                {
+                  key: 'account',
+                  label: `${session.name} · ${session.workspace}`,
+                  disabled: true,
+                },
+                ...(session.mode === 'team'
+                  ? [{ key: 'team', label: '团队设置', icon: <TeamOutlined /> }]
+                  : []),
+                { type: 'divider' as const },
+                {
+                  key: 'update',
+                  label: hasUpdate
+                    ? `有新版本 v${availableVersion}${networkMode === 'C' ? '' : '（需外网）'}`
+                    : networkMode === 'C'
+                      ? '检查更新'
+                      : '检查更新（需外网）',
+                  icon: <CloudDownloadOutlined />,
+                  disabled: networkMode !== 'C',
+                },
+                { key: 'signout', label: '切换工作区', icon: <LogoutOutlined /> },
+              ],
+              onClick: ({ key }) => {
+                if (key === 'signout') onSignOut();
+                if (key === 'update') handleCheckUpdate();
+                if (key === 'team') openTeamSettings();
               },
-              ...(session.mode === 'team'
-                ? [{ key: 'team', label: '团队设置', icon: <TeamOutlined /> }]
-                : []),
-              { type: 'divider' as const },
-              {
-                key: 'update',
-                label: networkMode === 'C' ? '检查更新' : '检查更新（需外网）',
-                icon: <CloudDownloadOutlined />,
-                disabled: networkMode !== 'C',
-              },
-              { key: 'signout', label: '切换工作区', icon: <LogoutOutlined /> },
-            ],
-            onClick: ({ key }) => {
-              if (key === 'signout') onSignOut();
-              if (key === 'update') handleCheckUpdate();
-              if (key === 'team') openTeamSettings();
-            },
-          }}
-        >
-          <button
-            type="button"
-            className="avatar"
-            aria-label="账户菜单"
-            aria-haspopup="menu"
-            title={`${session.name} · ${session.workspace}`}
+            }}
           >
-            {session.name.charAt(0)}
-          </button>
-        </Dropdown>
+            <button
+              type="button"
+              className="avatar"
+              aria-label="账户菜单"
+              aria-haspopup="menu"
+              title={`${session.name} · ${session.workspace}${
+                hasUpdate ? ` · 可更新至 v${availableVersion}` : ''
+              }`}
+            >
+              {session.name.charAt(0)}
+            </button>
+          </Dropdown>
+        </Badge>
       </div>
 
       <Modal

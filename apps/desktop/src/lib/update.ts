@@ -2,7 +2,7 @@ import { isTauri } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
 import { check, type Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
-import { kvGet, kvSet } from './kv';
+import { kvGet, kvRemove, kvSet } from './kv';
 
 export const APP_VERSION = __APP_VERSION__;
 
@@ -32,7 +32,60 @@ export interface UpdateProgress {
   total: number | null;
 }
 
+export interface KnownUpdate {
+  version: string;
+  notes: string;
+  date: string;
+}
+
+const KNOWN_UPDATE_KEY = 'aw-update-known';
+const NOTIFIED_UPDATE_KEY = 'aw-update-notified';
+
 let pendingUpdate: Update | null = null;
+
+/** 读取上次检查到的可用更新，供离线/内网模式下的红点提醒使用。 */
+export function readKnownUpdate(): KnownUpdate | null {
+  const raw = kvGet(KNOWN_UPDATE_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<KnownUpdate>;
+    if (!parsed.version) return null;
+    return {
+      version: parsed.version,
+      notes: parsed.notes ?? '',
+      date: parsed.date ?? '',
+    };
+  } catch {
+    return null;
+  }
+}
+
+function rememberKnownUpdate(info: UpdateInfo) {
+  if (!info.available) {
+    kvRemove(KNOWN_UPDATE_KEY);
+    return;
+  }
+  kvSet(
+    KNOWN_UPDATE_KEY,
+    JSON.stringify({
+      version: info.latest,
+      notes: info.notes,
+      date: info.date,
+    } satisfies KnownUpdate),
+  );
+}
+
+export function forgetKnownUpdate() {
+  kvRemove(KNOWN_UPDATE_KEY);
+}
+
+export function wasUpdateNotified(version: string): boolean {
+  return kvGet(NOTIFIED_UPDATE_KEY) === version;
+}
+
+export function markUpdateNotified(version: string) {
+  kvSet(NOTIFIED_UPDATE_KEY, version);
+}
 
 function describeError(error: unknown) {
   const text = error instanceof Error ? error.message : String(error);
@@ -64,7 +117,7 @@ export async function checkUpdate(source: UpdateSource = readUpdateSource()): Pr
     pendingUpdate = update;
 
     if (!update) {
-      return {
+      const info: UpdateInfo = {
         current,
         latest: current,
         notes: '当前已是最新版本。',
@@ -72,9 +125,11 @@ export async function checkUpdate(source: UpdateSource = readUpdateSource()): Pr
         available: false,
         runtime: 'tauri',
       };
+      rememberKnownUpdate(info);
+      return info;
     }
 
-    return {
+    const info: UpdateInfo = {
       current,
       latest: update.version,
       notes: update.body ?? '',
@@ -82,6 +137,8 @@ export async function checkUpdate(source: UpdateSource = readUpdateSource()): Pr
       available: true,
       runtime: 'tauri',
     };
+    rememberKnownUpdate(info);
+    return info;
   } catch (error) {
     throw new Error(describeError(error));
   }
@@ -140,5 +197,6 @@ export async function installUpdate(
     pendingUpdate = null;
   }
 
+  forgetKnownUpdate();
   await relaunch();
 }

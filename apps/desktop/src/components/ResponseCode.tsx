@@ -1,4 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  formatResponseBody,
+  type ResponseFormat,
+  type ResponseViewMode,
+} from '../lib/responsePreview';
 
 const ROW_HEIGHT = 19;
 const OVERSCAN = 10;
@@ -6,13 +11,22 @@ const VIRTUAL_THRESHOLD = 600;
 
 const JSON_TOKEN =
   /("(?:\\.|[^"\\])*"\s*:|"(?:\\.|[^"\\])*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|\btrue\b|\bfalse\b|\bnull\b)/g;
+const MARKUP_TOKEN = /(<\/?[a-zA-Z][^>]*>|<!--[\s\S]*?-->)/g;
 
-function formatBody(body: string) {
-  try {
-    return JSON.stringify(JSON.parse(body), null, 2);
-  } catch {
-    return body;
-  }
+function highlightMarkup(text: string) {
+  return text.split(MARKUP_TOKEN).map((part, index) => {
+    if (!part) return null;
+    const className = part.startsWith('<!--')
+      ? 'tok-comment'
+      : part.startsWith('<')
+        ? 'tok-tag'
+        : 'tok-text';
+    return (
+      <span className={className} key={index}>
+        {part}
+      </span>
+    );
+  });
 }
 
 function highlightJson(text: string) {
@@ -58,8 +72,24 @@ function markMatches(line: string, needle: string) {
   return parts;
 }
 
-export function ResponseCode({ body, query = '' }: { body: string; query?: string }) {
-  const text = useMemo(() => formatBody(body), [body]);
+export function ResponseCode({
+  body,
+  query = '',
+  mode = 'pretty',
+  format = 'json',
+}: {
+  body: string;
+  query?: string;
+  mode?: Exclude<ResponseViewMode, 'preview'>;
+  format?: ResponseFormat;
+}) {
+  const text = useMemo(() => formatResponseBody(body, format, mode), [body, format, mode]);
+  const highlight =
+    format === 'json'
+      ? highlightJson
+      : format === 'xml' || format === 'html'
+        ? highlightMarkup
+        : null;
   const needle = query.trim().toLowerCase();
   const lines = useMemo(() => {
     const all = text.split('\n');
@@ -98,7 +128,9 @@ export function ResponseCode({ body, query = '' }: { body: string; query?: strin
         </pre>
       );
     }
-    return <pre className="code-block response-code">{highlightJson(text)}</pre>;
+    return (
+      <pre className="code-block response-code">{highlight ? highlight(text) : text}</pre>
+    );
   }
 
   const start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);

@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from 'react';
 import {
   CheckCircleFilled,
   CloseCircleOutlined,
@@ -10,7 +11,7 @@ import {
   SaveOutlined,
   SearchOutlined,
 } from '@ant-design/icons';
-import { Button, Dropdown, Input, Tooltip } from 'antd';
+import { Button, Dropdown, Input, Select, Tooltip } from 'antd';
 import type { HttpMethod } from '../data/types';
 import type { AssertionResult } from '../lib/assertions';
 import { operatorLabel } from '../lib/assertions';
@@ -20,6 +21,18 @@ import {
   RESPONSE_CACHE_MAX_BODY_LABEL,
   type ResponseCacheMeta,
 } from '../lib/responseCache';
+import {
+  buildHtmlPreview,
+  decodeResponseBody,
+  detectResponseFormat,
+  detectedEncodingLabel,
+  RESPONSE_ENCODING_OPTIONS,
+  RESPONSE_FORMAT_OPTIONS,
+  readContentType,
+  type ResponseEncoding,
+  type ResponseFormatChoice,
+  type ResponseViewMode,
+} from '../lib/responsePreview';
 import { ResponseCode } from './ResponseCode';
 
 export type ResponseTabKey = 'body' | 'headers' | 'cookies' | 'console' | 'assertions';
@@ -116,6 +129,61 @@ export function RequestResponsePanel({
   onClear,
   scriptLogs,
 }: RequestResponsePanelProps) {
+  const [viewModeChoice, setViewModeChoice] = useState<ResponseViewMode | null>(null);
+  const [formatChoice, setFormatChoice] = useState<ResponseFormatChoice>('auto');
+  const [encodingChoice, setEncodingChoice] = useState<ResponseEncoding>('auto');
+
+  useEffect(() => {
+    setViewModeChoice(null);
+    setFormatChoice('auto');
+    setEncodingChoice('auto');
+  }, [response]);
+
+  const contentType = useMemo(() => readContentType(response?.headers ?? []), [response]);
+  const decodedBody = useMemo(
+    () =>
+      response
+        ? decodeResponseBody(response.body, response.bodyBase64, contentType, encodingChoice)
+        : '',
+    [response, contentType, encodingChoice],
+  );
+  const activeFormat = useMemo(
+    () =>
+      formatChoice === 'auto'
+        ? detectResponseFormat(contentType, decodedBody)
+        : formatChoice,
+    [contentType, decodedBody, formatChoice],
+  );
+  const viewMode: ResponseViewMode =
+    viewModeChoice ?? (activeFormat === 'html' ? 'preview' : 'pretty');
+  const htmlPreviewActive = viewMode === 'preview' && activeFormat === 'html';
+  const detectedEncoding = useMemo(
+    () => detectedEncodingLabel(contentType, response?.bodyBase64),
+    [contentType, response],
+  );
+  const formatOptions = useMemo(
+    () =>
+      RESPONSE_FORMAT_OPTIONS.map((option) =>
+        option.value === 'auto'
+          ? { ...option, label: `自动（${activeFormat.toUpperCase()}）` }
+          : option,
+      ),
+    [activeFormat],
+  );
+  const encodingOptions = useMemo(
+    () =>
+      RESPONSE_ENCODING_OPTIONS.map((option) =>
+        option.value === 'auto' && response?.bodyBase64
+          ? { ...option, label: `自动（${detectedEncoding.toUpperCase()}）` }
+          : option,
+      ),
+    [detectedEncoding, response],
+  );
+  const htmlPreview = useMemo(
+    () => buildHtmlPreview(decodedBody, url),
+    [decodedBody, url],
+  );
+
   return (
     <div className="response-panel">
       <div className="response-head">
@@ -230,11 +298,11 @@ export function RequestResponsePanel({
             placeholder="搜索响应"
             value={responseQuery}
             onChange={(event) => onResponseQueryChange(event.target.value)}
-            disabled={responseTab !== 'body'}
+            disabled={responseTab !== 'body' || htmlPreviewActive}
             aria-label="搜索响应"
           />
         )}
-        {!streamMode && responseQuery.trim() && (
+        {!streamMode && !htmlPreviewActive && responseQuery.trim() && (
           <span className={`response-meta${responseMatchCount === 0 ? ' bad' : ''}`}>
             {responseMatchCount} 处匹配
           </span>
@@ -426,7 +494,93 @@ export function RequestResponsePanel({
                   </div>
                 </div>
               ) : response ? (
-                <ResponseCode body={response.body} query={responseQuery} />
+                <div className="response-viewer">
+                  <div className="response-viewbar">
+                    <div className="response-viewmodes" role="tablist" aria-label="响应查看方式">
+                      {(
+                        [
+                          ['pretty', '美化'],
+                          ['raw', '原生'],
+                          ['preview', '预览'],
+                        ] as const
+                      ).map(([key, label]) => (
+                        <button
+                          key={key}
+                          type="button"
+                          role="tab"
+                          aria-selected={viewMode === key}
+                          className={`response-viewmode${viewMode === key ? ' active' : ''}`}
+                          onClick={() => setViewModeChoice(key)}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="response-view-options">
+                      <Select<ResponseFormatChoice>
+                        size="small"
+                        value={formatChoice}
+                        onChange={(value) => setFormatChoice(value)}
+                        options={formatOptions}
+                        aria-label="响应内容类型"
+                        popupMatchSelectWidth={false}
+                      />
+                      <Tooltip
+                        title={
+                          response.bodyBase64
+                            ? '选择响应编码'
+                            : '当前响应未保留原始字节，无法切换编码'
+                        }
+                      >
+                        <span>
+                          <Select<ResponseEncoding>
+                            size="small"
+                            value={encodingChoice}
+                            onChange={(value) => setEncodingChoice(value)}
+                            options={encodingOptions}
+                            disabled={!response.bodyBase64}
+                            aria-label="响应编码"
+                            popupMatchSelectWidth={false}
+                          />
+                        </span>
+                      </Tooltip>
+                    </div>
+                  </div>
+                  {viewMode === 'preview' ? (
+                    activeFormat === 'html' ? (
+                      <>
+                        <div className="response-preview-note">
+                          HTML 预览 · 脚本与同源访问已禁用
+                        </div>
+                        <iframe
+                          className="response-html-preview"
+                          sandbox=""
+                          srcDoc={htmlPreview}
+                          title="HTML 响应预览"
+                        />
+                      </>
+                    ) : (
+                      <>
+                        <div className="response-preview-note">
+                          该内容类型暂不支持渲染，已显示格式化文本。
+                        </div>
+                        <ResponseCode
+                          body={decodedBody}
+                          query={responseQuery}
+                          mode="pretty"
+                          format={activeFormat}
+                        />
+                      </>
+                    )
+                  ) : (
+                    <ResponseCode
+                      body={decodedBody}
+                      query={responseQuery}
+                      mode={viewMode}
+                      format={activeFormat}
+                    />
+                  )}
+                </div>
               ) : (
                 <div className="response-empty">发送请求后在此查看响应。</div>
               ))}

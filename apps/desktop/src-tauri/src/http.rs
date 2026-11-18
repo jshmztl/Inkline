@@ -73,6 +73,8 @@ pub struct SendRequestPayload {
 
 /// 默认响应体上限，避免超大响应把进程内存打满。
 pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 10 * 1024 * 1024;
+/// 为编码切换保留的原始字节上限，超过后只返回 UTF-8 字符串。
+const RAW_BODY_BASE64_LIMIT: usize = 2 * 1024 * 1024;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -81,6 +83,8 @@ pub struct SendResponse {
     pub status_text: String,
     pub headers: Vec<HeaderPair>,
     pub body: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body_base64: Option<String>,
     pub duration_ms: u64,
     pub ttfb_ms: u64,
     pub download_ms: u64,
@@ -295,7 +299,7 @@ pub(crate) async fn send_with_cookie(
         let declared_size = response
             .content_length()
             .map(|value| value as usize);
-        let (body, size_bytes, truncated) =
+        let (body, size_bytes, truncated, body_base64) =
             read_body_limited(response, max_body_bytes, declared_size).await?;
         let duration_ms = started.elapsed().as_millis() as u64;
 
@@ -304,6 +308,7 @@ pub(crate) async fn send_with_cookie(
             status_text: status.canonical_reason().unwrap_or("").to_string(),
             headers,
             body,
+            body_base64,
             duration_ms,
             ttfb_ms,
             download_ms: duration_ms.saturating_sub(ttfb_ms),
@@ -367,7 +372,7 @@ async fn read_body_limited(
     response: reqwest::Response,
     max_body_bytes: usize,
     declared_size: Option<usize>,
-) -> Result<(String, usize, bool), String> {
+) -> Result<(String, usize, bool, Option<String>), String> {
     let mut received = Vec::new();
     let mut truncated = false;
     let mut stream = response.bytes_stream();
@@ -393,7 +398,12 @@ async fn read_body_limited(
         declared_size.unwrap_or(received.len()).max(received.len())
     };
     let body = String::from_utf8_lossy(&received).into_owned();
-    Ok((body, size_bytes, truncated))
+    let body_base64 = if received.len() <= RAW_BODY_BASE64_LIMIT {
+        Some(STANDARD.encode(&received))
+    } else {
+        None
+    };
+    Ok((body, size_bytes, truncated, body_base64))
 }
 
 /// reqwest 的重定向错误只展示外层描述，这里把 source 链里的原因拼进用户可见信息。

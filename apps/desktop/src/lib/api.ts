@@ -39,11 +39,24 @@ export interface SendRequestPayload {
 /** 与 Rust `DEFAULT_MAX_RESPONSE_BYTES` 保持一致。 */
 export const DEFAULT_MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
 
+/** 与 Rust `RAW_BODY_BASE64_LIMIT` 保持一致，超过后不再保留原始字节。 */
+const RAW_BODY_BASE64_LIMIT = 2 * 1024 * 1024;
+
+function encodeBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  return btoa(binary);
+}
+
 export interface SendResponse {
   status: number;
   statusText: string;
   headers: HeaderPair[];
   body: string;
+  bodyBase64?: string;
   durationMs: number;
   ttfbMs?: number;
   downloadMs?: number;
@@ -287,6 +300,8 @@ async function browserSendRequest(
       value,
     })),
     body,
+    bodyBase64:
+      received <= RAW_BODY_BASE64_LIMIT ? encodeBase64(merged) : undefined,
     durationMs,
     ttfbMs,
     downloadMs: Math.max(0, durationMs - ttfbMs),
