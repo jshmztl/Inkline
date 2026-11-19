@@ -96,10 +96,22 @@ async function loadMoreHistory() {
   }
 }
 
+function stillEncrypted(payload) {
+  const encryptedValue = (value) => typeof value === 'string' && value.startsWith('enc:v1:');
+  const requests = Array.isArray(payload?.requests) ? payload.requests : [];
+  if (requests.some((request) => encryptedValue(request?.headers) || encryptedValue(request?.body))) {
+    return true;
+  }
+  const documents = payload?.documents && typeof payload.documents === 'object'
+    ? Object.values(payload.documents)
+    : [];
+  return documents.some(encryptedValue);
+}
+
 async function openPayload(revision) {
   try {
     const payload = await api(`/v1/teams/${state.team.id}/snapshots/${revision}?decrypt=1`);
-    const locked = Boolean(payload && payload.encryption);
+    const locked = stillEncrypted(payload);
     payloadTitle.textContent = locked
       ? `快照 #${revision} · 仍为密文`
       : `快照 #${revision}`;

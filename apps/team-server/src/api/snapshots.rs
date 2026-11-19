@@ -29,7 +29,16 @@ pub struct SnapshotListQuery {
 
 #[derive(Debug, Deserialize)]
 pub struct SnapshotViewQuery {
-    pub decrypt: Option<bool>,
+    pub decrypt: Option<String>,
+}
+
+impl SnapshotViewQuery {
+    fn wants_decrypt(&self) -> bool {
+        matches!(
+            self.decrypt.as_deref().map(str::trim),
+            Some("1") | Some("true") | Some("yes")
+        )
+    }
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -165,7 +174,7 @@ pub async fn get_snapshot(
     };
 
     if viewer.is_manager() {
-        if query.decrypt == Some(true) && payload.get("encryption").is_some() {
+        if query.wants_decrypt() && payload.get("encryption").is_some() {
             let version = payload
                 .get("encryption")
                 .and_then(|value| value.get("keyVersion"))
@@ -789,4 +798,30 @@ fn decode_payload(
     }
 
     Ok(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::extract::Query;
+    use axum::http::Uri;
+
+    use super::SnapshotViewQuery;
+
+    fn parse(query: &str) -> SnapshotViewQuery {
+        let uri: Uri = format!("/v1/teams/00000000-0000-0000-0000-000000000000/snapshots/1{query}")
+            .parse()
+            .expect("uri");
+        Query::<SnapshotViewQuery>::try_from_uri(&uri)
+            .expect("query")
+            .0
+    }
+
+    #[test]
+    fn decrypt_query_accepts_1_and_true() {
+        assert!(parse("?decrypt=1").wants_decrypt());
+        assert!(parse("?decrypt=true").wants_decrypt());
+        assert!(!parse("").wants_decrypt());
+        assert!(!parse("?decrypt=0").wants_decrypt());
+        assert!(!parse("?decrypt=false").wants_decrypt());
+    }
 }
