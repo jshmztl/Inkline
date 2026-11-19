@@ -17,6 +17,12 @@ pub struct AuditQuery {
     pub kind: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct AuditCleanupQuery {
+    #[serde(rename = "beforeDays")]
+    pub before_days: Option<i32>,
+}
+
 pub async fn list_audit(
     State(state): State<AppState>,
     user: AuthUser,
@@ -68,5 +74,49 @@ pub async fn list_audit(
             "at": row.at,
         })).collect::<Vec<_>>(),
         "nextCursor": next_cursor,
+    })))
+}
+
+/// 主动清理团队审计日志：删除指定天数之前的记录，并写入一条清理审计。
+pub async fn clear_audit(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(team_id): Path<Uuid>,
+    Query(query): Query<AuditCleanupQuery>,
+) -> Result<Json<Value>, AppError> {
+    let role = crate::api::teams::require_membership(&state.pool, team_id, user.0).await?;
+    if role != "owner" && role != "admin" {
+        return Err(AppError::forbidden("只有团队所有者或管理员可以清理审计日志"));
+    }
+
+    let days = query.before_days.unwrap_or(90);
+    if !(1..=3650).contains(&days) {
+        return Err(AppError::validation("清理天数必须在 1–3650 之间"));
+    }
+
+    let deleted = sqlx::query(
+        "DELETE FROM audit_logs
+         WHERE team_id = $1
+           AND at < now() - make_interval(days => $2)",
+    )
+    .bind(team_id)
+    .bind(days)
+    .execute(&state.pool)
+    .await?
+    .rows_affected();
+
+    let _ = crate::db::write_audit(
+        &state.pool,
+        Some(team_id),
+        Some(user.0),
+        "audit",
+        "audit.cleanup",
+        json!({ "beforeDays": days, "deleted": deleted }),
+    )
+    .await;
+
+    Ok(Json(json!({
+        "deleted": deleted,
+        "beforeDays": days,
     })))
 }

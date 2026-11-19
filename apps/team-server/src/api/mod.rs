@@ -107,7 +107,10 @@ pub fn router(state: AppState) -> Router {
             "/v1/teams/{team_id}/snapshots/{revision}/rollback",
             post(snapshots::rollback_snapshot),
         )
-        .route("/v1/teams/{team_id}/audit", get(audit::list_audit))
+        .route(
+            "/v1/teams/{team_id}/audit",
+            get(audit::list_audit).delete(audit::clear_audit),
+        )
         .route(
             "/v1/teams/{team_id}/presence",
             get(crate::presence::presence_ws),
