@@ -57,6 +57,7 @@ export const state = {
   contentSelected: null,
   exportFormat: 'markdown',
   auditType: '',
+  aiConfig: null,
 };
 
 // 由 app.js 注册的跨模块导航动作，避免视图模块反向依赖入口模块。

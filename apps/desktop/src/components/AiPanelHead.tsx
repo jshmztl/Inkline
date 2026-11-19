@@ -3,6 +3,7 @@ import {
   DeleteOutlined,
   MoreOutlined,
   QuestionCircleOutlined,
+  RightOutlined,
   RobotOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
@@ -21,6 +22,7 @@ interface AiPanelHeadProps {
   onOpenGlossary: () => void;
   onOpenGuide: () => void;
   onClearMessages: () => void;
+  onCollapse: () => void;
 }
 
 // AI 面板头部：标题、模型标签、设置入口与当前请求上下文。
@@ -34,6 +36,7 @@ export function AiPanelHead({
   onOpenGlossary,
   onOpenGuide,
   onClearMessages,
+  onCollapse,
 }: AiPanelHeadProps) {
   return (
     <>
@@ -55,6 +58,15 @@ export function AiPanelHead({
             icon={<SettingOutlined />}
             aria-label="AI 网关设置"
             onClick={onOpenGateway}
+          />
+        </Tooltip>
+        <Tooltip title="收起 AI 面板">
+          <Button
+            type="text"
+            size="small"
+            icon={<RightOutlined />}
+            aria-label="收起 AI 面板"
+            onClick={onCollapse}
           />
         </Tooltip>
         <Dropdown

@@ -1,4 +1,4 @@
-import { $, h, state, dataLevels, dataLevelText, fmtTime, fmtBytes, shortHash, api, showToast, nav } from './core.js';
+import { $, h, state, dataLevels, dataLevelText, fmtTime, fmtBytes, shortHash, api, showToast, nav, isManager } from './core.js';
 import { openPayload, downloadSnapshot } from './snapshots.js';
 
 function stat(label, value) {
@@ -171,8 +171,111 @@ function renderOverview() {
   $('#tab-overview').replaceChildren(snapshotCard(), recentAuditCard());
 }
 
-function renderSettings() {
-  $('#tab-settings').replaceChildren(settingsCard(state.team));
+async function loadAiConfig() {
+  if (!state.team) return;
+  try {
+    const data = await api(`/v1/teams/${state.team.id}/ai-config`);
+    state.aiConfig = data?.config || null;
+  } catch {
+    state.aiConfig = null;
+  }
 }
 
-export { stat, restrictedCount, renderStats, kv, snapshotCard, settingsCard, dataLevelGuide, recentAuditCard, renderOverview, renderSettings };
+function aiConfigCard() {
+  const card = h('div', { class: 'card' });
+  card.append(h('div', { class: 'card-head' }, h('h3', { text: '团队 AI 配置' })));
+  if (!isManager()) {
+    card.append(h('p', { class: 'section-note', text: '只有团队所有者或管理员可以配置团队 AI。' }));
+    return card;
+  }
+  if (state.aiConfig === null) {
+    card.append(h('p', { class: 'section-note', text: '暂无团队 AI 配置，成员将使用各自本机的 AI 网关。' }));
+  }
+
+  const config = state.aiConfig || {};
+  const enabled = h('input', {
+    type: 'checkbox',
+    checked: Boolean(config.enabled),
+  });
+  const provider = h('select', {},
+    ...[
+      ['deepseek', 'DeepSeek 云端'],
+      ['qwen-cloud', 'Qwen 云端（DashScope）'],
+      ['qwen-ollama', 'Qwen 本地（Ollama）'],
+      ['qwen-vllm', 'Qwen 本地（vLLM）'],
+      ['custom', '自定义 OpenAI 兼容网关'],
+    ].map(([value, label]) => h('option', {
+      value,
+      text: label,
+      selected: (config.provider || 'custom') === value,
+    })),
+  );
+  const baseUrl = h('input', {
+    value: config.baseUrl || '',
+    placeholder: 'https://api.deepseek.com/v1',
+  });
+  const model = h('input', {
+    value: config.model || '',
+    placeholder: 'deepseek-chat',
+  });
+  const apiKey = h('input', {
+    type: 'password',
+    placeholder: config.hasApiKey ? '已保存，留空表示不修改' : '填写上游 API Key（本地网关可留空）',
+  });
+  const clearKey = h('input', { type: 'checkbox' });
+
+  const form = h('form', { class: 'settings-form' },
+    h('div', { class: 'field wide' },
+      h('label', { class: 'checkline' }, enabled, h('span', { text: '启用团队 AI（成员无需配置即可使用）' })),
+    ),
+    h('div', { class: 'field' }, h('label', { text: '服务提供方' }), provider),
+    h('div', { class: 'field' }, h('label', { text: '模型名' }), model),
+    h('div', { class: 'field wide' }, h('label', { text: 'Base URL' }), baseUrl),
+    h('div', { class: 'field wide' }, h('label', { text: 'API Key' }), apiKey),
+    h('div', { class: 'field wide' },
+      h('label', { class: 'checkline' }, clearKey, h('span', { text: '清除已保存的 API Key' })),
+      h('span', { class: 'hint', text: 'Key 仅保存在服务端，成员客户端不可见；请求由团队服务代理转发。' }),
+    ),
+    h('div', { class: 'wide actions' }, h('button', { class: 'btn primary', type: 'submit', text: '保存 AI 配置' })),
+  );
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = form.querySelector('button[type="submit"]');
+    button.disabled = true;
+    try {
+      const payload = {
+        enabled: enabled.checked,
+        provider: provider.value,
+        baseUrl: baseUrl.value.trim(),
+        model: model.value.trim(),
+      };
+      if (clearKey.checked) payload.clearApiKey = true;
+      else if (apiKey.value.trim()) payload.apiKey = apiKey.value.trim();
+      const data = await api(`/v1/teams/${state.team.id}/ai-config`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+      state.aiConfig = data?.config || null;
+      renderSettings();
+      showToast('团队 AI 配置已保存');
+    } catch (error) {
+      showToast(error.message, 'error');
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  card.append(form);
+  card.append(h('p', {
+    class: 'section-note',
+    text: '成员登录后自动使用团队 AI；成员在本机配置个人 AI 后优先使用个人配置。团队成员可在审计日志中查看 AI 调用记录。',
+  }));
+  return card;
+}
+
+function renderSettings() {
+  $('#tab-settings').replaceChildren(settingsCard(state.team), aiConfigCard());
+}
+
+export { stat, restrictedCount, renderStats, kv, snapshotCard, settingsCard, dataLevelGuide, recentAuditCard, renderOverview, renderSettings, loadAiConfig, aiConfigCard };

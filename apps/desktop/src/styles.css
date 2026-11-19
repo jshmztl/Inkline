@@ -333,10 +333,67 @@ code,
 /* ---------- workspace ---------- */
 
 .workspace {
+  position: relative;
   display: grid;
-  grid-template-columns: 268px minmax(0, 1fr) 372px;
+  grid-template-columns: var(--sidebar-w, 268px) minmax(0, 1fr) var(--ai-w, 372px);
   flex: 1;
   min-height: 0;
+}
+
+.pane-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 6;
+  width: 11px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.pane-resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  border-radius: 2px;
+  background: transparent;
+  transform: translateX(-50%);
+  transition: background 140ms ease;
+}
+
+.pane-resizer:hover::after,
+.pane-resizer:active::after {
+  background: var(--aw-accent);
+}
+
+.pane-resizer-left {
+  left: var(--sidebar-w, 268px);
+  transform: translateX(-50%);
+}
+
+.pane-resizer-right {
+  right: var(--ai-w, 372px);
+  transform: translateX(50%);
+}
+
+body.resizing {
+  user-select: none;
+  cursor: col-resize;
+}
+
+.ai-panel-reopen.ant-btn {
+  position: fixed;
+  top: 50%;
+  right: 10px;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  transform: translateY(-50%);
+  box-shadow: 0 6px 18px var(--aw-accent-glow);
 }
 
 /* ---------- sidebar ---------- */
@@ -2395,7 +2452,9 @@ html[data-theme='dark'] .method-option.method-delete {
 .ai-panel {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   min-height: 0;
+  overflow: hidden;
   background:
     radial-gradient(120% 70% at 100% 0%, var(--aw-accent-2-soft), transparent 62%),
     var(--aw-surface);
@@ -4179,10 +4238,6 @@ html[data-theme='dark'] .ai-panel .ai-bubble-end .ant-bubble-content {
 /* ---------- responsive ---------- */
 
 @media (max-width: 1240px) {
-  .workspace {
-    grid-template-columns: 244px minmax(0, 1fr) 336px;
-  }
-
   .network-label {
     display: none;
   }
@@ -4193,10 +4248,6 @@ html[data-theme='dark'] .ai-panel .ai-bubble-end .ant-bubble-content {
 }
 
 @media (max-width: 1080px) {
-  .workspace {
-    grid-template-columns: 228px minmax(0, 1fr) 312px;
-  }
-
   .request-name-hint {
     display: none;
   }
@@ -5048,6 +5099,27 @@ html[data-theme='dark'] .ai-panel .ai-bubble-end .ant-bubble-content {
 .gateway-form label > span {
   color: var(--aw-muted);
   font-size: 12px;
+}
+
+.gateway-team-banner {
+  padding: 10px 12px;
+  border: 1px solid var(--aw-line);
+  border-radius: 6px;
+  background: var(--aw-surface-2);
+}
+
+.gateway-team-banner strong {
+  display: block;
+  color: var(--aw-ink);
+  font-size: 12.5px;
+  font-weight: 620;
+}
+
+.gateway-team-banner p {
+  margin: 4px 0 0;
+  color: var(--aw-muted);
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .gateway-hint {

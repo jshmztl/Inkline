@@ -1,4 +1,5 @@
 pub mod admin;
+pub mod ai;
 pub mod audit;
 pub mod auth;
 pub mod encryption;
@@ -90,6 +91,14 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/v1/teams/{team_id}/encryption/escrow/disable",
             post(encryption::disable_server_review),
+        )
+        .route(
+            "/v1/teams/{team_id}/ai-config",
+            get(ai::get_config).put(ai::update_config),
+        )
+        .route(
+            "/v1/teams/{team_id}/ai/chat/completions",
+            post(ai::chat_proxy),
         )
         .route(
             "/v1/teams/{team_id}/snapshots",

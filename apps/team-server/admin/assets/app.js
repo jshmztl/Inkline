@@ -1,5 +1,5 @@
 import { $, h, state, nav, tabNames, roleLabels, rolePill, isManager, api, showToast, clearSession, loadTokens, saveTokens, showLogin, showApp, randomPassword, teamDialog, memberDialog, passwordDialog, confirmDialog, payloadDialog, diffDialog, diffOutline, diffBody, empty, teamView, teamList, TEAM_KEY } from './core.js';
-import { renderStats, renderOverview, renderSettings } from './overview.js';
+import { renderStats, renderOverview, renderSettings, loadAiConfig } from './overview.js';
 import { renderMembers, syncMemberMode, submitMember, submitPassword } from './members.js';
 import { renderPermissions, loadPermissions } from './permissions.js';
 import { renderContent, loadWorkspace } from './content.js';
@@ -62,6 +62,9 @@ function switchTab(tab) {
   if (tab === 'permissions' && isManager() && !state.permission) void loadPermissions();
   if (tab === 'content' && isManager() && !state.workspace) void loadWorkspace();
   if (tab === 'audit' && isManager() && state.audit === null) void loadAudit();
+  if (tab === 'settings' && isManager() && state.aiConfig === null) {
+    void loadAiConfig().then(() => renderSettings());
+  }
 }
 
 async function selectTeam(id) {
@@ -79,6 +82,7 @@ async function selectTeam(id) {
     state.history = history.entries || [];
     state.historyCursor = history.nextCursor;
     state.audit = null;
+    state.aiConfig = null;
     state.permission = null;
     state.permSelected = null;
     state.permDraft = null;
@@ -89,7 +93,7 @@ async function selectTeam(id) {
     state.tab = 'overview';
 
     if (isManager()) {
-      await Promise.all([loadPermissions(), loadAudit()]);
+      await Promise.all([loadPermissions(), loadAudit(), loadAiConfig()]);
     }
 
     const index = state.teams.findIndex((item) => item.id === id);

@@ -49,6 +49,7 @@ async fn test_state() -> Option<AppState> {
         }),
         presence: Default::default(),
         login_guard: Default::default(),
+        http: reqwest::Client::new(),
     })
 }
 

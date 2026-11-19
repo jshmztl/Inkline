@@ -38,7 +38,7 @@ import { checkNetworkAccessResolved, type NetworkAccess } from '../lib/networkPo
 import {
   chatWithGateway,
   isGatewayConfigured,
-  readGatewayConfig,
+  readEffectiveGatewayConfig,
 } from '../lib/aiGateway';
 import { readGlossary, writeGlossary } from '../lib/glossary';
 import { copyMarkdown, downloadDocFile } from '../lib/docExport';
@@ -64,7 +64,9 @@ interface AiPanelProps {
   syncNonce: number;
   actor: string;
   collections: Collection[];
+  gatewayVersion: number;
   onCreateRequestFromDoc: (draft: RequestDraft, collectionId: string) => Promise<void>;
+  onCollapse: () => void;
 }
 
 type AiAction = 'task' | 'descriptions' | 'tests' | 'chat' | 'extract';
@@ -76,7 +78,9 @@ export function AiPanel({
   syncNonce,
   actor,
   collections,
+  gatewayVersion,
   onCreateRequestFromDoc,
+  onCollapse,
 }: AiPanelProps) {
   const { message } = App.useApp();
   const network = networkModes[networkMode];
@@ -90,7 +94,7 @@ export function AiPanel({
   const [docOpen, setDocOpen] = useState(false);
   const [preflightOpen, setPreflightOpen] = useState(false);
   const [gatewayOpen, setGatewayOpen] = useState(false);
-  const [gatewayConfig, setGatewayConfig] = useState(readGatewayConfig);
+  const [gatewayConfig, setGatewayConfig] = useState(readEffectiveGatewayConfig);
   const [glossaryEntries, setGlossaryEntries] = useState<GlossaryEntry[]>(readGlossary);
   const [glossaryDraft, setGlossaryDraft] = useState<GlossaryEntry[]>([]);
   const [glossaryOpen, setGlossaryOpen] = useState(false);
@@ -105,6 +109,10 @@ export function AiPanel({
   const [reviewOpen, setReviewOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const configured = isGatewayConfigured(gatewayConfig);
+
+  useEffect(() => {
+    setGatewayConfig(readEffectiveGatewayConfig());
+  }, [gatewayVersion]);
 
   useEffect(() => {
     if (configured && kvGet(AI_GUIDE_KEY) !== '1') setGuideOpen(true);
@@ -225,7 +233,7 @@ export function AiPanel({
     message.success(route.egress ? '已审批并建立文档任务' : '文档任务已建立');
     setDocOpen(true);
 
-    const config = readGatewayConfig();
+    const config = readEffectiveGatewayConfig();
     const prompt = [
       `接口：${task.request.method} ${task.request.url}`,
       `数据级别：${task.request.dataLevel}`,
@@ -268,7 +276,7 @@ export function AiPanel({
   }
 
   async function runAiAction(action: AiAction, chatText = '') {
-    if (!isGatewayConfigured(readGatewayConfig())) {
+    if (!isGatewayConfigured(readEffectiveGatewayConfig())) {
       setGatewayOpen(true);
       message.info('请先配置 AI 模型');
       return;
@@ -277,7 +285,7 @@ export function AiPanel({
       message.error(route.reason);
       return;
     }
-    const baseUrl = readGatewayConfig().baseUrl.trim();
+    const baseUrl = readEffectiveGatewayConfig().baseUrl.trim();
     if (baseUrl) {
       const access = await checkNetworkAccessResolved(baseUrl, networkMode);
       if (!access.allowed) {
@@ -371,7 +379,7 @@ export function AiPanel({
 
     try {
       const reply = await chatWithGateway(
-        readGatewayConfig(),
+        readEffectiveGatewayConfig(),
         [
           {
             role: 'system',
@@ -433,7 +441,7 @@ export function AiPanel({
 
     try {
       const reply = await chatWithGateway(
-        readGatewayConfig(),
+        readEffectiveGatewayConfig(),
         [
           { role: 'system', content: extractSystemPrompt },
           { role: 'user', content: `接口文档如下：\n\n${source.slice(0, 6000)}` },
@@ -531,6 +539,7 @@ export function AiPanel({
           setMessages([]);
           message.success('已清空对话');
         }}
+        onCollapse={onCollapse}
       />
 
       <div className="ai-scroll">
@@ -749,7 +758,7 @@ export function AiPanel({
         networkMode={networkMode}
         onClose={() => {
           setGatewayOpen(false);
-          setGatewayConfig(readGatewayConfig());
+          setGatewayConfig(readEffectiveGatewayConfig());
         }}
       />
     </aside>

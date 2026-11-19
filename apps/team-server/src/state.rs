@@ -12,4 +12,5 @@ pub struct AppState {
     pub config: Arc<Config>,
     pub presence: PresenceState,
     pub login_guard: LoginGuard,
+    pub http: reqwest::Client,
 }

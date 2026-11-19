@@ -1,8 +1,9 @@
 import type { NetworkMode } from '../data/types';
-import { kvGet, kvSet } from './kv';
+import { kvGet, kvRemove, kvSet } from './kv';
 import { AI_GATEWAY_SECRET_KEY } from './secretMigration';
-import { secretGet, secretSet } from './secretStore';
+import { secretGet, secretRemove, secretSet } from './secretStore';
 import { backendNetworkOptions } from './network';
+import { getTeamGatewayConfig } from './teamAi';
 
 export type AiProvider = 'deepseek' | 'qwen-cloud' | 'qwen-ollama' | 'qwen-vllm' | 'custom';
 
@@ -11,6 +12,7 @@ export interface AiGatewayConfig {
   baseUrl: string;
   model: string;
   apiKey: string;
+  source?: 'local' | 'team';
 }
 
 export interface AiChatMessage {
@@ -97,10 +99,27 @@ export function readGatewayConfig(): AiGatewayConfig {
 export function writeGatewayConfig(config: AiGatewayConfig) {
   try {
     secretSet(AI_GATEWAY_SECRET_KEY, config.apiKey ?? '');
-    kvSet(STORAGE_KEY, JSON.stringify({ ...config, apiKey: '' }));
+    kvSet(STORAGE_KEY, JSON.stringify({ ...config, apiKey: '', source: undefined }));
   } catch {
     // 本地存储不可用时仅保留内存配置。
   }
+}
+
+export function isLocalGatewayConfigured(): boolean {
+  return isGatewayConfigured(readGatewayConfig());
+}
+
+export function clearGatewayConfig() {
+  kvRemove(STORAGE_KEY);
+  secretRemove(AI_GATEWAY_SECRET_KEY);
+}
+
+export function readEffectiveGatewayConfig(): AiGatewayConfig {
+  const local = readGatewayConfig();
+  if (isGatewayConfigured(local)) return { ...local, source: 'local' };
+  const team = getTeamGatewayConfig();
+  if (team) return team;
+  return { ...local, source: 'local' };
 }
 
 function isTauri() {

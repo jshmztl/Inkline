@@ -1,5 +1,15 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { App as AntApp, Button, Input, Modal } from 'antd';
+import { RobotOutlined } from '@ant-design/icons';
 import { AntProvider, type Density, type ThemeMode } from '@inkline/ui';
 import type { ApiFolder, ApiRequest, DataLevel, HttpMethod, NetworkMode } from './data/types';
 import {
@@ -60,6 +70,7 @@ import { readSession, signOut, type Session } from './lib/session';
 import { useTeamPresence } from './lib/presence';
 import { ensureTeamEncryption } from './lib/teamE2E';
 import { runCollectionTests, type TestCaseResult } from './lib/testRunner';
+import { clearTeamAiConfig, loadTeamAiConfig } from './lib/teamAi';
 
 const AiPanel = lazy(() =>
   import('./components/AiPanel').then((module) => ({ default: module.AiPanel })),
@@ -72,6 +83,20 @@ const CommandPalette = lazy(() =>
 );
 
 const HISTORY_PAGE_SIZE = 50;
+const SIDEBAR_MIN = 200;
+const SIDEBAR_MAX = 480;
+const AI_PANEL_MIN = 300;
+const AI_PANEL_MAX = 720;
+const MIN_CONTENT_WIDTH = 420;
+const SIDEBAR_WIDTH_KEY = 'aw-sidebar-width';
+const AI_WIDTH_KEY = 'aw-ai-width';
+const AI_COLLAPSED_KEY = 'aw-ai-collapsed';
+
+function readStoredWidth(key: string, fallback: number, min: number, max: number): number {
+  const parsed = Number(kvGet(key));
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(max, Math.max(min, Math.round(parsed)));
+}
 
 function readStoredMode(): ThemeMode {
   return kvGet('aw-theme') === 'dark' ? 'dark' : 'light';
@@ -176,7 +201,70 @@ export function App() {
     url: string;
     nonce: number;
   } | null>(null);
+  const [sidebarWidth, setSidebarWidth] = useState(() =>
+    readStoredWidth(SIDEBAR_WIDTH_KEY, 268, SIDEBAR_MIN, SIDEBAR_MAX),
+  );
+  const [aiWidth, setAiWidth] = useState(() =>
+    readStoredWidth(AI_WIDTH_KEY, 372, AI_PANEL_MIN, AI_PANEL_MAX),
+  );
+  const [aiCollapsed, setAiCollapsed] = useState(() => kvGet(AI_COLLAPSED_KEY) === '1');
+  const [aiGatewayVersion, setAiGatewayVersion] = useState(0);
   const presence = useTeamPresence(session, networkMode);
+
+  function toggleAiCollapsed(collapsed: boolean) {
+    setAiCollapsed(collapsed);
+    kvSet(AI_COLLAPSED_KEY, collapsed ? '1' : '0');
+  }
+
+  function beginResize(side: 'sidebar' | 'ai', event: ReactPointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = side === 'sidebar' ? sidebarWidth : aiWidth;
+    const min = side === 'sidebar' ? SIDEBAR_MIN : AI_PANEL_MIN;
+    const max = side === 'sidebar' ? SIDEBAR_MAX : AI_PANEL_MAX;
+    const otherWidth = side === 'sidebar' ? (aiCollapsed ? 0 : aiWidth) : sidebarWidth;
+    const limit = Math.max(min, Math.min(max, window.innerWidth - otherWidth - MIN_CONTENT_WIDTH));
+    let latest = startWidth;
+
+    document.body.classList.add('resizing');
+    const onMove = (moveEvent: PointerEvent) => {
+      const delta = side === 'sidebar' ? moveEvent.clientX - startX : startX - moveEvent.clientX;
+      latest = Math.min(limit, Math.max(min, Math.round(startWidth + delta)));
+      if (side === 'sidebar') setSidebarWidth(latest);
+      else setAiWidth(latest);
+    };
+    const finish = () => {
+      window.removeEventListener('pointermove', onMove);
+      document.body.classList.remove('resizing');
+      kvSet(side === 'sidebar' ? SIDEBAR_WIDTH_KEY : AI_WIDTH_KEY, String(latest));
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', finish, { once: true });
+  }
+
+  useEffect(() => {
+    if (session?.mode !== 'team' || !session.team) {
+      clearTeamAiConfig();
+      setAiGatewayVersion((current) => current + 1);
+      return;
+    }
+    const connection = readTeamConnection();
+    if (!connection) {
+      clearTeamAiConfig();
+      setAiGatewayVersion((current) => current + 1);
+      return;
+    }
+    let cancelled = false;
+    clearTeamAiConfig();
+    void loadTeamAiConfig(connection, session.team.id)
+      .catch(() => null)
+      .finally(() => {
+        if (!cancelled) setAiGatewayVersion((current) => current + 1);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.mode, session?.team?.id]);
 
   function changeNetworkMode(mode: NetworkMode) {
     setNetworkMode(mode);
@@ -1016,7 +1104,22 @@ export function App() {
             onOpenPalette={() => setPaletteOpen(true)}
           />
 
-          <div className="workspace">
+          <div
+            className="workspace"
+            style={
+              {
+                '--sidebar-w': `${sidebarWidth}px`,
+                '--ai-w': aiCollapsed ? '0px' : `${aiWidth}px`,
+              } as CSSProperties
+            }
+          >
+            <div
+              className="pane-resizer pane-resizer-left"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="调整左侧栏宽度"
+              onPointerDown={(event) => beginResize('sidebar', event)}
+            />
             <Sidebar
               activeRequestId={activeRequestId}
               folders={folders}
@@ -1100,24 +1203,49 @@ export function App() {
                 }
               />
             )}
-            <Suspense
-              fallback={
-                <aside className="ai-panel ai-panel-fallback">
-                  <span>AI 文档助手加载中…</span>
-                </aside>
-              }
-            >
-              <AiPanel
-                networkMode={networkMode}
-                activeRequest={activeRequest}
-                context={requestContext}
-                syncNonce={syncNonce}
-                actor={session.name}
-                collections={collections}
-                onCreateRequestFromDoc={handleCreateRequestFromDoc}
+            {!aiCollapsed && (
+              <Suspense
+                fallback={
+                  <aside className="ai-panel ai-panel-fallback">
+                    <span>AI 文档助手加载中…</span>
+                  </aside>
+                }
+              >
+                <AiPanel
+                  networkMode={networkMode}
+                  activeRequest={activeRequest}
+                  context={requestContext}
+                  syncNonce={syncNonce}
+                  actor={session.name}
+                  collections={collections}
+                  gatewayVersion={aiGatewayVersion}
+                  onCreateRequestFromDoc={handleCreateRequestFromDoc}
+                  onCollapse={() => toggleAiCollapsed(true)}
+                />
+              </Suspense>
+            )}
+            {!aiCollapsed && (
+              <div
+                className="pane-resizer pane-resizer-right"
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="调整 AI 面板宽度"
+                onPointerDown={(event) => beginResize('ai', event)}
               />
-            </Suspense>
+            )}
           </div>
+
+          {aiCollapsed && (
+            <Button
+              className="ai-panel-reopen"
+              type="primary"
+              shape="circle"
+              icon={<RobotOutlined />}
+              aria-label="展开 AI 助手"
+              title="展开 AI 助手"
+              onClick={() => toggleAiCollapsed(false)}
+            />
+          )}
 
           <StatusBar
             networkMode={networkMode}

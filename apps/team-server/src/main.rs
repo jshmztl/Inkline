@@ -49,6 +49,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         config: Arc::new(config),
         presence: Default::default(),
         login_guard: Default::default(),
+        http: reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(10))
+            .build()
+            .map_err(|error| io_error(format!("构建 AI 代理客户端失败：{error}")))?,
     };
 
     let cors = build_cors(&state.config.cors_allowed_origins)?;
