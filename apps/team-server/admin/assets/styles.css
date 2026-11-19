@@ -152,6 +152,13 @@ table.table { width: 100%; border-collapse: collapse; min-width: 640px; }
 .level-text strong { display: block; font-size: 13px; }
 .level-text small { color: var(--muted); font-size: 12px; }
 .section-note { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+.section-note.warn {
+  padding: 9px 11px;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  background: #fff7ed;
+  color: var(--warn);
+}
 .toast {
   position: fixed; right: 20px; bottom: 20px; z-index: 50;
   background: #0f172a; color: #fff; padding: 10px 14px; border-radius: 10px;

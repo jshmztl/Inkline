@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -168,29 +168,139 @@ pub async fn get_access(
 }
 
 /// 管理台查看完整接口内容：仅所有者 / 管理员可用。
+/// 若团队已托管密钥，请求头、请求体与字段文档会在服务端解密后返回；
+/// 解密成功时先写审计，再返回明文。
 pub async fn get_workspace(
     State(state): State<AppState>,
     user: AuthUser,
     Path(team_id): Path<Uuid>,
+    headers: HeaderMap,
 ) -> Result<Json<Value>, AppError> {
-    require_manager(&state, team_id, user.0).await?;
+    let role = require_manager(&state, team_id, user.0).await?;
 
-    let row: Option<(i64, Value)> = sqlx::query_as(
-        "SELECT revision, payload FROM snapshots
+    let row: Option<(i64, Value, Option<i32>)> = sqlx::query_as(
+        "SELECT revision, payload, encryption_version FROM snapshots
          WHERE team_id = $1 ORDER BY revision DESC LIMIT 1",
     )
     .bind(team_id)
     .fetch_optional(&state.pool)
     .await?;
 
+    let feature_enabled = state.config.escrow_active_kid.is_some();
+    let team_review_enabled =
+        crate::api::encryption::load_server_review_enabled(&state.pool, team_id).await?;
+    let server_review_enabled = feature_enabled && team_review_enabled;
+    let active_kek_id = state.config.escrow_active_kid.clone();
+
     match row {
-        Some((revision, payload)) => Ok(Json(json!({
-            "revision": revision,
-            "payload": payload,
-        }))),
+        Some((revision, mut payload, encryption_version)) => {
+            let encrypted = payload.get("encryption").is_some();
+            let mut decrypted = !encrypted;
+            let mut reason: Option<&str> = if encrypted {
+                Some("not_escrowed")
+            } else {
+                None
+            };
+            let mut key_version: Option<i32> = None;
+
+            if encrypted {
+                let version = payload
+                    .get("encryption")
+                    .and_then(|value| value.get("keyVersion"))
+                    .and_then(Value::as_i64)
+                    .map(|value| value as i32)
+                    .or(encryption_version);
+                key_version = version;
+
+                if !server_review_enabled {
+                    reason = Some("disabled");
+                } else if let Some(version) = version {
+                    if let Some(team_key) = crate::api::encryption::load_escrow_team_key(
+                        &state.pool,
+                        team_id,
+                        version,
+                        &state.config.escrow_keks,
+                    )
+                    .await?
+                    {
+                        let mut candidate = payload.clone();
+                        if crate::api::encryption::decrypt_snapshot_payload(
+                            &mut candidate,
+                            &team_key,
+                        )
+                        .is_ok()
+                        {
+                            payload = candidate;
+                            decrypted = true;
+                            reason = None;
+                        } else {
+                            reason = Some("decrypt_failed");
+                        }
+                    }
+                } else {
+                    reason = Some("version_missing");
+                }
+            }
+
+            let source_ip = crate::api::encryption::audit_source_ip(&headers);
+            if encrypted && decrypted {
+                crate::api::encryption::write_decrypt_audit(
+                    &state.pool,
+                    team_id,
+                    user.0,
+                    &role,
+                    "workspace",
+                    Some(revision),
+                    None,
+                    key_version,
+                    json!(["headers", "body", "documents"]),
+                    "ok",
+                    source_ip.as_deref(),
+                )
+                .await?;
+            } else if reason == Some("decrypt_failed") {
+                let _ = crate::api::encryption::write_decrypt_audit(
+                    &state.pool,
+                    team_id,
+                    user.0,
+                    &role,
+                    "workspace",
+                    Some(revision),
+                    None,
+                    key_version,
+                    json!(["headers", "body", "documents"]),
+                    "failed",
+                    source_ip.as_deref(),
+                )
+                .await;
+            }
+
+            Ok(Json(json!({
+                "revision": revision,
+                "payload": payload,
+                "decrypted": decrypted,
+                "serverReview": {
+                    "enabled": server_review_enabled,
+                    "featureEnabled": feature_enabled,
+                    "teamEnabled": team_review_enabled,
+                    "activeKekId": active_kek_id,
+                    "decrypted": decrypted,
+                    "reason": reason,
+                },
+            })))
+        }
         None => Ok(Json(json!({
             "revision": 0,
             "payload": null,
+            "decrypted": false,
+            "serverReview": {
+                "enabled": server_review_enabled,
+                "featureEnabled": feature_enabled,
+                "teamEnabled": team_review_enabled,
+                "activeKekId": active_kek_id,
+                "decrypted": false,
+                "reason": null,
+            },
         }))),
     }
 }

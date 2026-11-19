@@ -424,6 +424,13 @@ export interface TeamEncryptionStatus {
   wrappedKeys: TeamWrappedKey[];
   devices: TeamEncryptionDevice[];
   pendingDevices: number;
+  serverReview: {
+    enabled: boolean;
+    featureEnabled: boolean;
+    teamEnabled: boolean;
+    activeKekId: string | null;
+    versions: number[];
+  };
 }
 
 export async function fetchTeamEncryption(
@@ -444,6 +451,20 @@ export async function fetchTeamEncryption(
     wrappedKeys: Array.isArray(result.wrappedKeys) ? result.wrappedKeys : [],
     devices: Array.isArray(result.devices) ? result.devices : [],
     pendingDevices: result.pendingDevices ?? 0,
+    serverReview: {
+      enabled: result.serverReview?.enabled === true,
+      featureEnabled: result.serverReview?.featureEnabled === true,
+      teamEnabled: result.serverReview?.teamEnabled !== false,
+      activeKekId:
+        typeof result.serverReview?.activeKekId === 'string'
+          ? result.serverReview.activeKekId
+          : null,
+      versions: Array.isArray(result.serverReview?.versions)
+        ? result.serverReview.versions.filter(
+            (version): version is number => typeof version === 'number',
+          )
+        : [],
+    },
   };
 }
 
@@ -468,6 +489,43 @@ export async function createTeamKeyVersion(
     method: 'POST',
     body: { version, wrappedKeys },
   })) as { version: number; distributed: number };
+}
+
+/** 将团队密钥的托管副本上传给服务端，供管理台审阅使用。 */
+export async function escrowTeamKey(
+  connection: TeamConnection,
+  teamId: string,
+  version: number,
+  teamKey: string,
+): Promise<{ version: number; stored: boolean }> {
+  return (await teamRequest(connection, `/v1/teams/${teamId}/encryption/escrow`, {
+    method: 'PUT',
+    body: { version, teamKey },
+  })) as { version: number; stored: boolean };
+}
+
+/** 开启团队级服务端审阅。 */
+export async function enableTeamServerReview(
+  connection: TeamConnection,
+  teamId: string,
+): Promise<{ enabled: boolean }> {
+  return (await teamRequest(
+    connection,
+    `/v1/teams/${teamId}/encryption/escrow/enable`,
+    { method: 'POST' },
+  )) as { enabled: boolean };
+}
+
+/** 关闭团队级服务端审阅并删除托管副本。 */
+export async function disableTeamServerReview(
+  connection: TeamConnection,
+  teamId: string,
+): Promise<{ enabled: boolean; deleted: number }> {
+  return (await teamRequest(
+    connection,
+    `/v1/teams/${teamId}/encryption/escrow/disable`,
+    { method: 'POST' },
+  )) as { enabled: boolean; deleted: number };
 }
 
 export async function addTeamWrappedKeys(

@@ -98,8 +98,11 @@ async function loadMoreHistory() {
 
 async function openPayload(revision) {
   try {
-    const payload = await api(`/v1/teams/${state.team.id}/snapshots/${revision}`);
-    payloadTitle.textContent = `快照 #${revision}`;
+    const payload = await api(`/v1/teams/${state.team.id}/snapshots/${revision}?decrypt=1`);
+    const locked = Boolean(payload && payload.encryption);
+    payloadTitle.textContent = locked
+      ? `快照 #${revision} · 仍为密文`
+      : `快照 #${revision}`;
     payloadBody.textContent = JSON.stringify(payload, null, 2).slice(0, 500000);
     payloadDialog.showModal();
   } catch (error) {

@@ -917,8 +917,8 @@ async function openDiff(fromRevision, toRevision) {
   }
   try {
     const [before, after] = await Promise.all([
-      api(`/v1/teams/${state.team.id}/snapshots/${fromRevision}`),
-      api(`/v1/teams/${state.team.id}/snapshots/${toRevision}`),
+      api(`/v1/teams/${state.team.id}/snapshots/${fromRevision}?decrypt=1`),
+      api(`/v1/teams/${state.team.id}/snapshots/${toRevision}?decrypt=1`),
     ]);
     renderSideDiff(buildSideDiff(before, after), fromRevision, toRevision);
   } catch (error) {

@@ -73,6 +73,7 @@ describe('teamE2E', () => {
   it('所有者首次进入时自动创建 v1 并解包自己的密钥', async () => {
     let deviceId = '';
     let publicKey = '';
+    let escrowVersion = 0;
 
     vi.stubGlobal(
       'fetch',
@@ -113,6 +114,13 @@ describe('teamE2E', () => {
               },
             ],
             pendingDevices: 1,
+            serverReview: {
+              enabled: true,
+              featureEnabled: true,
+              teamEnabled: true,
+              activeKekId: 'kek-test',
+              versions: [],
+            },
           });
         }
         if (url.endsWith('/v1/teams/t-owner/encryption/keys')) {
@@ -124,6 +132,15 @@ describe('teamE2E', () => {
           expect(body.wrappedKeys).toHaveLength(1);
           return jsonResponse(200, { version: 1, distributed: 1 });
         }
+        if (url.endsWith('/v1/teams/t-owner/encryption/escrow')) {
+          const body = JSON.parse(String(init?.body)) as {
+            version: number;
+            teamKey: string;
+          };
+          escrowVersion = body.version;
+          expect(base64ToBytes(body.teamKey)).toHaveLength(32);
+          return jsonResponse(200, { version: body.version, stored: true });
+        }
         return jsonResponse(404, {});
       }),
     );
@@ -133,6 +150,8 @@ describe('teamE2E', () => {
     expect(result.status.currentVersion).toBe(1);
     expect(result.pending).toBe(false);
     expect(result.keyring.keys.get(1)).toBeTruthy();
+    expect(escrowVersion).toBe(1);
+    expect(result.status.serverReview.versions).toContain(1);
   });
 
   it('成员在管理员创建密钥前保持等待', async () => {

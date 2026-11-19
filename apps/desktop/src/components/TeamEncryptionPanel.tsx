@@ -10,7 +10,11 @@ import {
   rotateTeamEncryption,
   type TeamEncryptionResult,
 } from '../lib/teamE2E';
-import { readTeamConnection } from '../lib/teamClient';
+import {
+  disableTeamServerReview,
+  enableTeamServerReview,
+  readTeamConnection,
+} from '../lib/teamClient';
 
 interface TeamEncryptionPanelProps {
   teamId: string;
@@ -87,6 +91,43 @@ export function TeamEncryptionPanel({ teamId, role }: TeamEncryptionPanelProps) 
     });
   }
 
+  function toggleServerReview() {
+    if (!status) return;
+    const connection = readTeamConnection();
+    if (!connection) {
+      message.error('团队连接已失效，请重新登录');
+      return;
+    }
+    const enabling = !status.serverReview.teamEnabled;
+    modal.confirm({
+      title: enabling ? '开启服务端审阅？' : '关闭服务端审阅？',
+      content: enabling
+        ? '开启后，管理台可在服务端解密查看请求头、请求体与字段文档；所有查看会写入审计。'
+        : '关闭后立即删除服务端托管副本，管理台无法再查看参数；设备端解密和团队同步不受影响。',
+      okText: enabling ? '开启' : '关闭',
+      okButtonProps: enabling ? undefined : { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        setLoading(true);
+        try {
+          if (enabling) {
+            await enableTeamServerReview(connection, teamId);
+          } else {
+            await disableTeamServerReview(connection, teamId);
+          }
+          message.success(enabling ? '已开启服务端审阅' : '已关闭服务端审阅');
+          await refresh();
+        } catch (actionError) {
+          message.error(
+            actionError instanceof Error ? actionError.message : '操作失败',
+          );
+        } finally {
+          setLoading(false);
+        }
+      },
+    });
+  }
+
   function removeLegacyKey() {
     modal.confirm({
       title: '清除旧手动密钥？',
@@ -115,7 +156,7 @@ export function TeamEncryptionPanel({ teamId, role }: TeamEncryptionPanelProps) 
         )}
       </div>
       <p className="team-crypto-note">
-        团队密钥由管理员设备生成并分发给成员设备，服务端只保存成员公钥与包裹后的密钥，无法解密快照内容。首次启用或轮换密钥后，需要由所有者或管理员推送一次完整快照。
+        团队密钥由管理员设备生成并分发给成员设备。为支持管理台审阅，服务端会保存一份受控托管的团队密钥副本，仅用于解密请求头、请求体和字段文档；成员电脑之间仍使用端到端加密。
       </p>
       {isManager && (
         <p className="team-crypto-note">
@@ -140,6 +181,30 @@ export function TeamEncryptionPanel({ teamId, role }: TeamEncryptionPanelProps) 
               readOnly
             />
           </div>
+          <div className="login-field">
+            <label>服务端审阅</label>
+            <Input
+              value={
+                !status.serverReview.featureEnabled
+                  ? '服务端未配置审阅主密钥'
+                  : !status.serverReview.teamEnabled
+                    ? '团队已关闭'
+                    : status.currentVersion > 0 &&
+                        status.serverReview.versions.includes(status.currentVersion)
+                      ? '已托管 · 管理台可查看参数'
+                      : '未托管'
+              }
+              readOnly
+            />
+          </div>
+          {status.enabled &&
+            status.serverReview.enabled &&
+            status.currentVersion > 0 &&
+            !status.serverReview.versions.includes(status.currentVersion) && (
+              <p className="team-crypto-note">
+                服务端尚未托管当前团队密钥，管理台暂时只能看到接口目录。所有者或管理员登录后会自动完成托管。
+              </p>
+            )}
           {status.currentVersion > 0 &&
             result?.keyring.keys.has(status.currentVersion) && (
             <div className="login-field">
@@ -192,6 +257,20 @@ export function TeamEncryptionPanel({ teamId, role }: TeamEncryptionPanelProps) 
                 轮换团队密钥
               </Button>
             )}
+            {isManager &&
+              status.currentVersion > 0 &&
+              status.serverReview.featureEnabled && (
+                <Button
+                  size="small"
+                  danger={status.serverReview.teamEnabled}
+                  loading={loading}
+                  onClick={toggleServerReview}
+                >
+                  {status.serverReview.teamEnabled
+                    ? '关闭服务端审阅'
+                    : '开启服务端审阅'}
+                </Button>
+              )}
           </Space>
         </>
       )}

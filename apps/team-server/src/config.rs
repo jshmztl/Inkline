@@ -1,6 +1,46 @@
+use std::collections::HashMap;
 use std::env;
 use std::fmt::Display;
 use std::str::FromStr;
+
+use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+/// 服务端审阅 KEK。密钥只能来自环境变量，不进入数据库。
+#[derive(Clone)]
+pub struct EscrowKek {
+    pub kid: String,
+    key: [u8; 32],
+}
+
+impl EscrowKek {
+    pub fn from_base64(kid: &str, value: &str) -> Result<Self, String> {
+        let bytes = STANDARD
+            .decode(value.trim())
+            .map_err(|_| format!("ESCROW_KEK（{kid}）不是合法的 Base64"))?;
+        if bytes.len() != 32 {
+            return Err(format!("ESCROW_KEK（{kid}）必须是 32 字节"));
+        }
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&bytes);
+        Ok(Self {
+            kid: kid.to_string(),
+            key,
+        })
+    }
+
+    pub fn key(&self) -> &[u8; 32] {
+        &self.key
+    }
+}
+
+impl std::fmt::Debug for EscrowKek {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EscrowKek")
+            .field("kid", &self.kid)
+            .field("key", &"<redacted>")
+            .finish()
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -18,6 +58,9 @@ pub struct Config {
     pub min_client_version: String,
     pub bootstrap_account: Option<String>,
     pub bootstrap_password: Option<String>,
+    /// 服务端审阅 KEK 的 active kid；未配置时管理台解密能力关闭。
+    pub escrow_active_kid: Option<String>,
+    pub escrow_keks: Vec<EscrowKek>,
 }
 
 impl Config {
@@ -67,6 +110,7 @@ impl Config {
             env::var("MIN_CLIENT_VERSION").unwrap_or_else(|_| "0.1.20".to_string());
         let bootstrap_account = non_empty("BOOTSTRAP_ACCOUNT");
         let bootstrap_password = non_empty("BOOTSTRAP_PASSWORD");
+        let (escrow_active_kid, escrow_keks) = parse_escrow_keks()?;
 
         Ok(Self {
             database_url,
@@ -83,8 +127,37 @@ impl Config {
             min_client_version,
             bootstrap_account,
             bootstrap_password,
+            escrow_active_kid,
+            escrow_keks,
         })
     }
+}
+
+/// 解析服务端审阅 KEK：
+/// - `ESCROW_KEK`：当前 active KEK（32 字节 Base64）
+/// - `ESCROW_KEK_ID`：active KEK 标识，默认 `kek-1`
+/// - `ESCROW_KEK_PREVIOUS`：可选 JSON，形如 `{"kek-0":"base64..."}`，仅用于解密旧数据
+fn parse_escrow_keks() -> Result<(Option<String>, Vec<EscrowKek>), String> {
+    let Some(active_value) = non_empty("ESCROW_KEK") else {
+        return Ok((None, Vec::new()));
+    };
+    let active_kid = non_empty("ESCROW_KEK_ID").unwrap_or_else(|| "kek-1".to_string());
+    if active_kid.trim().is_empty() {
+        return Err("ESCROW_KEK_ID 不能为空".to_string());
+    }
+
+    let mut keks = vec![EscrowKek::from_base64(&active_kid, &active_value)?];
+    if let Some(raw) = non_empty("ESCROW_KEK_PREVIOUS") {
+        let previous: HashMap<String, String> = serde_json::from_str(&raw)
+            .map_err(|error| format!("ESCROW_KEK_PREVIOUS 解析失败：{error}"))?;
+        for (kid, value) in previous {
+            if kid == active_kid {
+                return Err("ESCROW_KEK_PREVIOUS 不能包含当前 active KEK".to_string());
+            }
+            keks.push(EscrowKek::from_base64(&kid, &value)?);
+        }
+    }
+    Ok((Some(active_kid), keks))
 }
 
 pub fn validate_retention(days: i32) -> Result<(), String> {

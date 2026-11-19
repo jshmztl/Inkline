@@ -1,6 +1,7 @@
 import {
   addTeamWrappedKeys,
   createTeamKeyVersion,
+  escrowTeamKey,
   fetchTeamEncryption,
   registerTeamEncryptionDevice,
   TeamApiError,
@@ -268,6 +269,13 @@ function legacyEncryptionResult(teamId: string): TeamEncryptionResult {
       wrappedKeys: [],
       devices: [],
       pendingDevices: 0,
+      serverReview: {
+        enabled: false,
+        featureEnabled: false,
+        teamEnabled: false,
+        activeKekId: null,
+        versions: [],
+      },
     },
     keyring: {
       currentVersion: 0,
@@ -439,7 +447,53 @@ async function ensureTeamEncryptionNow(
     }
   }
 
+  // 所有者 / 管理员把当前与历史团队密钥的受控副本托管到服务端，
+  // 仅用于管理台审阅请求头、请求体与字段文档。
+  if (
+    status.enabled &&
+    status.currentVersion > 0 &&
+    isManager(role) &&
+    status.serverReview.enabled
+  ) {
+    const missing = [...keys.entries()]
+      .filter(
+        ([version, key]) =>
+          version > 0 &&
+          version <= status.currentVersion &&
+          Boolean(key) &&
+          !status.serverReview.versions.includes(version),
+      )
+      .map(([version]) => version);
+
+    if (missing.length > 0) {
+      const uploaded: number[] = [];
+      for (const version of missing) {
+        const key = keys.get(version);
+        if (!key) continue;
+        try {
+          await escrowTeamKey(connection, teamId, version, key);
+          uploaded.push(version);
+        } catch {
+          // 旧版服务端没有托管接口时停止尝试，不阻断团队同步。
+          break;
+        }
+      }
+      if (uploaded.length > 0) {
+        status = {
+          ...status,
+          serverReview: {
+            ...status.serverReview,
+            versions: [...new Set([...status.serverReview.versions, ...uploaded])].sort(
+              (left, right) => left - right,
+            ),
+          },
+        };
+      }
+    }
+  }
+
   const currentKey = keys.get(status.currentVersion);
+
   return {
     status,
     keyring: {

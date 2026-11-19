@@ -80,6 +80,18 @@ pub fn router(state: AppState) -> Router {
             post(encryption::add_wrapped_keys),
         )
         .route(
+            "/v1/teams/{team_id}/encryption/escrow",
+            put(encryption::put_escrow),
+        )
+        .route(
+            "/v1/teams/{team_id}/encryption/escrow/enable",
+            post(encryption::enable_server_review),
+        )
+        .route(
+            "/v1/teams/{team_id}/encryption/escrow/disable",
+            post(encryption::disable_server_review),
+        )
+        .route(
             "/v1/teams/{team_id}/snapshots",
             get(snapshots::list_snapshots).post(snapshots::push_snapshot),
         )

@@ -44,6 +44,8 @@ async fn test_state() -> Option<AppState> {
             min_client_version: "0.1.20".to_string(),
             bootstrap_account: None,
             bootstrap_password: None,
+            escrow_active_kid: None,
+            escrow_keks: Vec::new(),
         }),
         presence: Default::default(),
         login_guard: Default::default(),

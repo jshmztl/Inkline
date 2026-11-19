@@ -32,6 +32,10 @@ function selectContent(type, id) {
   renderContent();
 }
 
+function isEncryptedValue(value) {
+  return typeof value === 'string' && value.startsWith('enc:v1:');
+}
+
 function renderContent() {
   const container = $('#tab-content');
   if (!isManager()) {
@@ -45,6 +49,9 @@ function renderContent() {
   const head = h('div', { class: 'card-head' },
     h('h3', { text: '接口内容与文档' }),
     h('div', { class: 'actions' },
+      state.workspace?.payload?.encryption && state.workspace?.decrypted
+        ? h('span', { class: 'badge team', text: '服务端已解密' })
+        : null,
       h('span', { class: 'muted', text: state.workspace ? `快照 #${state.workspace.revision}` : '' }),
       h('button', { class: 'btn small', type: 'button', text: '刷新', onclick: loadWorkspace }),
     ),
@@ -162,10 +169,29 @@ function renderContent() {
     h('div', { class: 'tree-scroll' }, ...treeItems),
   );
 
+  const review = state.workspace?.serverReview ?? {};
+  let reviewNotice = '';
+  if (state.workspace.decrypted === false) {
+    if (review.featureEnabled === false) {
+      reviewNotice = '服务端未配置审阅主密钥（ESCROW_KEK），管理台只能查看密文。请联系部署管理员配置后重启服务。';
+    } else if (review.teamEnabled === false) {
+      reviewNotice = '团队已关闭服务端审阅，管理台只能查看接口目录。所有者或管理员可在桌面端「团队设置 → 端到端加密」中重新开启。';
+    } else if (review.reason === 'not_escrowed') {
+      reviewNotice = '服务端尚未托管当前快照对应的团队密钥版本，接口参数仍为密文。请由所有者或管理员在桌面端完成密钥托管后刷新本页。';
+    } else if (review.reason === 'decrypt_failed') {
+      reviewNotice = '服务端托管密钥无法解密当前快照，请检查 KEK 配置或让管理员重新托管。';
+    } else {
+      reviewNotice = '接口参数仍为密文，暂时无法在管理台查看。';
+    }
+  }
+
   const layout = h('div', { class: 'content-layout' }, treePane, renderContentDetail());
   container.replaceChildren(h('div', { class: 'card' },
     head,
     h('p', { class: 'section-note', text: '查看接口请求头、请求体与字段文档，并可按 Markdown / HTML / JSON 导出。' }),
+    reviewNotice
+      ? h('p', { class: 'section-note warn', text: reviewNotice })
+      : null,
     layout,
   ));
 }
@@ -217,6 +243,10 @@ function renderContentDetail() {
   const collection = contentCollection(request.collectionId || '');
   const headers = Array.isArray(request.headers) ? request.headers : [];
   const docs = contentDocument(request.id);
+  const locked =
+    isEncryptedValue(request.headers) ||
+    isEncryptedValue(request.body) ||
+    isEncryptedValue(workspacePayload()?.documents?.[request.id]);
 
   const meta = h('div', { class: 'detail-meta' },
     h('div', {}, h('label', { text: '方法' }), h('strong', { text: request.method || 'GET' })),
@@ -276,9 +306,12 @@ function renderContentDetail() {
     h('p', { class: 'detail-sub', text: '接口详情与字段文档' }),
     meta,
     pathBlock,
-    headerBlock,
-    bodyBlock,
-    docBlock,
+    locked
+      ? h('p', {
+          class: 'section-note warn',
+          text: '该快照的请求头、请求体与字段文档仍为密文。完成服务端审阅密钥托管后刷新即可查看。',
+        })
+      : h('div', {}, headerBlock, bodyBlock, docBlock),
     exportBar('request', request.id),
   );
 }

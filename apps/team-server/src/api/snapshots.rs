@@ -27,6 +27,11 @@ pub struct SnapshotListQuery {
     pub before: Option<i64>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct SnapshotViewQuery {
+    pub decrypt: Option<bool>,
+}
+
 #[derive(Debug, sqlx::FromRow)]
 struct SnapshotHistoryRow {
     revision: i64,
@@ -140,22 +145,83 @@ pub async fn get_snapshot(
     State(state): State<AppState>,
     user: AuthUser,
     Path((team_id, revision)): Path<(Uuid, i64)>,
+    Query(query): Query<SnapshotViewQuery>,
+    headers: HeaderMap,
 ) -> Result<Json<Value>, AppError> {
     let role = crate::api::teams::require_membership(&state.pool, team_id, user.0).await?;
     let viewer = Viewer::new(user.0, &role);
 
-    let payload: Option<Value> =
-        sqlx::query_scalar("SELECT payload FROM snapshots WHERE team_id = $1 AND revision = $2")
-            .bind(team_id)
-            .bind(revision)
-            .fetch_optional(&state.pool)
-            .await?;
+    let row: Option<(Value, Option<i32>)> = sqlx::query_as(
+        "SELECT payload, encryption_version FROM snapshots
+         WHERE team_id = $1 AND revision = $2",
+    )
+    .bind(team_id)
+    .bind(revision)
+    .fetch_optional(&state.pool)
+    .await?;
 
-    let Some(payload) = payload else {
+    let Some((mut payload, encryption_version)) = row else {
         return Err(AppError::not_found("快照版本不存在"));
     };
 
     if viewer.is_manager() {
+        if query.decrypt == Some(true) && payload.get("encryption").is_some() {
+            let version = payload
+                .get("encryption")
+                .and_then(|value| value.get("keyVersion"))
+                .and_then(Value::as_i64)
+                .map(|value| value as i32)
+                .or(encryption_version);
+            if let Some(version) = version {
+                if let Some(team_key) = crate::api::encryption::load_escrow_team_key(
+                    &state.pool,
+                    team_id,
+                    version,
+                    &state.config.escrow_keks,
+                )
+                .await?
+                {
+                    let mut candidate = payload.clone();
+                    let result = crate::api::encryption::decrypt_snapshot_payload(
+                        &mut candidate,
+                        &team_key,
+                    );
+                    let source_ip = crate::api::encryption::audit_source_ip(&headers);
+                    if result.is_ok() {
+                        crate::api::encryption::write_decrypt_audit(
+                            &state.pool,
+                            team_id,
+                            user.0,
+                            &role,
+                            "snapshot",
+                            Some(revision),
+                            None,
+                            Some(version),
+                            json!(["headers", "body", "documents"]),
+                            "ok",
+                            source_ip.as_deref(),
+                        )
+                        .await?;
+                        payload = candidate;
+                    } else {
+                        let _ = crate::api::encryption::write_decrypt_audit(
+                            &state.pool,
+                            team_id,
+                            user.0,
+                            &role,
+                            "snapshot",
+                            Some(revision),
+                            None,
+                            Some(version),
+                            json!(["headers", "body", "documents"]),
+                            "failed",
+                            source_ip.as_deref(),
+                        )
+                        .await;
+                    }
+                }
+            }
+        }
         return Ok(Json(payload));
     }
 
