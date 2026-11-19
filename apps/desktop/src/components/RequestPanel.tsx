@@ -196,13 +196,38 @@ function encodeBasic(user: string, password: string) {
   return btoa(binary);
 }
 
-function mergeQuery(base: string, pairs: { key: string; value: string }[]) {
+type QueryPair = { key: string; value: string };
+
+/** 展示用编码：保留 {{变量}} 占位符，避免 URL 输入框出现 %7B%7B。 */
+function encodeKeepingTemplates(value: string | number | boolean) {
+  return String(value)
+    .split(/(\{\{[^{}]*\}\})/)
+    .map((part) => (/^\{\{[^{}]*\}\}$/.test(part) ? part : encodeURIComponent(part)))
+    .join('');
+}
+
+/** 拆分 URL 中的查询串，供粘贴带参地址时回填 Params。 */
+function splitUrlQuery(raw: string): { base: string; pairs: QueryPair[] } {
+  const hashIndex = raw.indexOf('#');
+  const hash = hashIndex >= 0 ? raw.slice(hashIndex) : '';
+  const withoutHash = hashIndex >= 0 ? raw.slice(0, hashIndex) : raw;
+  const queryIndex = withoutHash.indexOf('?');
+  if (queryIndex < 0) return { base: raw, pairs: [] };
+  const search = withoutHash.slice(queryIndex + 1);
+  const pairs = Array.from(new URLSearchParams(search).entries()).map(([key, value]) => ({
+    key,
+    value,
+  }));
+  return { base: `${withoutHash.slice(0, queryIndex)}${hash}`, pairs };
+}
+
+function mergeQuery(base: string, pairs: QueryPair[], encode = encodeURIComponent) {
   if (pairs.length === 0) return base;
   const hashIndex = base.indexOf('#');
   const head = hashIndex >= 0 ? base.slice(0, hashIndex) : base;
   const hash = hashIndex >= 0 ? base.slice(hashIndex) : '';
   const query = pairs
-    .map((pair) => `${encodeURIComponent(pair.key)}=${encodeURIComponent(pair.value)}`)
+    .map((pair) => `${encode(pair.key)}=${encode(pair.value)}`)
     .join('&');
   const separator = head.includes('?')
     ? head.endsWith('&') || head.endsWith('?')
@@ -450,7 +475,22 @@ export function RequestPanel({
     setError(null);
   }, [replay]);
 
-  const resolvedUrl = useMemo(() => resolveTemplate(url, variables), [url, variables]);
+  const enabledParamPairs = useMemo(
+    () =>
+      params
+        .filter((row) => row.enabled && (row.key.trim() !== '' || row.value !== ''))
+        .map((row) => ({ key: row.key, value: row.value })),
+    [params],
+  );
+  /** URL 输入框展示的地址：基础路径 + 已启用的 Params。 */
+  const displayUrl = useMemo(
+    () => mergeQuery(url, enabledParamPairs, encodeKeepingTemplates),
+    [url, enabledParamPairs],
+  );
+  const resolvedUrl = useMemo(
+    () => resolveTemplate(displayUrl, variables),
+    [displayUrl, variables],
+  );
 
   useEffect(() => {
     onContextChange({
@@ -484,17 +524,39 @@ export function RequestPanel({
 
   const hostPrefix = '{{host}}';
   const usesHostTemplate = url.startsWith(hostPrefix);
-  const editablePath = usesHostTemplate ? url.slice(hostPrefix.length) : url;
+  const editablePath = usesHostTemplate ? displayUrl.slice(hostPrefix.length) : displayUrl;
   const resolvedHost = (variables.host ?? '').trim();
   const streamMode = protocol === 'websocket' || protocol === 'sse';
   const hasResponseContent = streamMode ? streamEvents.length > 0 : response !== null;
 
+  /** Params 回填：复用已有行的 id 与说明，保留被禁用的行。 */
+  function syncParamsFromUrl(pairs: QueryPair[]) {
+    setParams((current) => {
+      const reused = current.filter((row) => row.enabled);
+      const next = pairs.map((pair, index) => ({
+        id: reused[index]?.id ?? `param-${Date.now().toString(36)}-${index}`,
+        key: pair.key,
+        value: pair.value,
+        description: reused[index]?.description ?? '',
+        enabled: true,
+      }));
+      return [...next, ...current.filter((row) => !row.enabled)];
+    });
+  }
+
   function updateUrlInput(next: string) {
-    if (!usesHostTemplate || /^https?:\/\//i.test(next)) {
-      setUrl(next);
-      return;
-    }
-    setUrl(`${hostPrefix}${next}`);
+    const withHost =
+      !usesHostTemplate || /^https?:\/\//i.test(next) ? next : `${hostPrefix}${next}`;
+    const { base, pairs } = splitUrlQuery(withHost);
+    setUrl(base);
+    const unchanged =
+      pairs.length === enabledParamPairs.length &&
+      pairs.every(
+        (pair, index) =>
+          pair.key === enabledParamPairs[index].key &&
+          pair.value === enabledParamPairs[index].value,
+      );
+    if (!unchanged) syncParamsFromUrl(pairs);
   }
 
   function normalizeUrlPath() {
@@ -1351,9 +1413,7 @@ export function RequestPanel({
           onChange={(event) => updateUrlInput(event.target.value)}
           className="url-input"
           placeholder={usesHostTemplate ? '/orders/123' : 'https://api.example.com/orders'}
-          title={
-            usesHostTemplate ? `${resolvedHost}${editablePath}` : url
-          }
+          title={usesHostTemplate ? `${resolvedHost}${editablePath}` : displayUrl}
           aria-label="请求地址"
           spellCheck={false}
           onPressEnter={handleSend}
