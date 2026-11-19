@@ -122,6 +122,10 @@ function renderAudit() {
       h('tbody', {}, ...rows),
     ),
   ));
+  card.append(h('p', {
+    class: 'section-note',
+    text: '服务端解密审计按团队审计保留天数自动清理；普通审计日志可使用上方“清理”操作。',
+  }));
   $('#tab-audit').replaceChildren(card);
 }
 

@@ -6,6 +6,7 @@ use sqlx::PgPool;
 pub struct CleanupStats {
     pub snapshots: u64,
     pub audits: u64,
+    pub decrypt_audits: u64,
     pub refresh_tokens: u64,
 }
 
@@ -47,6 +48,28 @@ pub async fn run_once(
     .await?
     .rows_affected();
 
+    // 解密审计默认只追加；保留期清理通过会话标记显式放行 DELETE。
+    let mut tx = pool.begin().await?;
+    sqlx::query("SET LOCAL inkline.audit_retention = 'on'")
+        .execute(&mut *tx)
+        .await?;
+    let decrypt_audits: i64 = sqlx::query_scalar(
+        "WITH deleted AS (
+             DELETE FROM admin_decrypt_audit a
+             WHERE a.created_at < now() - make_interval(days => COALESCE(
+                 (SELECT t.audit_retention_days FROM teams t WHERE t.id = a.team_id),
+                 $1
+             ))
+             RETURNING 1
+         )
+         SELECT count(*) FROM deleted",
+    )
+    .bind(default_audit_retention_days)
+    .fetch_one(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    let decrypt_audits = decrypt_audits.max(0) as u64;
+
     let refresh_tokens = sqlx::query(
         "DELETE FROM refresh_tokens
          WHERE expires_at < now() - interval '7 days'
@@ -59,6 +82,7 @@ pub async fn run_once(
     Ok(CleanupStats {
         snapshots,
         audits: team_audits + orphan_audits,
+        decrypt_audits,
         refresh_tokens,
     })
 }
@@ -72,6 +96,7 @@ pub fn spawn(pool: PgPool, interval_hours: u64, default_audit_retention_days: i3
                 Ok(stats) => tracing::info!(
                     snapshots = stats.snapshots,
                     audits = stats.audits,
+                    decrypt_audits = stats.decrypt_audits,
                     refresh_tokens = stats.refresh_tokens,
                     "保留期清理完成"
                 ),

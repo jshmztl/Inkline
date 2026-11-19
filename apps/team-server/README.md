@@ -89,6 +89,7 @@ ESCROW_KEK_PREVIOUS='{"kek-2026-10":"<base64-32-bytes>"}'
 
 - 未配置 `ESCROW_KEK` 时，服务端审阅能力关闭，管理台只显示密文，不影响登录、同步和客户端解密。
 - 管理台每次解密都会写入 `admin_decrypt_audit`（只允许追加），记录操作者、角色、团队、快照、字段类别、密钥版本、结果与来源 IP，不记录明文和密钥。建议数据库侧同时限制应用角色对该表的 `TRUNCATE`/`ALTER` 权限。
+- `admin_decrypt_audit` 按团队的 `audit_retention_days` 自动清理（团队不存在时使用 `DEFAULT_AUDIT_RETENTION_DAYS`）；清理任务通过会话标记临时放行 DELETE，应用路径仍禁止修改或删除审计记录。
 - 旧手动密钥加密的历史快照不在托管范围内；需要审阅时应先迁移到版本化团队密钥。
 
 ## 账号与口令
