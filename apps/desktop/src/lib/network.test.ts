@@ -40,11 +40,11 @@ describe('network mode', () => {
   });
 
   it('解析多分隔符的白名单文本', () => {
-    expect(parseCidrText('10.0.0.0/8\n192.168.0.0/16, 172.16.0.0/12;32.26.1.1/32')).toEqual([
+    expect(parseCidrText('10.0.0.0/8\n192.168.0.0/16, 172.16.0.0/12;203.0.113.10/32')).toEqual([
       '10.0.0.0/8',
       '192.168.0.0/16',
       '172.16.0.0/12',
-      '32.26.1.1/32',
+      '203.0.113.10/32',
     ]);
     expect(parseCidrText(' \n , ; ')).toEqual([]);
   });
@@ -55,8 +55,8 @@ describe('network mode', () => {
       intranetCidrs: '10.0.0.0/8\n192.168.1.0/24',
     });
 
-    const merged = addIntranetCidrs(['192.168.1.0/24', '32.26.139.82/32']);
-    expect(merged).toEqual(['10.0.0.0/8', '192.168.1.0/24', '32.26.139.82/32']);
+    const merged = addIntranetCidrs(['192.168.1.0/24', '203.0.113.82/32']);
+    expect(merged).toEqual(['10.0.0.0/8', '192.168.1.0/24', '203.0.113.82/32']);
     expect(parseCidrText(readNetworkOptions().intranetCidrs)).toEqual(merged);
   });
 
